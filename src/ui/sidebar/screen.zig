@@ -93,7 +93,6 @@ pub fn toolbar(scope: *Scope) void {
 }
 
 pub fn toolbarChildren(scope: *Scope) void {
-    const t = scope.theme;
     box_mod.box(.{
         .src = @src(),
         .id = .{ .text = "kurir.tools.row1" },
@@ -111,8 +110,6 @@ pub fn toolbarChildren(scope: *Scope) void {
         .gap = 6,
         .child_align = .{ .y = .center },
     }, scope, toolsRowTwo);
-
-    text_mod.label(.{ .label = .{ .text = scope.state.status, .size = t.type_scale.caption, .color = if (scope.state.status_is_error) theme_mod.danger else t.colors.text_dim }, .wrap = true });
 }
 
 pub fn toolsRowOne(scope: *Scope) void {
