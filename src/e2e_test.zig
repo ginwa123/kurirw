@@ -346,7 +346,7 @@ test "export writes a Postman v2.1 collection, and import reads it back into the
 
     // The file panel is replaced by a scripted answer, so no window is opened.
     var dialogs = DialogsFake{ .save_path = export_path };
-    h.app.vm().dialogs = .{
+    h.app.container.dialogs = .{
         .ctx = &dialogs,
         .open_fn = dialogsOpen,
         .save_fn = dialogsSave,
@@ -371,7 +371,7 @@ test "export writes a Postman v2.1 collection, and import reads it back into the
 
     // Import the same file back: the tree grows by one collection, and the frame shows it.
     var import_dialogs = DialogsFake{ .open_path = export_path };
-    h.app.vm().dialogs = .{
+    h.app.container.dialogs = .{
         .ctx = &import_dialogs,
         .open_fn = dialogsOpen,
         .save_fn = dialogsSave,

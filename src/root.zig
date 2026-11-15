@@ -7,6 +7,12 @@ pub const theme = @import("ui/theme/theme.zig");
 pub const postman = @import("data/model/postman.zig");
 pub const store = @import("data/local/workspace_store.zig");
 pub const http = @import("data/remote/http_client.zig");
+pub const workspace = @import("domain/repository/workspace.zig");
+pub const file_store = @import("data/repository/workspace_impl.zig");
+pub const send_request = @import("domain/usecase/send_request.zig");
+pub const import_collection = @import("domain/usecase/import_collection.zig");
+pub const export_collection = @import("domain/usecase/export_collection.zig");
+pub const container = @import("di/container.zig");
 
 // Every file's own tests, collected without adding an anonymous one, so the suite counts real tests.
 comptime {
@@ -32,4 +38,7 @@ comptime {
     _ = @import("domain/usecase/send_request.zig");
     _ = @import("domain/usecase/import_collection.zig");
     _ = @import("domain/usecase/export_collection.zig");
+    _ = @import("domain/repository/workspace.zig");
+    _ = @import("data/repository/workspace_impl.zig");
+    _ = @import("di/container.zig");
 }

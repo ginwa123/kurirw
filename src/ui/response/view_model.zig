@@ -106,3 +106,25 @@ pub const Response = struct {
         return out;
     }
 };
+
+const testing = std.testing;
+
+test "a JSON body reads as a document, and a body that is not JSON is shown as it arrived" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const pretty = Response.pretty(arena, "{\"a\":1}");
+    try testing.expect(std.mem.indexOfScalar(u8, pretty.text, '\n') != null);
+    const plain = Response.pretty(arena, "hello");
+    try testing.expectEqualStrings("hello", plain.text);
+}
+
+test "a byte a font cannot draw becomes a middle dot, so a binary body never breaks the run" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    try testing.expectEqualSlices(u8, &.{ 'a', 0xb7, 'b' }, Response.sanitize(arena, "a\x00b"));
+    try testing.expectEqualStrings("a\nb\tc", Response.sanitize(arena, "a\nb\tc"));
+}

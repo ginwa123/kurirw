@@ -8,6 +8,7 @@ const store = @import("../../data/local/workspace_store.zig");
 const http_mod = @import("../../data/remote/http_client.zig");
 const state_mod = @import("../../state.zig");
 const theme_mod = @import("../theme/theme.zig");
+const file_store = @import("../../data/repository/workspace_impl.zig");
 
 const session_mod = @import("session.zig");
 const sidebar_mod = @import("../sidebar/view_model.zig");
@@ -15,6 +16,7 @@ const editor_mod = @import("../editor/view_model.zig");
 const response_mod = @import("../response/view_model.zig");
 
 const file_picker = @import("../../data/local/file_picker.zig");
+const domain = @import("../../domain/repository/workspace.zig");
 const send_request = @import("../../domain/usecase/send_request.zig");
 const import_collection = @import("../../domain/usecase/import_collection.zig");
 const export_collection = @import("../../domain/usecase/export_collection.zig");
@@ -42,6 +44,17 @@ pub const Dialogs = file_picker.Dialogs;
 pub const MethodCtx = Editor.MethodCtx;
 pub const HeaderCtx = Editor.HeaderCtx;
 
+// Everything the screen needs from outside, built once by `di/container.zig`.
+pub const Deps = struct {
+    gpa: Allocator,
+    io: std.Io,
+    theme: glinlandui.theme.Theme,
+    path: []const u8,
+    workspace: domain.Workspace,
+    remote: *http_mod.Real,
+    dialogs: *file_picker.Dialogs,
+};
+
 pub const KurirViewModel = struct {
     // The view addresses a method button and a header toggle by the context the editor creates.
     pub const MethodCtx = Editor.MethodCtx;
@@ -56,9 +69,9 @@ pub const KurirViewModel = struct {
     // The frame's snapshot, rebuilt once per frame while `session.dirty`.
     view: UiState = .{},
 
-    // The file panels import and export open; a test replaces them.
-    dialogs: Dialogs = .{},
-    real: ?http_mod.Real = null,
+    // Borrowed, not owned: the container built them and outlives the view.
+    dialogs: *Dialogs = undefined,
+    real: ?*http_mod.Real = null,
     // A test installs a scripted transport, so no suite opens a socket.
     transport_override: ?http_mod.Transport = null,
 
@@ -67,13 +80,14 @@ pub const KurirViewModel = struct {
         return .{};
     }
 
-    pub fn start(self: *KurirViewModel, gpa: Allocator, io: std.Io, theme: glinlandui.theme.Theme, path: []const u8) void {
+    pub fn start(self: *KurirViewModel, deps: Deps) void {
         // The panels hold `*Session`, so the session is wired FIRST and nothing may move afterwards.
-        self.session.start(gpa, io, theme, path);
+        self.dialogs = deps.dialogs;
+        self.real = deps.remote;
+        self.session.start(deps.gpa, deps.io, deps.theme, deps.path, deps.workspace);
         self.sidebar.start(&self.session);
         self.editor.start(&self.session);
         self.response.start(&self.session);
-        self.real = http_mod.Real.init(gpa);
         // The one intent that crosses panels: Ctrl/Cmd+Enter while the body has the keyboard sends.
         self.editor.body_field.on_submit = .{ .f = onBodySubmit, .ctx = self };
 
@@ -86,7 +100,6 @@ pub const KurirViewModel = struct {
     }
 
     pub fn deinit(self: *KurirViewModel) void {
-        if (self.real) |*real| real.deinit();
         self.response.deinit();
         self.editor.deinit();
         self.sidebar.deinit();
@@ -247,7 +260,7 @@ pub const KurirViewModel = struct {
 
     pub fn transport(self: *KurirViewModel, arena: Allocator) http_mod.Transport {
         if (self.transport_override) |override| return override;
-        if (self.real) |*real| return real.transport(arena);
+        if (self.real) |real| return real.transport(arena);
         return .{ .ctx = null, .arena = arena, .send_fn = http_mod.sendOffline };
     }
 
@@ -352,24 +365,60 @@ fn fakeSave(ctx: ?*anyopaque, gpa: Allocator, title: []const u8, suggested: []co
 const Harness = struct {
     tmp: testing.TmpDir,
     path: []u8,
-    // On the heap: the panels hold `*Session`, so a by-value copy here would leave them pointing at a dead frame.
+    // On the heap: the panels hold `*Session`, so a by-value copy would leave them pointing at a dead frame.
     vm: *KurirViewModel,
+    deps: *Deps,
+    dialogs: *file_picker.Dialogs,
+    file: *file_store.FileStore,
+    remote: *http_mod.Real,
 
     fn boot() !Harness {
         var tmp = testing.tmpDir(.{});
         var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
         const len = try tmp.dir.realPath(testing.io, &buf);
         const path = try std.fs.path.join(testing.allocator, &.{ buf[0..len], "kurir", store.file_name });
+
+        const file = try testing.allocator.create(file_store.FileStore);
+        file.* = file_store.FileStore.init(testing.io, path);
+        const remote = try testing.allocator.create(http_mod.Real);
+        remote.* = http_mod.Real.init(testing.allocator);
+        const dialogs = try testing.allocator.create(file_picker.Dialogs);
+        dialogs.* = .{};
+        const deps = try testing.allocator.create(Deps);
+        deps.* = .{
+            .gpa = testing.allocator,
+            .io = testing.io,
+            .theme = theme_mod.app_theme,
+            .path = path,
+            .workspace = file.workspace(),
+            .remote = remote,
+            .dialogs = dialogs,
+        };
+
         const vm = try testing.allocator.create(KurirViewModel);
         vm.* = KurirViewModel.init();
-        vm.start(testing.allocator, testing.io, theme_mod.app_theme, path);
-        return .{ .tmp = tmp, .path = path, .vm = vm };
+        vm.start(deps.*);
+        return .{ .tmp = tmp, .path = path, .vm = vm, .deps = deps, .dialogs = dialogs, .file = file, .remote = remote };
     }
 
     fn stop(self: *Harness) void {
         self.vm.deinit();
         testing.allocator.destroy(self.vm);
+        self.remote.deinit();
+        testing.allocator.destroy(self.remote);
+        testing.allocator.destroy(self.dialogs);
+        testing.allocator.destroy(self.deps);
+        testing.allocator.destroy(self.file);
+        testing.allocator.free(self.path);
         self.tmp.cleanup();
+    }
+
+    // A second ViewModel over the same file: the reload the PRD asks for.
+    fn reopen(self: *Harness) !*KurirViewModel {
+        const vm = try testing.allocator.create(KurirViewModel);
+        vm.* = KurirViewModel.init();
+        vm.start(self.deps.*);
+        return vm;
     }
 
     fn state(self: *Harness) UiState {
@@ -430,9 +479,11 @@ test "a second boot restores the tree from the file, which is the reload the PRD
     h.vm.onHeaderKeyChange(0, "Content-Type");
     h.vm.onHeaderValueChange(0, "application/json");
 
-    var again = KurirViewModel.init();
-    again.start(testing.allocator, testing.io, theme_mod.app_theme, try testing.allocator.dupe(u8, h.path));
-    defer again.deinit();
+    const again = try h.reopen();
+    defer {
+        again.deinit();
+        testing.allocator.destroy(again);
+    }
 
     const state = again.uiState();
     try testing.expectEqual(@as(usize, 2), state.rows.len);
@@ -570,9 +621,11 @@ test "the body field commits what it types into the model" {
     try testing.expectEqualStrings("{\"amount\": 100}", h.state().body);
 
     // The same text goes into the document, which is what a reload reads.
-    var again = KurirViewModel.init();
-    again.start(testing.allocator, testing.io, theme_mod.app_theme, try testing.allocator.dupe(u8, h.path));
-    defer again.deinit();
+    const again = try h.reopen();
+    defer {
+        again.deinit();
+        testing.allocator.destroy(again);
+    }
     try testing.expectEqualStrings("{\"amount\": 100}", again.uiState().body);
 }
 
@@ -608,8 +661,8 @@ test "export writes a Postman file, and import reads one back" {
     defer testing.allocator.free(export_path);
 
     var dialogs = DialogFake{ .save_path = export_path };
-    h.vm.dialogs.save_fn = fakeSave;
-    h.vm.dialogs.ctx = &dialogs;
+    h.dialogs.save_fn = fakeSave;
+    h.dialogs.ctx = &dialogs;
 
     h.vm.exportSelected();
     try testing.expectEqual(@as(usize, 1), dialogs.saves);
@@ -623,8 +676,8 @@ test "export writes a Postman file, and import reads one back" {
     try testing.expectEqualStrings("Payments", postman.str(reloaded.object.get("info").?, "name"));
 
     var import_dialogs = DialogFake{ .open_path = export_path };
-    h.vm.dialogs.open_fn = fakeOpen;
-    h.vm.dialogs.ctx = &import_dialogs;
+    h.dialogs.open_fn = fakeOpen;
+    h.dialogs.ctx = &import_dialogs;
     h.vm.importCollection();
     try testing.expectEqual(@as(usize, 1), import_dialogs.opens);
     try testing.expectEqual(@as(usize, 2), h.state().rows.len);
@@ -641,8 +694,8 @@ test "import says what is wrong with a file that is not a collection" {
     defer testing.allocator.free(path);
 
     var dialogs = DialogFake{ .open_path = path };
-    h.vm.dialogs.open_fn = fakeOpen;
-    h.vm.dialogs.ctx = &dialogs;
+    h.dialogs.open_fn = fakeOpen;
+    h.dialogs.ctx = &dialogs;
 
     h.vm.importCollection();
     try testing.expect(h.state().status_is_error);

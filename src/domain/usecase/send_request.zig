@@ -49,3 +49,41 @@ pub fn send(arena: Allocator, transport: http_mod.Transport, wire: Wire) http_mo
         .body = wire.body,
     });
 }
+
+const testing = std.testing;
+
+test "a request with no URL is not sent, it is explained" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const node = try postman.newRequest(arena, "R", postman.default_method, "");
+    try testing.expectError(error.NoUrl, build(arena, node));
+}
+
+test "a disabled header never leaves the process, and an empty key is dropped" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var node = try postman.newRequest(arena, "R", "POST", "https://api.test/charges");
+    try postman.setHeaderKey(arena, &node, 0, "X-Off");
+    try postman.setHeaderValue(arena, &node, 0, "1");
+    try postman.setHeaderEnabled(arena, &node, 0, false);
+    try postman.setHeaderKey(arena, &node, 1, "Accept");
+    try postman.setHeaderValue(arena, &node, 1, "application/json");
+
+    const wire = try build(arena, node);
+    try testing.expectEqualStrings("POST", wire.method);
+    try testing.expectEqual(@as(usize, 1), wire.headers.len);
+    try testing.expectEqualStrings("Accept", wire.headers[0].name);
+}
+
+test "a folder is not a request, so it never reaches a transport" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const folder = try postman.newFolder(arena, "F");
+    try testing.expectError(error.NotARequest, build(arena, folder));
+}

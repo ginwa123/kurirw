@@ -5,6 +5,7 @@ const input_mod = glinlandui.components.input;
 
 const postman = @import("../../data/model/postman.zig");
 const store = @import("../../data/local/workspace_store.zig");
+const domain = @import("../../domain/repository/workspace.zig");
 const state_mod = @import("../../state.zig");
 const theme_mod = @import("../theme/theme.zig");
 
@@ -14,10 +15,7 @@ pub const Path = state_mod.Path;
 pub const Focus = state_mod.Focus;
 
 // What a first `load` found, so the shell can persist a document that did not exist yet.
-pub const Loaded = struct {
-    from_disk: bool = false,
-    error_name: []const u8 = "",
-};
+pub const Loaded = domain.Loaded;
 
 pub const Session = struct {
     gpa: Allocator = undefined,
@@ -29,6 +27,8 @@ pub const Session = struct {
     // The frame's strings: rows, formatted labels, header rows. Reset on every snapshot.
     view_arena: std.heap.ArenaAllocator = undefined,
 
+    // Where the document is read from and written to. The session never learns it is a file.
+    repo: domain.Workspace = undefined,
     doc: Value = .{ .null = {} },
     path: []const u8 = "",
     workspace: usize = 0,
@@ -43,11 +43,12 @@ pub const Session = struct {
     // Set by every intent; the shell rebuilds its snapshot once per frame while it is on.
     dirty: bool = true,
 
-    pub fn start(self: *Session, gpa: Allocator, io: std.Io, theme: glinlandui.theme.Theme, path: []const u8) void {
+    pub fn start(self: *Session, gpa: Allocator, io: std.Io, theme: glinlandui.theme.Theme, path: []const u8, repo: domain.Workspace) void {
         self.gpa = gpa;
         self.io = io;
         self.theme = theme;
         self.path = path;
+        self.repo = repo;
         self.doc_arena = std.heap.ArenaAllocator.init(gpa);
         self.view_arena = std.heap.ArenaAllocator.init(gpa);
         self.dirty = true;
@@ -56,7 +57,7 @@ pub const Session = struct {
     pub fn deinit(self: *Session) void {
         self.doc_arena.deinit();
         self.view_arena.deinit();
-        if (self.path.len > 0) self.gpa.free(self.path);
+        // `path` is borrowed from the container, which owns the bytes and frees them.
         self.* = undefined;
     }
 
@@ -73,7 +74,7 @@ pub const Session = struct {
         const id: []const u8 = postman.makeId(self.gpa, seed) catch "";
         defer if (id.len > 0) self.gpa.free(id);
 
-        const loaded = store.load(self.io, arena, self.path, id);
+        const loaded = self.repo.load(arena, id);
         self.doc = loaded.doc;
         self.workspace = 0;
         self.selection = null;
@@ -101,7 +102,7 @@ pub const Session = struct {
 
     pub fn persist(self: *Session) void {
         if (self.path.len == 0) return;
-        store.save(self.io, self.gpa, self.path, self.doc) catch |err| {
+        self.repo.save(self.gpa, self.doc) catch |err| {
             self.setStatus(true, "Could not save ({s}). Your edits are in memory only.", .{@errorName(err)});
         };
     }
