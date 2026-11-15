@@ -189,6 +189,7 @@ pub const KurirViewModel = struct {
 
     pub fn deleteSelected(self: *KurirViewModel) void {
         self.sidebar.deleteSelected();
+        self.response.forgetAll();
         self.sync();
     }
 
@@ -204,6 +205,7 @@ pub const KurirViewModel = struct {
 
     pub fn deleteWorkspace(self: *KurirViewModel) void {
         self.sidebar.deleteWorkspace();
+        self.response.forgetAll();
         self.sync();
     }
 
@@ -278,13 +280,15 @@ pub const KurirViewModel = struct {
     pub fn send(self: *KurirViewModel) void {
         const node = self.session.selectedRequest() orelse
             return self.session.failNow("Select a request to send. The tree on the left holds them.");
-        const arena = self.response.begin();
-        const wire = send_request.build(arena, node.*) catch |err| switch (err) {
+        // The result belongs to the endpoint that is selected now, so it is keyed before the request runs.
+        const slot = self.response.begin() orelse
+            return self.session.failNow("Select a request to send. The tree on the left holds them.");
+        const wire = send_request.build(slot.arena, node.*) catch |err| switch (err) {
             error.NotARequest => return self.session.failNow("Could not read that request."),
             error.NoUrl => return self.session.failNow("This request has no URL. Paste one in the URL field, then send."),
         };
-        const result = send_request.send(arena, self.transport(arena), wire);
-        self.response.store(arena, result);
+        const result = send_request.send(slot.arena, self.transport(slot.arena), wire);
+        self.response.store(slot, result);
         self.session.commit();
     }
 

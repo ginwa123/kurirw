@@ -117,6 +117,9 @@ The rules the code keeps:
   panels share lives in `ui/shell/session.zig`.
 - **The shell composes, it does not compute.** Every intent on `KurirViewModel` is a one-line facade
   over a panel; `uiState()` asks each panel for its snapshot once per frame, and only while stale.
+- **A result belongs to an endpoint.** The response pane is derived from the selection: each request keeps
+  its own last status, time, size and body, a request that was never sent shows the empty state, and
+  deleting a node drops the cache because a path can then address a different request.
 - **Two ways to mark the frame stale.** `Session.commit()` writes the document and marks it;
   `Session.touch()` only marks it — a selection, a tab, a panel width.
 - **`domain/` holds rules, not plumbing.** A use case exists where the app decides something: what

@@ -130,6 +130,46 @@ test "the acceptance path: a workspace, a collection, a folder, a request, send,
     try testing.expectEqual(kurirw.state.ResponseKind.ok, h.app.vm().uiState().response.kind);
 }
 
+test "each endpoint keeps its own result, so the pane follows the selection" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try h.driver.click("kurir.add.collection");
+
+    // Endpoint one, sent.
+    try h.driver.click("kurir.add.request");
+    try h.driver.click(view_model.url_field_id);
+    try h.driver.typeText("https://api.example.com/one");
+    h.fake.status = 200;
+    h.fake.body = "{\"which\":\"one\"}";
+    try h.driver.click("kurir.send");
+    try testing.expect(std.mem.indexOf(u8, h.app.vm().uiState().response.body, "one") != null);
+
+    // Endpoint two was never sent, so it shows the empty pane — not endpoint one's body.
+    try h.driver.click("kurir.add.request");
+    try testing.expectEqual(kurirw.state.ResponseKind.none, h.app.vm().uiState().response.kind);
+
+    try h.driver.click(view_model.url_field_id);
+    try h.driver.typeText("https://api.example.com/two");
+    h.fake.body = "{\"which\":\"two\"}";
+    try h.driver.click("kurir.send");
+    try testing.expect(std.mem.indexOf(u8, h.app.vm().uiState().response.body, "two") != null);
+
+    // Back on the first endpoint: its own result is still there.
+    h.app.vm().select(kurirw.state.Path.empty.child(0).child(0));
+    try testing.expect(std.mem.indexOf(u8, h.app.vm().uiState().response.body, "one") != null);
+
+    // Deleting an endpoint drops every cached result, because a path can now mean another request.
+    h.app.vm().select(kurirw.state.Path.empty.child(0).child(1));
+    h.app.vm().deleteSelected();
+    h.app.vm().select(kurirw.state.Path.empty.child(0).child(0));
+    try testing.expectEqual(kurirw.state.ResponseKind.none, h.app.vm().uiState().response.kind);
+}
+
 test "the method is a dropdown: it opens under its trigger, picks a verb, and closes when the pointer leaves" {
     const gpa = std.heap.page_allocator;
     var scratch = try Scratch.make(gpa);
