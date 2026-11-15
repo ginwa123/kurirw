@@ -26,22 +26,25 @@ Or download the archive for your machine from the assets below and run the binar
 |---|---|---|
 | macOS arm64 | `kurirw-macos-arm64.tar.gz` | self-contained: the archive carries the handful of libraries it needs in `lib/`. Unsigned, so the first launch wants right-click → **Open**, or `xattr -d com.apple.quarantine kurirw` |
 | Linux x86_64 | `kurirw-linux-x86_64.tar.gz` | built on Ubuntu 24.04, so it wants glibc 2.39+; run it in a Wayland session with the pango/cairo and libcurl runtime libraries installed |
-| Windows x86_64 | `kurirw-windows-x86_64.zip` | see the Windows note below |
+| Windows x86_64 | `kurirw-windows-x86_64.zip` | self-contained: `Send` works over http and https, with TLS through Windows' own certificate store |
 
-## Windows note
+## Windows: Send works now
 
-This `.exe` was built on a machine with no curl/openssl development files, so it links a **stub**
-libcurl: the app starts, edits, imports and exports, but **Send cannot reach the network** in this
-build and reports a failed request instead. A real Windows transport needs a static libcurl
-(`vcpkg install curl[openssl]:x64-windows`) — building from source on such a machine works today with
-`zig build -Doptimize=ReleaseSafe`.
+The previous Windows build linked a stand-in for the HTTP library, so every request failed. This one
+does not: it links a **real, statically compiled libcurl** (curl 8.10.1, built with `zig cc` for
+`x86_64-windows-gnu`), with **Schannel** as its TLS backend. That means:
+
+- `https://` uses the Windows certificate store — no OpenSSL DLL to ship, no CA bundle to update.
+- The library is inside the `.exe`; there is nothing to install and no DLL to lose.
+- CI proves it on a real Windows runner on every push: it starts a local HTTP server and sends a real
+  request to it, then sends one to `https://example.com/` — through the same transport the app uses.
 
 ## Build from source
 
 ```sh
 git clone https://github.com/ginwa123/kurirw && cd kurirw
 zig build --fetch                      # glinlandui + kabelweb, pinned by commit
-zig build -Doptimize=ReleaseSafe
+zig build -Doptimize=ReleaseFast       # the production binary the releases ship
 ./zig-out/bin/kurirw
 ```
 

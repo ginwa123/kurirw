@@ -40,9 +40,9 @@ also download the archive yourself and run the binary inside it.
 > macOS note: the build is not signed yet, so the first launch needs right-click → **Open**, or
 > `xattr -d com.apple.quarantine kurirw`.
 >
-> Windows note: the Windows build cannot reach the network *yet* (it links a stand-in for the HTTP
-> library, because the build machine has no Windows curl). Editing, importing and exporting work;
-> sending is the next piece of work. Building it yourself with `vcpkg` installed gives you a working one.
+> Windows note: TLS goes through Windows' own certificate store (Schannel), so there is no OpenSSL
+> DLL to install and no CA bundle to keep up to date — `https://` just works. The same is true of the
+> app's own copy of the HTTP library: it is linked in, not something you install.
 
 ## First five minutes
 
@@ -83,11 +83,17 @@ System libraries, per platform:
 - **macOS** — `brew install curl openssl@3`
 - **Linux** — the Wayland/EGL/GLES3 + pango stack, plus `libcurl4-openssl-dev` and `libssl-dev`
   (the exact list is in `.github/workflows/ci.yml`)
-- **Windows** — nothing to install for a build; for a *working HTTP client* you also want
-  `vcpkg install curl[openssl]:x64-windows`
+- **Windows** — nothing at all. The HTTP library (a real, statically linked libcurl) comes with the
+  source tree: `kabelweb` ships `vendor/curl/windows-amd64/lib/libcurl.a`, built by its
+  `scripts/build-vendor-curl-windows.sh` with `zig cc` and Schannel as the only TLS backend.
 
-Every push runs the same three-platform CI: build, the full test suite, the linters, and a ReleaseSafe
-binary for each platform. A `v*` tag publishes those binaries as a release.
+Whatever you build, `-Drequire-real-curl=true` makes a build fail instead of silently linking a
+stand-in HTTP library that cannot send anything — CI passes it on every platform.
+
+Every push runs the same three-platform CI: build, the full test suite, the linters, two **real
+network** requests (a local HTTP server and `https://example.com/` through the production transport,
+which is what catches a build that cannot actually send), and a **ReleaseFast** binary for each
+platform. A `v*` tag publishes those binaries as a release.
 
 ## How it is built
 

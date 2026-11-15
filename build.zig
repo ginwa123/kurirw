@@ -6,7 +6,17 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     const glinlandui_dep = b.dependency("glinlandui", .{ .target = target, .optimize = optimize });
-    const kabelweb_dep = b.dependency("kabelweb", .{ .target = target, .optimize = optimize });
+    // Forwarded to kabelweb: true refuses its no-op stub libcurl, which links but cannot send.
+    const require_real_curl = b.option(
+        bool,
+        "require-real-curl",
+        "Fail instead of linking kabelweb's no-op stub libcurl (CI uses this)",
+    ) orelse false;
+    const kabelweb_dep = b.dependency("kabelweb", .{
+        .target = target,
+        .optimize = optimize,
+        .@"require-real-curl" = require_real_curl,
+    });
     const glinlandui = glinlandui_dep.module("glinlandui");
     const kabelweb = kabelweb_dep.module("kabelweb");
 

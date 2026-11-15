@@ -98,18 +98,58 @@ jobs:
         run: zig fmt --check build.zig src tools
 
       - name: Build
-        run: zig build
+        run: zig build -Drequire-real-curl=true
 
       - name: Test (unit + headless E2E + the line-count tool)
-        run: zig build test --summary all
+        run: zig build test -Drequire-real-curl=true --summary all
+
+      # ── The one thing the suite cannot prove: that Send really sends ──
+      #
+      # Every test above swaps the transport for a Fake, so the whole suite passes
+      # on a binary whose libcurl is a no-op stub — which is exactly how the first
+      # Windows release shipped a client that could never reach the network. These
+      # steps run `src/smoke.zig`, which goes through the PRODUCTION transport
+      # (`kurirw.http.Real` → kabelweb → libcurl), at the same optimisation the
+      # release uses, with `-Drequire-real-curl=true` so a stub build fails before
+      # it can run.
+      - name: Send a real HTTP request (local server, production transport)
+        run: |
+          set -euo pipefail
+          if [ "$RUNNER_OS" = "Windows" ]; then py=python; else py=python3; fi
+          "$py" -m http.server 8123 --bind 127.0.0.1 >/dev/null 2>&1 &
+          server=$!
+          trap 'kill $server 2>/dev/null || true' EXIT
+          sleep 2
+          KURIR_SMOKE_URL=http://127.0.0.1:8123/ \
+            zig build smoke -Doptimize=ReleaseFast -Drequire-real-curl=true
+
+      - name: Send a real HTTPS request (TLS through the platform's own stack)
+        run: |
+          set -euo pipefail
+          # Three attempts: a flaky runner network is not a broken TLS stack. A
+          # stubbed or mistls-configured build fails all three, every time.
+          for attempt in 1 2 3; do
+            if KURIR_SMOKE_URL=https://example.com/ \
+                 zig build smoke -Doptimize=ReleaseFast -Drequire-real-curl=true; then
+              echo "https ok on attempt $attempt"
+              exit 0
+            fi
+            echo "https attempt $attempt failed"
+            sleep 3
+          done
+          echo "::error::the real transport could not complete an HTTPS request"
+          exit 1
 
       - name: Lint (zginlint) and the 3000-line cap
         run: |
           zig build zginlint:check
           zig build lines:check
 
-      - name: Build the release binary
-        run: zig build -Doptimize=ReleaseSafe
+      # PRODUCTION BUILD. ReleaseFast, not the `Debug` default and not ReleaseSafe: this is the
+      # binary users download, so it is the fast one with runtime safety checks off. Every other
+      # `zig build` in this file is a test/verification build and stays at the default.
+      - name: Build the release binary (ReleaseFast)
+        run: zig build -Doptimize=ReleaseFast -Drequire-real-curl=true
 
       # One binary per platform, packaged the way the installer expects to find it.
       - name: Package
