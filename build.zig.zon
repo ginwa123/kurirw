@@ -1,0 +1,26 @@
+.{
+    .name = .kurirw,
+    .version = "0.1.0",
+    .fingerprint = 0xb79b56d6a2fb776b,
+    .minimum_zig_version = "0.16.0",
+    // Both dependencies are LOCAL path deps: Zig 0.16 rejects absolute paths here.
+    //   ../glinlandui  the GUI toolkit (Cocoa on macOS, Wayland on Linux, portable in tests)
+    //   ../kabelweb    the libcurl-backed HTTP client Kurir sends with
+    //   zginlint       the linter behind `zig build zginlint:check`
+    .dependencies = .{
+        .glinlandui = .{ .path = "../glinlandui" },
+        .kabelweb = .{ .path = "../kabelweb" },
+        .zginlint = .{
+            .url = "git+https://github.com/ginwa123/zglint.git#7e1faeba4d75640c7ae37efe2987f6be85fa2a89",
+            .hash = "zginlint-0.0.0-0kYHpg4dAQARigMlrQ54kyJUpbIlGU0fYVNhFMDuUvah",
+        },
+    },
+
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "README.md",
+        "AGENTS.md",
+    },
+}
