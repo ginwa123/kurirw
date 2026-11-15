@@ -28,6 +28,14 @@ Or download the archive for your machine from the assets below and run the binar
 | Linux x86_64 | `kurirw-linux-x86_64.tar.gz` | built on Ubuntu 24.04, so it wants glibc 2.39+; run it in a Wayland session with the pango/cairo and libcurl runtime libraries installed |
 | Windows x86_64 | `kurirw-windows-x86_64.zip` | self-contained: `Send` works over http and https, with TLS through Windows' own certificate store |
 
+## New: drag to reorder, and a calmer selection
+
+- **Drag a request or a folder onto a sibling** in the sidebar and it takes that slot. The rule is
+  deliberately narrow: siblings reorder among themselves, and dropping into a different folder is
+  refused with a message rather than guessed at.
+- **Selecting text no longer scrolls the pane.** A drag that starts on text used to scroll the
+  response body 1:1 with the pointer, which fought the selection; now it only selects.
+
 ## New: a right-click menu on every request
 
 Right-click a request in the sidebar and it offers **Rename**, **Duplicate** and

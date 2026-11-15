@@ -7,6 +7,7 @@ const frame = glinlandui.frame;
 
 const postman = @import("../../data/model/postman.zig");
 const curl = @import("../../data/model/curl.zig");
+const reorder_mod = glinlandui.components.reorder;
 const curl_transfer = @import("../../domain/usecase/curl_transfer.zig");
 const store = @import("../../data/local/workspace_store.zig");
 const state_mod = @import("../../ui/state.zig");
@@ -34,6 +35,8 @@ pub const ws_panel_id = "kurir.ws.panel";
 pub const new_rows = [_][]const u8{ "Collection", "Request", "Folder", "Import", "From cURL" };
 // What a request row offers on a right click, in the order `pickRowMenu` switches on.
 pub const row_menu_items = [_][]const u8{ "Rename", "Duplicate", "Delete" };
+// The id the tree's rows register their drag-to-reorder under, and the box ids they are named with.
+pub const tree_reorder_id = "kurir.tree";
 pub const ws_rows = [_][]const u8{ "New workspace", "Delete workspace", "Export collection" };
 
 // How many bytes a row's name may take before its tail becomes "..".
@@ -392,6 +395,24 @@ pub const Sidebar = struct {
 
         self.session.commit();
         self.session.setStatus(false, "Imported {s} from cURL: {s} {s}.", .{ imported.name, imported.request.method, imported.request.url });
+    }
+
+    // A row was dragged onto another: reorder among SIBLINGS, which is the one rule that cannot surprise anyone.
+    pub fn onTreeMove(self: *Sidebar, from_row: usize, to_row: usize) void {
+        const from = self.rowAt(from_row) orelse return;
+        const to = self.rowAt(to_row) orelse return;
+        const from_parent = from.parent() orelse return self.session.failNow("A collection cannot be dragged inside another row.");
+        const to_parent = to.parent() orelse return self.session.failNow("Drop a row inside a collection, not on one.");
+        if (!Path.eql(from_parent, to_parent)) return self.session.failNow("Drag within one folder at a time: dropping into another folder is not supported yet.");
+        const parent = self.session.nodeAt(from_parent) orelse return self.session.failNow("That folder is gone. Try again.");
+        const from_index = from.segments[from.depth - 1];
+        const to_index = to.segments[to.depth - 1];
+        if (!postman.moveChild(parent, from_index, to_index)) return;
+
+        self.expand(from_parent, true);
+        self.session.selection = to;
+        self.session.commit();
+        self.session.setStatus(false, "Moved {s} next to {s}.", .{ self.session.nodeAt(from).?.object.get("name").?.string, self.session.nodeAt(to).?.object.get("name").?.string });
     }
 
     // A right-click menu pick for the row at `row_index`: the row's PATH is read now, so a shifted row cannot act on a neighbour.

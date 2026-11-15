@@ -949,3 +949,71 @@ test "a collection row has no menu: a right click on it opens nothing" {
     try testing.expect(!glinlandui.components.context_menu.isOpen());
     try h.driver.expectNoText("Duplicate");
 }
+
+test "dragging a request onto its sibling reorders the document" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
+    try newMenu(&h, 1);
+    h.driver.frame();
+    // Rows: 0 the collection, 1 "Request 1", 2 "Request 2".
+    try testing.expectEqual(@as(usize, 3), h.app.vm().uiState().rows.len);
+
+    const from = h.driver.box(glinlandui.frame.elementId("kurir.tree.row", 2)).?;
+    const onto = h.driver.box(glinlandui.frame.elementId("kurir.tree.row", 1)).?;
+    // Aim at the TOP of the target row: a drop boundary is the nearest row edge above the pointer.
+    h.driver.drag(from.x + from.width * 0.5, from.y + from.height * 0.5, onto.x + onto.width * 0.5, onto.y + 4);
+    h.driver.frame();
+
+    // "Request 2" took the slot it was dropped on; the depth-1 node is the collection whose items moved.
+    const collection = h.app.vm().session.nodeAt(kurirw.state.Path.empty.child(0)).?;
+    try testing.expectEqualStrings("Request 2", kurirw.postman.str(kurirw.postman.itemAt(collection.*, 0).?, "name"));
+    try testing.expectEqualStrings("Request 1", kurirw.postman.str(kurirw.postman.itemAt(collection.*, 1).?, "name"));
+    try testing.expect(std.mem.indexOf(u8, h.app.vm().uiState().status, "Moved") != null);
+}
+
+test "dragging inside the response body selects text and leaves the pane where it was" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
+    try h.driver.click(view_model.url_field_id);
+    try h.driver.typeText("https://api.example.com/v1/items");
+
+    // A body taller than the pane, so there is something to scroll.
+    h.fake.body = "[\n" ++ many_lines ++ "]";
+    try h.driver.click("kurir.send");
+    try settle(&h);
+    h.driver.frame();
+
+    const before = glinlandui.components.scroll.view(kurirw.response_vm.body_scroll_id);
+    try testing.expect(before.content_height > before.height);
+
+    // A frame between press, motion and release, because a field grows a selection ACROSS frames.
+    const bb = h.driver.box(kurirw.response_vm.body_text_id).?;
+    h.driver.pressAt(bb.x + 40, bb.y + 20);
+    h.driver.frame();
+    h.driver.move(bb.x + 40, bb.y + 90);
+    h.driver.frame();
+    h.driver.releaseAt(bb.x + 40, bb.y + 90);
+    h.driver.frame();
+
+    // The drag selected text, and the pane did NOT scroll with the pointer.
+    try testing.expect(h.app.vm().response.body_field.editor.caret.anchor != null);
+    const after = glinlandui.components.scroll.view(kurirw.response_vm.body_scroll_id);
+    try testing.expectEqual(before.y, after.y);
+}
+
+const many_lines = "1,\n2,\n3,\n4,\n5,\n6,\n7,\n8,\n9,\n10,\n11,\n12,\n13,\n14,\n15,\n16,\n17,\n18,\n19,\n20,\n" ++
+    "21,\n22,\n23,\n24,\n25,\n26,\n27,\n28,\n29,\n30,\n31,\n32,\n33,\n34,\n35,\n36,\n37,\n38,\n39,\n40,\n";

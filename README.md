@@ -8,8 +8,9 @@ account, the cloud, or the browser tab.
 ## What it does
 
 - **Organise your requests.** Workspaces → collections → folders → requests. Switch workspace with one
-  click, collapse a folder, find a request by typing part of its name or URL. Right-click a request for
-  **Rename**, **Duplicate** and **Delete** — up to you whether the menu is the keyboard or the mouse.
+  click, collapse a folder, find a request by typing part of its name or URL. **Drag a request or a
+  folder onto a sibling** to reorder it. Right-click a request for **Rename**, **Duplicate** and
+  **Delete** — up to you whether the menu is the keyboard or the mouse.
 - **Send and read.** Pick a method (GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS), paste a URL, add
   headers and a JSON body, press Send. You get the status, the time, the size, the pretty-printed body
   and the response headers — and the last answer for each endpoint is kept while you look elsewhere.

@@ -10,6 +10,7 @@ const sidebar_mod = glinlandui.components.sidebar;
 const text_mod = glinlandui.components.text;
 const frame = glinlandui.frame;
 const props = glinlandui.props;
+const reorder_mod = glinlandui.components.reorder;
 
 const state_mod = @import("../../ui/state.zig");
 const theme_mod = @import("../theme/theme.zig");
@@ -217,14 +218,27 @@ pub fn emptyTreeChildren(scope: *Scope) void {
 pub fn treeChildren(scope: *Scope) void {
     var i: usize = 0;
     while (i < scope.state.rows.len and i < state_mod.max_tree_rows) : (i += 1) row(scope, i);
+    // Last, so the drop line paints over the rows it separates.
+    reorder_mod.declareLine(sidebar_vm.tree_reorder_id);
+}
+
+// The engine reports the two row indices; the panel owns what a move means for the document.
+fn onTreeMove(ctx: ?*anyopaque, from: usize, to: usize) void {
+    const sb: *sidebar_vm.Sidebar = @ptrCast(@alignCast(ctx.?));
+    sb.onTreeMove(from, to);
 }
 
 // One row is one click target: a bar, a caret, an icon or a method chip, the name, and what else it knows.
 pub fn row(scope: *Scope, index: usize) void {
     const r = scope.state.rows[index];
+    const row_text = frame.elementId("kurir.tree.row", index);
+    // A request or a folder can be dragged onto a sibling to reorder it; a collection sits at the top level.
+    if (r.kind != .collection) {
+        reorder_mod.register(sidebar_vm.tree_reorder_id, frame.clayId(row_text), index, .{ .on_move = onTreeMove, .ctx = &scope.vm.sidebar });
+    }
     box_mod.box(.{
         .src = @src(),
-        .id = .{ .text = frame.elementId("kurir.tree.row", index) },
+        .id = .{ .text = row_text },
         .direction = .row,
         .w = .grow,
         .h = .{ .fixed = @floatFromInt(row_h) },

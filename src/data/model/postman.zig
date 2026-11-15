@@ -229,6 +229,18 @@ pub fn newRequest(alloc: Allocator, name: []const u8, method: []const u8, url: [
     return .{ .object = item };
 }
 
+// Move a child of `parent` from one index to another: the dragged node takes the dropped-on node's slot.
+pub fn moveChild(parent: *Value, from: usize, to: usize) bool {
+    if (parent.* != .object) return false;
+    const items = parent.object.getPtr("item") orelse return false;
+    if (items.* != .array) return false;
+    const len = items.array.items.len;
+    if (from >= len or to >= len or from == to) return false;
+    const node = items.array.orderedRemove(from);
+    items.array.insert(to, node) catch return false;
+    return true;
+}
+
 // A deep copy into `alloc`, so editing the copy never reaches the original it was made from.
 pub fn clone(alloc: Allocator, value: Value) !Value {
     return switch (value) {
