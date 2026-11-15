@@ -317,7 +317,7 @@ pub fn headerRowChildren(hs: *const HeaderScope) void {
 pub fn bodyEditor(scope: *Scope) void {
     const t = scope.theme;
     scroll_mod.scroll(.{
-        .id = .{ .text = "kurir.body.scroll" },
+        .id = .{ .text = editor_vm.body_scroll_id },
         .direction = .both,
         .w = .grow,
         .h = .grow,

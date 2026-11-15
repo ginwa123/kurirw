@@ -37,6 +37,7 @@ pub const url_field_id = editor_mod.url_field_id;
 pub const name_field_id = sidebar_mod.name_field_id;
 pub const workspace_field_id = sidebar_mod.workspace_field_id;
 pub const body_id = editor_mod.body_id;
+pub const body_scroll_id = editor_mod.body_scroll_id;
 pub const header_key_prefix = editor_mod.header_key_prefix;
 pub const header_value_prefix = editor_mod.header_value_prefix;
 pub const body_pad = editor_mod.body_pad;

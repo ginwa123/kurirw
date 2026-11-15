@@ -401,6 +401,44 @@ test "the + New and workspace menus open, act, and close when the pointer leaves
     try testing.expectEqual(@as(usize, 0), h.app.vm().uiState().rows.len);
 }
 
+test "typing past the bottom of the body scrolls it: the caret never leaves the viewport" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
+    try h.driver.click("kurir.tab.body");
+    try h.driver.click(view_model.body_id);
+
+    const box = glinlandui.frame.bounds(glinlandui.frame.clayId(view_model.body_scroll_id)) orelse
+        return error.BodyScrollMissing;
+    // The editor shows far fewer lines than the caret is about to sit past.
+    try testing.expectEqual(@as(f32, 0), glinlandui.components.scroll.view(view_model.body_scroll_id).y);
+
+    // 40 Enters: the caret ends on line 40, well below a viewport of ~18 lines.
+    var i: usize = 0;
+    while (i < 40) : (i += 1) _ = try h.driver.key(28);
+
+    const scrolled = glinlandui.components.scroll.view(view_model.body_scroll_id);
+    try testing.expect(scrolled.y > 0);
+
+    // One more frame: the offset the reveal set is applied by the next layout, which is the one we then measure.
+    h.driver.frame();
+
+    // The caret's own line is inside the viewport, not below it.
+    const line = h.app.vm().editor.body_field.caretLine();
+    try testing.expectEqual(@as(usize, 40), line);
+    const row = glinlandui.frame.bounds(glinlandui.components.input.lineBoxId(view_model.body_id, line)) orelse
+        return error.LineBoxMissing;
+    // The line's top is inside the viewport and at least half of the line shows; the scroll's own padding is the rest.
+    try testing.expect(row.y >= box.y - 0.51);
+    try testing.expect(row.y + row.height * 0.5 <= box.y + box.height + 0.51);
+}
+
 test "the response pane resizes by dragging the line above it, and clamps at both ends" {
     const gpa = std.heap.page_allocator;
     var scratch = try Scratch.make(gpa);

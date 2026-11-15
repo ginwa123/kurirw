@@ -18,6 +18,7 @@ pub const method_trigger_id = "kurir.method";
 pub const method_list_id = "kurir.method.options";
 pub const method_menu_id = "kurir.method.menu";
 pub const body_id = "kurir.body";
+pub const body_scroll_id = "kurir.body.scroll";
 pub const header_key_prefix = "kurir.header.key";
 pub const header_value_prefix = "kurir.header.value";
 
@@ -91,6 +92,8 @@ pub const Editor = struct {
         // The body is one multiline field bound to the big buffer; the toolkit draws its own lines and caret.
         self.body_field = session.fieldStyle(.{ .text = body_id }, @src());
         self.body_field.multiline = true;
+        // The body scrolls with its caret: typing past the bottom edge follows the line, it does not hide it.
+        self.body_field.scroll_id = body_scroll_id;
         self.body_field.pad = glinlandui.props.Pad.all(body_pad);
         self.body_field.bindTo(self.body_buf);
 
