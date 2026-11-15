@@ -1,6 +1,6 @@
 .{
     .name = .kurirw,
-    .version = "0.1.7",
+    .version = "0.1.8",
     .fingerprint = 0xb79b56d6a2fb776b,
     .minimum_zig_version = "0.16.0",
     // The two real dependencies, pinned by commit: a clone builds them from source.
