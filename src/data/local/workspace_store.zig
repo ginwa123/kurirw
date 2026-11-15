@@ -302,7 +302,8 @@ test "the default path follows KURIR_HOME, then HOME" {
     try env_map.put("HOME", "/home/person");
     try env_map.put("KURIR_HOME", "/data/kurir");
 
-    try std.testing.expectEqualStrings("/data/kurir/workspaces.json", try defaultPath(arena, env_map));
+    // Built with the same join the code uses, so the test asserts the composition and not the separator.
+    try std.testing.expectEqualStrings(try std.fs.path.join(arena, &.{ "/data/kurir", file_name }), try defaultPath(arena, env_map));
     _ = env_map.swapRemove("KURIR_HOME");
-    try std.testing.expectEqualStrings("/home/person/.kurir/workspaces.json", try defaultPath(arena, env_map));
+    try std.testing.expectEqualStrings(try std.fs.path.join(arena, &.{ "/home/person", ".kurir", file_name }), try defaultPath(arena, env_map));
 }
