@@ -14,8 +14,8 @@
             .hash = "glinlandui-0.0.0-ngP3RostMADCK28AFwvW1X-HDWcElJXKHGn8aIwqPCar",
         },
         .kabelweb = .{
-            .url = "git+https://github.com/ginwa123/kabelweb.git#8217401386be9b4fedd86c5713a7026b477ddad5",
-            .hash = "kabelweb-0.0.0-vhZam-8mHgAHu806WdRLD-Tn-Tl4GL7etBOrookfIytX",
+            .url = "git+https://github.com/ginwa123/kabelweb.git#a8a21c4c9deb9a5efde912ca8d38365f2cc80039",
+            .hash = "kabelweb-0.0.0-vhZam2QnHgDzxzKWT81TGet8ExXG47m187HNXK2TF22h",
         },
         .zginlint = .{
             .url = "git+https://github.com/ginwa123/zglint.git#7e1faeba4d75640c7ae37efe2987f6be85fa2a89",
