@@ -392,6 +392,10 @@ test "the + New and workspace menus open, act, and close when the pointer leaves
     try h.driver.click(view_model.ws_trigger_id);
     try testing.expect(h.app.vm().uiState().ws_menu_open);
     try h.driver.expectText("New workspace");
+    // The card hangs from the header row and stays inside the panel: a narrow anchor clips its rows.
+    const card = glinlandui.frame.bounds(glinlandui.frame.clayId("kurir.ws.panel")) orelse return error.CardNotDrawn;
+    try testing.expect(card.width >= 140);
+    try testing.expect(card.x >= 0 and card.x + card.width <= h.app.vm().uiState().sidebar_width + 1);
     try workspaceMenu(&h, 0);
     try testing.expectEqual(@as(usize, 2), h.app.vm().uiState().workspace_count);
     try testing.expectEqual(@as(usize, 0), h.app.vm().uiState().rows.len);
