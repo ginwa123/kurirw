@@ -2,6 +2,7 @@
 const std = @import("std");
 const glinlandui = @import("glinlandui");
 const input_mod = glinlandui.components.input;
+const split_mod = glinlandui.components.split;
 
 const postman = @import("../../data/model/postman.zig");
 const store = @import("../../data/local/workspace_store.zig");
@@ -76,6 +77,11 @@ pub const KurirViewModel = struct {
 
     // The frame's snapshot, rebuilt once per frame while `session.dirty`.
     view: UiState = .{},
+
+    // The line between the editor and the response: the response's height is what it drags.
+    split: split_mod.State = .{ .size = 320 },
+    // The window's height, so the split knows how much room there is; `App.content` hands it over every frame.
+    viewport_h: f32 = 840,
 
     // Borrowed, not owned: the container built them and outlives the view.
     dialogs: *Dialogs = undefined,
@@ -152,6 +158,7 @@ pub const KurirViewModel = struct {
         if (self.session.dirty) self.refresh();
         self.view.sidebar_width = self.sidebar.width();
         self.view.sidebar_collapsed = self.sidebar.state.collapsed;
+        self.view.response_h = self.responseHeight();
         return self.view;
     }
 
@@ -174,6 +181,34 @@ pub const KurirViewModel = struct {
     }
 
     // ---- the facade: one line per intent, so the view and the tests never reach into a panel -------
+
+    // The window changed size: the split's ceiling follows it, so a smaller window cannot squeeze the editor out.
+    pub fn setViewport(self: *KurirViewModel, h: u32) void {
+        self.viewport_h = @floatFromInt(h);
+    }
+
+    // The line between the editor and the response. A pane BELOW a horizontal line grows as the line goes up.
+    pub fn splitProps(self: *KurirViewModel) split_mod.Props {
+        const t = self.session.theme;
+        return .{
+            .id = .{ .text = "kurir.split" },
+            .state = &self.split,
+            .axis = .horizontal,
+            .side = .after,
+            .min = state_mod.response_min_h,
+            .max = @max(state_mod.response_min_h, self.viewport_h - state_mod.editor_min_h),
+            .thickness = 6,
+            // A step lighter than both panes, so the line reads as a divider before the pointer ever touches it.
+            .bg = t.colors.surface_variant,
+            .hover_bg = t.colors.hover,
+            .active_bg = theme_mod.accent,
+        };
+    }
+
+    // The height the response draws at right now: read while the frame is declared, because a drag happens there.
+    pub fn responseHeight(self: *KurirViewModel) f32 {
+        return split_mod.size(self.splitProps());
+    }
 
     pub fn sidebarProps(self: *KurirViewModel) glinlandui.components.sidebar.Props {
         return self.sidebar.props();

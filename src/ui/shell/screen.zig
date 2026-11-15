@@ -6,6 +6,7 @@ const box_mod = glinlandui.components.box;
 const frame = glinlandui.frame;
 const props = glinlandui.props;
 const sidebar_mod = glinlandui.components.sidebar;
+const split_mod = glinlandui.components.split;
 const text_mod = glinlandui.components.text;
 
 const theme_mod = @import("../theme/theme.zig");
@@ -48,9 +49,18 @@ fn mainArea(scope: *Scope) void {
 }
 
 fn mainChildren(scope: *Scope) void {
+    // The editor takes whatever the response does not; the line between them is what decides that.
     editor_screen.requestEditor(scope);
-    response_screen.responsePane(scope);
+    splitGrip(scope);
+    response_screen.responsePane(scope, scope.vm.responseHeight());
     statusBar(scope);
+}
+
+// Dragging this line up grows the response, the way dragging the sidebar's line widens the panel.
+fn splitGrip(scope: *Scope) void {
+    var p = scope.vm.splitProps();
+    p.src = @src();
+    split_mod.grip(p);
 }
 
 // The status line lives with the work, not with the tree, so an error never reads as a collection row.

@@ -23,7 +23,6 @@ const smallButton = widgets.smallButton;
 const tabButton = widgets.tabButton;
 
 const Scope = scope_mod.Scope;
-const editor_h = scope_mod.editor_h;
 const body_min_h = scope_mod.body_min_h;
 const max_body_lines = scope_mod.max_body_lines;
 
@@ -44,7 +43,7 @@ pub fn requestEditor(scope: *Scope) void {
         .id = .{ .text = "kurir.editor" },
         .direction = .column,
         .w = .grow,
-        .h = .{ .fixed = @floatFromInt(editor_h) },
+        .h = .grow,
         .bg = scope.theme.colors.surface,
         .border = .all(1, scope.theme.colors.divider),
         .pad = props.Pad.all(12),

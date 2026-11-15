@@ -68,6 +68,10 @@ src/e2e_test.zig                   the acceptance path, headless
 - **Element ids must be unique per frame.** `frame.elementId(prefix, i)` for anything per-row.
   A duplicate id is invisible in review and shows up as a Clay `duplicate_id` log line, which fails
   every test that reaches it.
+- **The panes' sizes are the widgets'.** `components.sidebar` owns the sidebar's width and
+  `components.split` owns the response's height; both mutate during the declare, so `uiState()` refreshes
+  `sidebar_width` / `response_h` after the frame instead of `snapshot()` before it. Read them during the
+  declare (`vm.responseHeight()`), or the pane lags a frame behind the pointer.
 - **The left panel's width is the widget's, not the model's.** `components.sidebar` owns it (`vm.sidebar.state`)
   and mutates it during the declare, so `UiState.sidebar_width` is refreshed in `uiState()`, not in `snapshot()`.
   The panel's content is pinned to that width (`.w = .fixed(width)`) because a `.grow` column inside it is

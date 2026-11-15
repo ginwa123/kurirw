@@ -2,6 +2,10 @@
 const std = @import("std");
 const postman = @import("../data/model/postman.zig");
 
+// The two panes share the window between them: the response may not grow past the editor's floor, and vice versa.
+pub const editor_min_h: f32 = 260;
+pub const response_min_h: f32 = 120;
+
 pub const max_depth: usize = 8;
 pub const max_tree_rows: usize = 512;
 pub const max_headers: usize = 32;
@@ -140,6 +144,8 @@ pub const UiState = struct {
     // The left panel, as the sidebar component settled it this frame.
     sidebar_width: f32 = 300,
     sidebar_collapsed: bool = false,
+    // The response pane's height, as the split above it settled it this frame.
+    response_h: f32 = 300,
     // The filter box's text, and whether it is narrowing the tree right now.
     filter: []const u8 = "",
     filter_active: bool = false,

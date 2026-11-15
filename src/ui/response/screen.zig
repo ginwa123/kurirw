@@ -24,13 +24,14 @@ const body_mod = @import("../../data/model/body.zig");
 const max_line_chars: usize = 1024;
 const Theme = glinlandui.theme.Theme;
 
-pub fn responsePane(scope: *Scope) void {
+// The pane is as tall as the split says: the line above it is what the pointer drags.
+pub fn responsePane(scope: *Scope, height: f32) void {
     box_mod.box(.{
         .src = @src(),
         .id = .{ .text = "kurir.response" },
         .direction = .column,
         .w = .grow,
-        .h = .grow,
+        .h = .{ .fixed = height },
         .bg = scope.theme.colors.background,
         .pad = props.Pad.all(12),
         .gap = .{ .px = 8 },

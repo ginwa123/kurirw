@@ -55,9 +55,10 @@ pub const App = struct {
     // `setContent { MaterialTheme { KurirScreen() } }`, as the Host's root function.
     pub fn content(ctx: ?*anyopaque, w: u32, h: u32) void {
         _ = w;
-        _ = h;
         const self: *App = @ptrCast(@alignCast(ctx.?));
         const model = self.vm();
+        // The split's ceiling is the window's height, so a resized window cannot squeeze the editor out.
+        model.setViewport(h);
         // A Host forgets the focus an Activity claimed before it existed, so the first frame claims it again.
         if (!frame.focusKnown() and model.uiState().node_kind == .request) frame.setFocus(view_model.url_field_id);
         var scope = view.Scope{

@@ -401,6 +401,46 @@ test "the + New and workspace menus open, act, and close when the pointer leaves
     try testing.expectEqual(@as(usize, 0), h.app.vm().uiState().rows.len);
 }
 
+test "the response pane resizes by dragging the line above it, and clamps at both ends" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
+
+    const line = glinlandui.frame.bounds(glinlandui.frame.clayId("kurir.split")) orelse return error.SplitMissing;
+    const editor = glinlandui.frame.bounds(glinlandui.frame.clayId("kurir.editor")) orelse return error.EditorMissing;
+    const pane = glinlandui.frame.bounds(glinlandui.frame.clayId("kurir.response")) orelse return error.PaneMissing;
+
+    // The line sits between the two panes, and the response starts at the height the state asked for.
+    try testing.expectApproxEqAbs(editor.y + editor.height, line.y, 0.51);
+    try testing.expectApproxEqAbs(line.y + line.height, pane.y, 0.51);
+    try testing.expectApproxEqAbs(@as(f32, 320), pane.height, 0.51);
+
+    // Drag the line up 120: the response grows by that much and the editor gives the room up.
+    const grab_x = line.x + line.width * 0.5;
+    const grab_y = line.y + line.height * 0.5;
+    h.driver.pressAt(grab_x, grab_y);
+    h.driver.move(grab_x, grab_y - 120);
+    h.driver.releaseAt(grab_x, grab_y - 120);
+    try testing.expectApproxEqAbs(@as(f32, 440), h.app.vm().uiState().response_h, 0.51);
+
+    // Past the window's room it stops, so the editor keeps its floor rather than being squeezed out.
+    const moved = glinlandui.frame.bounds(glinlandui.frame.clayId("kurir.split")) orelse return error.SplitMissing;
+    h.driver.pressAt(grab_x, moved.y + moved.height * 0.5);
+    h.driver.move(grab_x, moved.y + 900);
+    h.driver.releaseAt(grab_x, moved.y + 900);
+    try testing.expectApproxEqAbs(@as(f32, 120), h.app.vm().uiState().response_h, 0.51);
+
+    // And the pane the frame drew is the height the state says, not a stale one.
+    const shrunk = glinlandui.frame.bounds(glinlandui.frame.clayId("kurir.response")) orelse return error.PaneMissing;
+    try testing.expectApproxEqAbs(@as(f32, 120), shrunk.height, 0.51);
+}
+
 test "the empty state itself is a button: clicking it creates the first collection" {
     const gpa = std.heap.page_allocator;
     var scratch = try Scratch.make(gpa);

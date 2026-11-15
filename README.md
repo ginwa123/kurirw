@@ -163,6 +163,11 @@ The rules the code keeps:
 - **The filter is a real filter**: it narrows the tree to requests whose name or URL holds the text,
   keeps the collection and folder above each match, opens containers while a query is live, and says
   "Nothing matches that filter" instead of drawing a blank panel.
+- **The line between the editor and the response is `components.split`**: the shell declares the grip
+  between the two panes, the response is as tall as `split.size(...)` says, and the editor `.grow`s into
+  whatever is left. Dragging the line up grows the response; `min`/`max` keep both panes usable, with the
+  ceiling derived from the window's height each frame (`setViewport`), so resizing the window never
+  squeezes the editor out.
 - **The body editor is the toolkit's field**, not a hand-rolled one: `components.input.Field` with
   `.multiline = true` types a line on Enter, keeps the caret on the line it belongs to (through
   glinlandui's per-line caret ids), and raises `on_submit` on Ctrl/Cmd+Enter, which is what sends.
