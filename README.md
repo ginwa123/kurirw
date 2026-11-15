@@ -34,7 +34,7 @@ git clone https://github.com/ginwa123/kabelweb.git   kabelweb
 cd kurirw
 
 zig build run          # the window
-zig build test         # unit + headless E2E (49 tests)
+zig build test         # unit + headless E2E (56 tests)
 ```
 
 `kabelweb`'s client is libcurl-backed, so the build wants a system `libcurl` + OpenSSL (Homebrew's
@@ -64,7 +64,7 @@ collection inside it byte-for-byte as a Postman v2.1 document.
 
 The hard requirement of the spec is that import and export never lose fields, so a collection is
 never converted into a typed struct that has to be able to represent everything: it is kept as a
-`std.json.Value` tree (`src/model/postman.zig`) and edited **in place**. What that buys:
+`std.json.Value` tree (`src/data/model/postman.zig`) and edited **in place**. What that buys:
 
 - `auth`, `event`, `variable`, `protocolProfileBehavior`, `description`, vendor keys, response
   bodies and anything else Kurir does not understand survive an export untouched.
@@ -79,33 +79,55 @@ The URL is written as the full object, not just a string: `raw`, `protocol`, `ho
 `zig build test` proves it: a fixture with vendor fields is parsed, mutated, serialized and parsed
 again, and every unknown field is asserted present.
 
-## Architecture — MVVM, the same shape as `glinlandui/examples/todo`
+## Architecture — data / domain / ui / di, one folder per panel
 
 ```
 src/
-├── model/            pure data: no widgets, no window, no draw calls
-│   ├── postman.zig   Postman v2.1 over std.json.Value — read, mutate, serialize, URL split
-│   ├── store.zig     the workspaces wrapper, ids, and the file on disk
-│   └── http.zig      one injectable Transport: a real kabelweb client, a fake for tests
-├── state.zig         the state as a VALUE: Path, TreeRow, ResponseView, UiState, label helpers
-├── view_model.zig    the ONLY writer. Every public fn is an intent; owns the fields and the arenas
-├── view.zig          declaration only — boxes, buttons, fields, the tree, the response pane
-├── app.zig           the Activity: the store, the theme, the composition. No widget code
-├── main.zig          the only `pub fn main`: window, Host, key chain
-├── root.zig          the module surface (`@import("kurirw")` is the whole app)
-├── theme.zig         the palette: glinlandui `dragon` + one tone per HTTP method
-└── e2e_test.zig      the acceptance path, driven headlessly through the real widgets
+├── di/container.zig              builds the path, the FileStore, the client, the dialogs, the theme
+├── domain/
+│   ├── repository/workspace.zig  the vtable the ui holds: load and save, nothing else
+│   └── usecase/                  send_request, import_collection, export_collection — pure rules
+├── data/
+│   ├── model/postman.zig         Postman v2.1 over std.json.Value: read, mutate, serialize, URL split
+│   ├── remote/http_client.zig    one injectable Transport: a real kabelweb client, a fake for tests
+│   ├── local/                    workspace_store.zig (the file) + file_picker.zig (the dialogs)
+│   └── repository/workspace_impl.zig  FileStore — the only thing that knows the document is a file
+├── ui/
+│   ├── shell/session.zig         the document, the arenas, the selection, the status line
+│   ├── shell/view_model.zig      composition root + the intent facade + the once-per-frame snapshot
+│   ├── shell/screen.zig          KurirScreen and the layout between the panels
+│   ├── shell/scope.zig           Scope + the layout metrics
+│   ├── shell/widgets.zig         smallButton / tabButton
+│   ├── shell/actions.zig         every click that reaches a ViewModel
+│   ├── sidebar/                  view_model.zig + screen.zig — workspaces, tools, tree
+│   ├── editor/                   view_model.zig + screen.zig — method, url, headers, body
+│   ├── response/                 view_model.zig + screen.zig — status, time, size, body, headers
+│   └── theme/theme.zig           the palette: glinlandui `dragon` + one tone per HTTP method
+├── state.zig                     the state as a VALUE: Path, TreeRow, ResponseView, UiState
+├── app.zig                       the Activity: theme + container + content(). No widget code
+├── main.zig                      the only `pub fn main`: window, Host, key chain
+├── root.zig                      the module surface (`@import("kurirw")` is the whole app)
+└── e2e_test.zig                  the acceptance path, driven headlessly through the real widgets
 ```
 
 The rules the code keeps:
 
-- **Only `view_model.zig` writes state.** A widget raises an intent (`.{ .f = onSend, .ctx = vm }`);
-  the next frame draws whatever the model says.
-- **`view.zig` never mutates.** It reads `scope.state` and declares.
-- **No widget, no window, no draw call in `model/`.** The models are pure Zig and tested without a
-  display, which is why `HTTP` is a `Transport` value and not a global client.
-- **No network in any test.** `http.Fake` records the request and answers from a script;
-  `Dialogs` does the same for the file panels. The real path is exercised by `zig build smoke`.
+- **One panel, one folder, three files.** `ui/<panel>/view_model.zig` owns its slice of state and its
+  intents, `screen.zig` declares and raises them, and a panel never imports another panel: what two
+  panels share lives in `ui/shell/session.zig`.
+- **The shell composes, it does not compute.** Every intent on `KurirViewModel` is a one-line facade
+  over a panel; `uiState()` asks each panel for its snapshot once per frame, and only while stale.
+- **Two ways to mark the frame stale.** `Session.commit()` writes the document and marks it;
+  `Session.touch()` only marks it — a selection, a tab, a panel width.
+- **`domain/` holds rules, not plumbing.** A use case exists where the app decides something: what
+  goes on the wire, what counts as a valid collection, what a saved file is called. Renaming a node
+  is a codec call plus UI bookkeeping, so it stays in the panel.
+- **`di/container.zig` is the only place a dependency is built**, and the ViewModel borrows it: the
+  container owns the path, the client and the dialogs, and outlives the view.
+- **No widget, no window, no draw call outside `ui/`.** `data/` and `domain/` are pure Zig, tested
+  without a display — which is why HTTP is a `Transport` value and the document is a `Workspace` vtable.
+- **No network in any test.** `http.Fake` records the request and answers from a script, and the file
+  panels are a `Dialogs` value a test replaces. `zig build smoke` is the only real request.
 
 ## The widgets Kurir had to write itself
 
@@ -128,7 +150,7 @@ The rules the code keeps:
 
 `zig build run` is a Debug build, and `-Doptimize=ReleaseSafe` keeps the same promise, so both attach
 glinlandui's devtool: **right-click anywhere** for this app's component tree — each node shows the
-widget it came from and, for anything Kurir declared with `.src = @src()`, the exact `view.zig` line.
+widget it came from and, for anything Kurir declared with `.src = @src()`, the exact `screen.zig` line.
 A `ReleaseFast` or `ReleaseSmall` build does not attach it (one `builtin.mode` check in `main.zig`).
 
 ## Commands

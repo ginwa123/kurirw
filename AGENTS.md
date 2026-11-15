@@ -11,10 +11,12 @@ Rules for anyone (human or agent) changing Kurir.
 3. **A comment block is at most ONE line.** As many single-line comments as you like; a blank line
    or a line of code ends a block. This includes `//!` and `///`.
 4. **No `.zig` file may exceed 3000 lines.** Split the module instead of growing the file.
-5. **MVVM is the law.** Only `view_model.zig` writes state; `view.zig` declares and raises intents;
-   `app.zig` holds no widget code; `main.zig` is the only `pub fn main`.
-6. **The models are pure.** Nothing under `src/model/` may import a widget, a window, or a draw
-   call. That is what lets every rule in them be tested without a display.
+5. **MVVM is the law.** Only a `view_model.zig` writes state; a `screen.zig` declares and raises
+   intents; `app.zig` holds no widget code; `main.zig` is the only `pub fn main`.
+6. **`data/` and `domain/` are pure.** Nothing under them imports a widget, a window, or a draw call.
+   That is what lets every rule in them be tested without a display.
+7. **A panel imports the shell, never another panel.** What two panels share is
+   `ui/shell/session.zig`; the shell imports the panels. That is the direction that keeps it a DAG.
 
 ## Verify before you report
 
@@ -29,13 +31,15 @@ zig fmt --check build.zig src
 ## Layout
 
 ```
-src/model/        postman.zig, store.zig, http.zig — pure data, pure Zig
-src/state.zig     the state as a value + label helpers
-src/view_model.zig  the only writer: intents, the arenas, the input fields
-src/view.zig      declaration only
-src/app.zig       store + theme + start() + content()
-src/main.zig      window + Host + key chain
-src/e2e_test.zig  the acceptance path, headless
+src/di/container.zig               every dependency, built once (path, FileStore, client, dialogs, theme)
+src/domain/repository/workspace.zig  the document vtable: load, save
+src/domain/usecase/                send_request, import_collection, export_collection
+src/data/{model,remote,local,repository}/  postman, kabelweb, the file, the dialogs, the FileStore
+src/ui/shell/                      session, view_model, screen, scope, widgets, actions
+src/ui/{sidebar,editor,response}/  view_model.zig (state + intents) + screen.zig (declaration)
+src/state.zig                      the state as a value + label helpers
+src/app.zig, src/main.zig          the Activity and the entry point
+src/e2e_test.zig                   the acceptance path, headless
 ```
 
 ## Rules that are easy to get wrong
@@ -46,18 +50,20 @@ src/e2e_test.zig  the acceptance path, headless
   as an array of bytes, not as a crash.
 - **`std.json.ObjectMap` is unmanaged.** Every mutation takes an allocator, and it must be the
   document arena, never `gpa`. Mutating a *copy* of the map drops the size/len bookkeeping.
-- **`view_arena` is reset on every rebuild.** Anything the frame points at must be allocated from it
-  after the reset, or be borrowed from `doc_arena`. Intents run **before** the frame, so a reset in
-  an intent is safe.
+- **The ViewModel must not move after `start()`.** Each panel holds `*Session`, and each field's
+  callback holds a pointer into its panel. The store keeps it in place; the unit harness allocates it.
+  A by-value copy leaves every panel writing into a document nobody reads.
+- **`view_arena` is reset once per snapshot.** Anything the frame points at must be allocated from it
+  after the reset, or be borrowed from `doc_arena`. The snapshot runs in `uiState()`, before the frame.
 - **A click context must outlive the declare.** `RowScope` / `HeaderScope` / `LineScope` are stack
   values passed to a `box`, whose children callback runs synchronously — that is fine. A callback
-  registered with `click_registry` must point at model-owned memory (`vm.header_ctxs`), never at a
-  declare-time stack value.
+  registered with `click_registry` must point at model-owned memory (`vm.editor.header_ctxs`), never
+  at a declare-time stack value.
 - **Element ids must be unique per frame.** `frame.elementId(prefix, i)` for anything per-row.
   A duplicate id is invisible in review and shows up as a Clay `duplicate_id` log line, which fails
   every test that reaches it.
-- **The left panel's width is the widget's, not the model's.** `components.sidebar` owns it (`vm.sidebar_state`)
-  and mutates it during the declare, so `UiState.sidebar_width` is refreshed in `uiState()`, not in `rebuild()`.
+- **The left panel's width is the widget's, not the model's.** `components.sidebar` owns it (`vm.sidebar.state`)
+  and mutates it during the declare, so `UiState.sidebar_width` is refreshed in `uiState()`, not in `snapshot()`.
   The panel's content is pinned to that width (`.w = .fixed(width)`) because a `.grow` column inside it is
   widened by text metrics — which pushes a toolbar button's centre under the grab line and trips
   `glinlandui audit: hit_target_not_self`.
