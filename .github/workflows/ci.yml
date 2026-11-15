@@ -140,7 +140,7 @@ jobs:
   # Publishes the three binaries on the tag's GitHub release. It runs only for `v*` tags, and only
   # after every platform leg is green, so a release can never carry a binary that failed its tests.
   release:
-    name: Release ${{ github.ref_name }}
+    name: Publish the release
     needs: test
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
