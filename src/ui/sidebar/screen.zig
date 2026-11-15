@@ -217,7 +217,8 @@ pub fn treeChildren(scope: *Scope) void {
         // A 26 point band with a 4 point gutter: the 30 point pitch this panel had before it was a component.
         .row_h = .{ .px = @floatFromInt(row_h) },
         .indent = .{ .px = @floatFromInt(indent) },
-        .pad_lr = .{ .px = 4 },
+        // 10, not 4: the engine draws the selection bar as a 2 pt border, so this puts the caret where the old rows had it.
+        .pad_lr = .{ .px = 10 },
         .row_gap = .{ .px = 4 },
         // This font has `v` and `>`, not `-` and `+`, and a leaf keeps the blank its label lines up with.
         .caret_open = "v",
