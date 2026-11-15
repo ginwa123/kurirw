@@ -28,6 +28,19 @@ Or download the archive for your machine from the assets below and run the binar
 | Linux x86_64 | `kurirw-linux-x86_64.tar.gz` | built on Ubuntu 24.04, so it wants glibc 2.39+; run it in a Wayland session with the pango/cairo and libcurl runtime libraries installed |
 | Windows x86_64 | `kurirw-windows-x86_64.zip` | self-contained: `Send` works over http and https, with TLS through Windows' own certificate store |
 
+## New: curl in, curl out
+
+- **Import a `curl` command.** Copy one from a terminal, a bug report or a colleague's message, then
+  **+ New → From cURL**. The method, URL, headers, body and `-u` credentials become a request named
+  after its own URL. Line continuations, quotes, `curl.exe`, `-G`, `-I`, `--json` and the usual noisy
+  flags (`-sSL`, `-o`, `--max-time`, …) are all understood.
+- **Copy a request as a `curl` command.** The **cURL** button beside Send puts the request you are
+  looking at on the clipboard as a single command — method, every enabled header and the body — ready
+  to paste into a shell or a bug report.
+
+Both directions are tested: a command becomes a request in the tree, and that request copies back out
+to a command that parses back to the same thing.
+
 ## Windows: Send works now
 
 The previous Windows build linked a stand-in for the HTTP library, so every request failed. This one

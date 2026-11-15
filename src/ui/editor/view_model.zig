@@ -5,6 +5,7 @@ const input_mod = glinlandui.components.input;
 const frame = glinlandui.frame;
 
 const postman = @import("../../data/model/postman.zig");
+const curl_transfer = @import("../../domain/usecase/curl_transfer.zig");
 const state_mod = @import("../../ui/state.zig");
 const session_mod = @import("../shell/session.zig");
 
@@ -21,6 +22,7 @@ pub const body_id = "kurir.body";
 pub const body_scroll_id = "kurir.body.scroll";
 pub const header_key_prefix = "kurir.header.key";
 pub const header_value_prefix = "kurir.header.value";
+pub const curl_copy_id = "kurir.curl.copy";
 
 pub const body_pad: f32 = 10;
 pub const line_height: f32 = 20;
@@ -38,6 +40,8 @@ pub const Editor = struct {
     body_field: input_mod.Field = undefined,
 
     tab: state_mod.Tab = .headers,
+    // The last command the copy button produced, kept so a test can read what the clipboard got.
+    last_curl: []const u8 = "",
     // The method dropdown: the panel decides whether its card is declared, the toolkit draws it.
     menu_open: bool = false,
 
@@ -47,6 +51,19 @@ pub const Editor = struct {
         // True for the value column, false for the key column.
         value_side: bool,
     };
+
+    // "Copy as cURL": the selected request as a command that reproduces it in a terminal.
+    pub fn copyAsCurl(self: *Editor) void {
+        const path = self.session.selection orelse return self.session.failNow("Select a request first, then copy it as cURL.");
+        const node = self.session.nodeAt(path) orelse return self.session.failNow("That selection is gone. Select a request again.");
+        if (!postman.isRequest(node.*)) return self.session.failNow("That is a folder or a collection. Select a request to copy as cURL.");
+        const arena = self.session.docArena();
+        const text = curl_transfer.command(arena, node.*) catch return self.session.failNow("This request cannot be written as a curl command.");
+        glinlandui.clipboard.write(text);
+        self.last_curl = text;
+        self.session.setStatus(false, "Copied as cURL ({d} bytes). Paste it anywhere a shell runs.", .{text.len});
+        self.session.touch();
+    }
 
     pub fn onUrlTyped(raw: ?*anyopaque, text: []const u8) void {
         const self: *Editor = @ptrCast(@alignCast(raw.?));

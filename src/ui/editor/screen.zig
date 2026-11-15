@@ -170,6 +170,9 @@ pub fn methodRowChildren(scope: *Scope) void {
         .radius = props.Radius.all(6),
         .on_click = .{ .f = actions.onSend, .ctx = scope.vm },
     });
+
+    // The other half of "paste a curl command": this one writes the request back out as one.
+    if (enabled) smallButton(scope, editor_vm.curl_copy_id, "cURL", 64, actions.onCopyCurl);
 }
 
 pub fn editorTabs(scope: *Scope) void {

@@ -5,6 +5,7 @@ pub const view_model = @import("ui/shell/view_model.zig");
 pub const state = @import("ui/state.zig");
 pub const theme = @import("ui/theme/theme.zig");
 pub const postman = @import("data/model/postman.zig");
+pub const curl = @import("data/model/curl.zig");
 pub const store = @import("data/local/workspace_store.zig");
 pub const http = @import("data/remote/http_client.zig");
 pub const request_job = @import("data/remote/request_job.zig");
@@ -13,6 +14,7 @@ pub const file_store = @import("data/repository/workspace_impl.zig");
 pub const send_request = @import("domain/usecase/send_request.zig");
 pub const import_collection = @import("domain/usecase/import_collection.zig");
 pub const export_collection = @import("domain/usecase/export_collection.zig");
+pub const curl_transfer = @import("domain/usecase/curl_transfer.zig");
 pub const container = @import("di/container.zig");
 
 // Every file's own tests, collected without adding an anonymous one, so the suite counts real tests.
@@ -20,6 +22,8 @@ comptime {
     _ = @import("ui/state.zig");
     _ = @import("ui/theme/theme.zig");
     _ = @import("data/model/postman.zig");
+    _ = @import("data/model/curl.zig");
+    _ = @import("domain/usecase/curl_transfer.zig");
     _ = @import("data/local/workspace_store.zig");
     _ = @import("data/remote/http_client.zig");
     _ = @import("data/remote/request_job.zig");

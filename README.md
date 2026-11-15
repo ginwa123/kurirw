@@ -17,6 +17,9 @@ account, the cloud, or the browser tab.
 - **Your work is saved as you go.** No Save button, no "unsaved changes" dialog.
 - **It speaks Postman.** Export a collection as Postman Collection v2.1, or import a real Postman file
   without losing the fields Kurir does not understand.
+- **It speaks curl.** Copy a `curl …` command anywhere and press **+ New → From cURL**: method, URL,
+  headers and body come across, and the request is named after its own URL. The **cURL** button next
+  to Send goes the other way — the request as a command you can paste into any terminal.
 
 ## Install
 
@@ -53,6 +56,8 @@ also download the archive yourself and run the binary inside it.
 4. Switch to **Body** to type a JSON payload, or **+ Header** to add a header. Ctrl/Cmd+Enter sends
    from the body editor.
 5. **+ New → Import** takes a Postman collection file. The `...` next to the workspace name exports one.
+6. **+ New → From cURL** turns a `curl …` command you copied into a request; the **cURL** button beside
+   Send copies the request you are looking at back out as a command.
 
 ## Where your work is kept
 

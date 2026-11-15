@@ -737,3 +737,60 @@ fn dialogsSave(ctx: ?*anyopaque, gpa: std.mem.Allocator, title: []const u8, sugg
     if (self.save_path.len == 0) return null;
     return gpa.dupe(u8, self.save_path) catch null;
 }
+
+test "a curl command becomes a request in the tree, and the same request copies back out as curl" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    // A collection to import into, created through the button a user presses.
+    try newMenu(&h, 0);
+    const rows_before = h.app.vm().uiState().rows.len;
+
+    // The import the "+ New → From cURL" row runs, with the clipboard handed in (a test build has no pasteboard).
+    const command =
+        "curl -X POST https://api.example.com/v1/items \\\n" ++
+        "  -H 'content-type: application/json' \\\n" ++
+        "  -d '{\"name\":\"widget\"}'";
+    h.app.vm().addRequestFromCurlText(command);
+    h.driver.frame();
+
+    // The tree grew by one, named after the URL's own last segment.
+    try testing.expectEqual(rows_before + 1, h.app.vm().uiState().rows.len);
+    try h.driver.expectText("items");
+
+    // The editor shows what the command said, because the document itself carries it.
+    try testing.expectEqualStrings("POST", h.app.vm().uiState().method);
+    try testing.expectEqualStrings("https://api.example.com/v1/items", h.app.vm().uiState().url);
+    try testing.expectEqualStrings("{\"name\":\"widget\"}", h.app.vm().uiState().body);
+    try testing.expectEqual(@as(usize, 1), h.app.vm().uiState().headers.len);
+    try testing.expectEqualStrings("content-type", h.app.vm().uiState().headers[0].name);
+
+    // And the round trip closes: the cURL button writes the request back out as a command.
+    try h.driver.click("kurir.curl.copy");
+    const text = h.app.vm().editor.last_curl;
+    try testing.expect(std.mem.indexOf(u8, text, "-X POST") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "https://api.example.com/v1/items") != null);
+    try testing.expect(std.mem.indexOf(u8, text, "--data-raw") != null);
+    try testing.expect(std.mem.indexOf(u8, h.app.vm().uiState().status, "Copied as cURL") != null);
+}
+
+test "a command that is not curl leaves the tree alone and says why" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try newMenu(&h, 0);
+    const rows_before = h.app.vm().uiState().rows.len;
+
+    h.app.vm().addRequestFromCurlText("wget https://example.com/");
+    h.driver.frame();
+    try testing.expectEqual(rows_before, h.app.vm().uiState().rows.len);
+    try testing.expect(std.mem.indexOf(u8, h.app.vm().uiState().status, "not a curl command") != null);
+}

@@ -48,6 +48,11 @@ pub fn onMethodPick(ctx: ?*anyopaque, index: usize) void {
     vm.pickMethod(index);
 }
 
+pub fn onCopyCurl(ctx: ?*anyopaque) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.copyAsCurl();
+}
+
 pub fn onSend(ctx: ?*anyopaque) void {
     const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
     vm.send();

@@ -6,6 +6,8 @@ const sidebar_mod = glinlandui.components.sidebar;
 const frame = glinlandui.frame;
 
 const postman = @import("../../data/model/postman.zig");
+const curl = @import("../../data/model/curl.zig");
+const curl_transfer = @import("../../domain/usecase/curl_transfer.zig");
 const store = @import("../../data/local/workspace_store.zig");
 const state_mod = @import("../../ui/state.zig");
 const session_mod = @import("../shell/session.zig");
@@ -29,7 +31,7 @@ pub const ws_list_id = "kurir.ws.options";
 pub const ws_panel_id = "kurir.ws.panel";
 
 // The two menus' rows, in declaration order: a pick joins the row's index to the intent it raises.
-pub const new_rows = [_][]const u8{ "Collection", "Request", "Folder", "Import" };
+pub const new_rows = [_][]const u8{ "Collection", "Request", "Folder", "Import", "From cURL" };
 pub const ws_rows = [_][]const u8{ "New workspace", "Delete workspace", "Export collection" };
 
 // How many bytes a row's name may take before its tail becomes "..".
@@ -356,6 +358,38 @@ pub const Sidebar = struct {
 
         self.session.commit();
         self.session.setStatus(false, "Created {s}. Paste a URL and send it.", .{name});
+    }
+
+    // "From cURL": the clipboard's `curl …` becomes a request, named after its own URL.
+    pub fn addRequestFromCurl(self: *Sidebar) void {
+        const buf = self.session.gpa.alloc(u8, curl.max_command) catch return self.session.failNow("Out of memory reading the clipboard.");
+        defer self.session.gpa.free(buf);
+        const text = glinlandui.clipboard.read(buf);
+        if (std.mem.trim(u8, text, " \t\r\n").len == 0) return self.session.failNow("The clipboard is empty. Copy a curl command first, then press + New again.");
+        self.addRequestFromCurlText(text);
+    }
+
+    // The same import with the command handed in, so a test (and a future paste box) skips the clipboard.
+    pub fn addRequestFromCurlText(self: *Sidebar, text: []const u8) void {
+        const parent = self.containerForInsert() orelse return self.session.failNow("Create a collection first, then add a request from a curl command.");
+        const node = self.session.nodeAt(parent) orelse return self.session.failNow("That selection is gone. Select a collection again.");
+        const arena = self.session.docArena();
+        const imported = curl_transfer.parse(arena, text) catch |err| return self.session.fail("That is not a curl command I can read ({s}).", .{@errorName(err)});
+
+        var item = postman.newRequest(arena, imported.name, imported.request.method, imported.request.url) catch
+            return self.session.failNow("Could not create a request.");
+        if (imported.request.body.len > 0) postman.setBodyRaw(arena, &item, imported.request.body) catch {};
+        for (imported.request.headers, 0..) |h, i| {
+            postman.setHeaderKey(arena, &item, i, h.name) catch break;
+            postman.setHeaderValue(arena, &item, i, h.value) catch break;
+        }
+
+        const index = postman.appendChild(self.session.gpa, node, item) catch return self.session.failNow("Could not create a request.");
+        self.expand(parent, true);
+        self.session.selection = parent.child(@intCast(index));
+
+        self.session.commit();
+        self.session.setStatus(false, "Imported {s} from cURL: {s} {s}.", .{ imported.name, imported.request.method, imported.request.url });
     }
 
     pub fn containerForInsert(self: *Sidebar) ?Path {

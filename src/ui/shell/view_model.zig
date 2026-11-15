@@ -230,6 +230,20 @@ pub const KurirViewModel = struct {
         self.sidebar.toggleNew();
     }
 
+    pub fn addRequestFromCurl(self: *KurirViewModel) void {
+        self.sidebar.addRequestFromCurl();
+    }
+
+    // The import with the command handed in, which is also how a test drives it (a test build has no pasteboard).
+    pub fn addRequestFromCurlText(self: *KurirViewModel, text: []const u8) void {
+        self.sidebar.addRequestFromCurlText(text);
+    }
+
+    // The editor's "Copy as cURL" reaches the same intent through the shell, so the view names one target.
+    pub fn copyAsCurl(self: *KurirViewModel) void {
+        self.editor.copyAsCurl();
+    }
+
     pub fn pickNewMenu(self: *KurirViewModel, index: usize) void {
         self.sidebar.closeNew();
         switch (index) {
@@ -237,6 +251,7 @@ pub const KurirViewModel = struct {
             1 => self.addRequest(),
             2 => self.addFolder(),
             3 => self.importCollection(),
+            4 => self.addRequestFromCurl(),
             else => {},
         }
     }
