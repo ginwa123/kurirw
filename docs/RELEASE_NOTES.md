@@ -28,6 +28,15 @@ Or download the archive for your machine from the assets below and run the binar
 | Linux x86_64 | `kurirw-linux-x86_64.tar.gz` | built on Ubuntu 24.04, so it wants glibc 2.39+; run it in a Wayland session with the pango/cairo and libcurl runtime libraries installed |
 | Windows x86_64 | `kurirw-windows-x86_64.zip` | self-contained: `Send` works over http and https, with TLS through Windows' own certificate store |
 
+## New: the response body is selectable text
+
+The body used to be a list of drawn lines: readable, but you could not select a
+value out of it or copy anything. It is now a read-only text editor — click to
+place the caret, drag (or double-click a word) to select, Cmd/Ctrl+A for all of
+it, Cmd/Ctrl+C to copy — and typing into it does nothing, because a response is
+not something you edit. Works the same on a 4.9 MB answer as on a one-line one:
+the pane only draws the lines you can see.
+
 ## New: curl in, curl out
 
 - **Import a `curl` command.** Copy one from a terminal, a bug report or a colleague's message, then

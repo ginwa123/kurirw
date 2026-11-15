@@ -12,6 +12,8 @@ account, the cloud, or the browser tab.
 - **Send and read.** Pick a method (GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS), paste a URL, add
   headers and a JSON body, press Send. You get the status, the time, the size, the pretty-printed body
   and the response headers — and the last answer for each endpoint is kept while you look elsewhere.
+- **The response is text you can use.** Click into the body, drag to select, Cmd/Ctrl+C to copy — and
+  nothing you type can change it. A multi-megabyte answer still scrolls smoothly.
 - **It never freezes.** A request runs on its own thread, so the window keeps drawing while a slow
   server answers.
 - **Your work is saved as you go.** No Save button, no "unsaved changes" dialog.
@@ -58,6 +60,8 @@ also download the archive yourself and run the binary inside it.
 5. **+ New → Import** takes a Postman collection file. The `...` next to the workspace name exports one.
 6. **+ New → From cURL** turns a `curl …` command you copied into a request; the **cURL** button beside
    Send copies the request you are looking at back out as a command.
+7. Click into the response body to select a value and copy it — the pane is a read-only text editor,
+   so drag-select, double-click-a-word and Cmd/Ctrl+A all work.
 
 ## Where your work is kept
 
