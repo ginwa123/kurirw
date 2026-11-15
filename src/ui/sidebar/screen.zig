@@ -214,9 +214,18 @@ pub fn treeChildren(scope: *Scope) void {
         .src = @src(),
         .id = .{ .text = tree_id },
         .rows = scope.state.tree_rows,
+        // A 26 point band with a 4 point gutter: the 30 point pitch this panel had before it was a component.
         .row_h = .{ .px = @floatFromInt(row_h) },
         .indent = .{ .px = @floatFromInt(indent) },
-        .pad_lr = .{ .px = 8 },
+        .pad_lr = .{ .px = 4 },
+        .row_gap = .{ .px = 4 },
+        // This font has `v` and `>`, not `-` and `+`, and a leaf keeps the blank its label lines up with.
+        .caret_open = "v",
+        .caret_closed = ">",
+        .caret_leaf = " ",
+        .label_size = t.type_scale.body,
+        .caret_size = t.type_scale.caption,
+        .group_bold = true,
         .row_bg = t.colors.surface,
         .selected_bg = Color.lerp(t.colors.surface, theme_mod.accent, 0.12),
         .hover_bg = t.colors.hover,
@@ -229,23 +238,23 @@ pub fn treeChildren(scope: *Scope) void {
         .selected_bar = theme_mod.accent,
         .on_select = .{ .f = actions.onRow, .ctx = scope.vm },
         .context_menus = scope.state.tree_menus,
-        .reorder = .{ .on_move = onTreeMove, .ctx = &scope.vm.sidebar },
+        .reorder = .{ .on_drop = onTreeDrop, .ctx = &scope.vm.sidebar },
         .row_extra = .{ .f = chipExtra, .ctx = scope },
     });
 }
 
-// The engine reports the two row indices; the panel owns what a move means for the document.
-fn onTreeMove(ctx: ?*anyopaque, from: usize, to: usize) void {
+// The engine reports the row it was over and where on it; the panel owns what that means for the document.
+fn onTreeDrop(ctx: ?*anyopaque, from: usize, to: usize, zone: tree_mod.Zone) void {
     const sb: *sidebar_vm.Sidebar = @ptrCast(@alignCast(ctx.?));
-    sb.onTreeMove(from, to);
+    sb.onTreeDrop(from, to, zone);
 }
 
-// The app's own decor for a row: a request carries its method chip between the engine's caret and label.
+// The app's own decor for a row, between the engine's caret and the label: a chip for a request, a folder for a container.
 fn chipExtra(ctx: ?*anyopaque, index: usize) void {
     const scope: *Scope = @ptrCast(@alignCast(ctx.?));
     if (index >= scope.state.rows.len) return;
     const r = scope.state.rows[index];
-    if (r.kind != .request) return;
+    if (r.kind != .request) return folderIcon(scope, index);
     box_mod.box(.{
         .src = @src(),
         .id = .{ .text = frame.elementId("kurir.tree.chip", index) },
@@ -256,6 +265,50 @@ fn chipExtra(ctx: ?*anyopaque, index: usize) void {
         .radius = props.Radius.all(4),
         .child_align = .{ .x = .center, .y = .center },
     }, &r.method, chipLabel);
+}
+
+// A container's icon, drawn rather than typed: the font has no folder glyph, and a box would read as one missing.
+fn folderIcon(scope: *Scope, index: usize) void {
+    box_mod.box(.{
+        .src = @src(),
+        .id = .{ .text = frame.elementId("kurir.tree.icon", index) },
+        .direction = .column,
+        .w = .{ .fixed = 12 },
+        .h = .{ .fixed = 10 },
+    }, &IconCtx{ .theme = scope.theme, .index = index }, folderChildren);
+}
+
+const IconCtx = struct {
+    theme: glinlandui.theme.Theme,
+    index: usize,
+};
+
+fn folderChildren(ic: *const IconCtx) void {
+    const t = ic.theme;
+    // The tab first, then the body: a two-part silhouette reads as a folder, where a ring or a glyph cannot.
+    box_mod.box(.{
+        .src = @src(),
+        .id = .{ .text = frame.elementId("kurir.tree.icon.tab", ic.index) },
+        .direction = .row,
+        .w = .{ .fixed = 5 },
+        .h = .{ .fixed = 2 },
+        .bg = t.colors.text_done,
+        .radius = props.Radius.all(1),
+    }, ic, iconNoChildren);
+    box_mod.box(.{
+        .src = @src(),
+        .id = .{ .text = frame.elementId("kurir.tree.icon.body", ic.index) },
+        .direction = .row,
+        .w = .{ .fixed = 12 },
+        .h = .{ .fixed = 8 },
+        .bg = Color.withAlpha(t.colors.text_dim, 46),
+        .border = props.Border.all(1, t.colors.text_done),
+        .radius = props.Radius.all(2),
+    }, ic, iconNoChildren);
+}
+
+fn iconNoChildren(ic: *const IconCtx) void {
+    _ = ic;
 }
 
 // A verb's chip: a tint of its own tone, so the column of requests can be read at a glance.

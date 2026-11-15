@@ -423,6 +423,21 @@ pub fn removeChild(alloc: Allocator, parent: *Value, index: usize) void {
     _ = items.orderedRemove(index);
 }
 
+// Take a child out of `parent` and hand it back, so a drop can carry it to another folder.
+pub fn detachChild(alloc: Allocator, parent: *Value, index: usize) ?Value {
+    const items = arrayChild(alloc, parent, "item") catch return null;
+    if (index >= items.items.len) return null;
+    return items.orderedRemove(index);
+}
+
+// Put a detached node back at `index`, clamped to the end, and say where it landed.
+pub fn insertChild(alloc: Allocator, parent: *Value, index: usize, node: Value) !usize {
+    const items = try arrayChild(alloc, parent, "item");
+    const at = @min(index, items.items.len);
+    try items.insert(at, node);
+    return at;
+}
+
 // ---- serializing ---------------------------------------------------------------------------------------------
 
 pub fn write(alloc: Allocator, value: Value, pretty: bool) ![]u8 {
@@ -679,6 +694,33 @@ test "removing a header and an item closes the gap" {
     removeChild(arena, &doc, 0);
     try std.testing.expectEqual(@as(usize, 1), itemCount(doc));
     try std.testing.expectEqualStrings("Health", str(itemAt(doc, 0).?, "name"));
+}
+
+test "a detached item is handed back whole, and lands where it is inserted" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var from = try parseTree(arena, "{\"item\":[{\"name\":\"a\"},{\"name\":\"b\"},{\"name\":\"c\"}]}");
+    var to = try parseTree(arena, "{\"item\":[]}");
+
+    const moved = detachChild(arena, &from, 1) orelse return error.NothingDetached;
+    try std.testing.expectEqualStrings("b", str(moved, "name"));
+    try std.testing.expectEqual(@as(usize, 2), itemCount(from));
+    // The gap closes: the rows after the one that left move up.
+    try std.testing.expectEqualStrings("c", str(itemAt(from, 1).?, "name"));
+
+    try std.testing.expectEqual(@as(usize, 0), try insertChild(arena, &to, 0, moved));
+    try std.testing.expectEqualStrings("b", str(itemAt(to, 0).?, "name"));
+    // An index past the end is clamped to the end rather than refused.
+    const last = detachChild(arena, &from, 0) orelse return error.NothingDetached;
+    try std.testing.expectEqual(@as(usize, 1), try insertChild(arena, &to, 9, last));
+    try std.testing.expectEqualStrings("a", str(itemAt(to, 1).?, "name"));
+    // A folder with no `item` array at all is still a place to put something.
+    var bare = try parseTree(arena, "{\"name\":\"Bare\"}");
+    const other = detachChild(arena, &from, 0) orelse return error.NothingDetached;
+    try std.testing.expectEqual(@as(usize, 0), try insertChild(arena, &bare, 0, other));
+    try std.testing.expectEqual(@as(usize, 1), itemCount(bare));
 }
 
 test "a body and a url survive being set on an item that had neither" {

@@ -64,6 +64,29 @@ pub fn clip(text: []const u8, buffer: []u8) []const u8 {
     return buffer[0 .. head + 2];
 }
 
+// A path's address after the child at `removed` left `parent`: every slot past it shifts down one.
+fn shiftDown(path: Path, parent_depth: usize, removed: u16) Path {
+    var next = path;
+    if (next.depth <= parent_depth) return next;
+    if (next.segments[parent_depth] > removed) next.segments[parent_depth] -= 1;
+    return next;
+}
+
+// True when `path` sits inside `ancestor`, which is the one drop a tree must refuse: a folder into itself.
+fn insideOf(path: Path, ancestor: Path) bool {
+    if (path.depth <= ancestor.depth) return false;
+    var level: usize = 0;
+    while (level < ancestor.depth) : (level += 1) {
+        if (path.segments[level] != ancestor.segments[level]) return false;
+    }
+    return true;
+}
+
+// The word a status line uses for a zone: a row lands above or below the one it was dropped on.
+fn side(above: bool) []const u8 {
+    return if (above) "above" else "below";
+}
+
 // A case-insensitive substring test, which is what a filter box does.
 fn containsIgnoreCase(haystack: []const u8, needle: []const u8) bool {
     if (needle.len == 0) return true;
@@ -399,22 +422,94 @@ pub const Sidebar = struct {
         self.session.setStatus(false, "Imported {s} from cURL: {s} {s}.", .{ imported.name, imported.request.method, imported.request.url });
     }
 
-    // A row was dragged onto another: reorder among SIBLINGS, which is the one rule that cannot surprise anyone.
-    pub fn onTreeMove(self: *Sidebar, from_row: usize, to_row: usize) void {
+    // A row was dropped on another: the panel owns what each zone means for the document.
+    pub fn onTreeDrop(self: *Sidebar, from_row: usize, to_row: usize, zone: tree_mod.Zone) void {
         const from = self.rowAt(from_row) orelse return;
         const to = self.rowAt(to_row) orelse return;
-        const from_parent = from.parent() orelse return self.session.failNow("A collection cannot be dragged inside another row.");
-        const to_parent = to.parent() orelse return self.session.failNow("Drop a row inside a collection, not on one.");
-        if (!Path.eql(from_parent, to_parent)) return self.session.failNow("Drag within one folder at a time: dropping into another folder is not supported yet.");
-        const parent = self.session.nodeAt(from_parent) orelse return self.session.failNow("That folder is gone. Try again.");
-        const from_index = from.segments[from.depth - 1];
-        const to_index = to.segments[to.depth - 1];
-        if (!postman.moveChild(parent, from_index, to_index)) return;
+        if (Path.eql(from, to)) return;
+        // A row can never land inside its own subtree: that moves the folder into itself.
+        if (insideOf(to, from)) return self.session.failNow("A folder cannot be dropped inside itself.");
+        if (zone == .into) return self.dropInto(from, to);
+        self.dropBeside(from, to, zone == .before);
+    }
 
-        self.expand(from_parent, true);
-        self.session.selection = to;
+    // A drop INSIDE a folder or a collection: the node changes parent, and the container opens to show it.
+    fn dropInto(self: *Sidebar, from: Path, to: Path) void {
+        const from_parent = from.parent() orelse return self.session.failNow("A collection is a top-level row: it cannot be dropped inside another one.");
+        const source = self.session.nodeAt(from) orelse return self.session.failNow("That row is gone. Try again.");
+        const target = self.session.nodeAt(to) orelse return self.session.failNow("That folder is gone. Try again.");
+        if (postman.isRequest(target.*)) return self.session.failNow("A request holds nothing. Drop above or below it instead.");
+        const old_parent = self.session.nodeAt(from_parent) orelse return self.session.failNow("That folder is gone. Try again.");
+        const moved_name = Session.name(source.*);
+        const from_index = from.segments[from.depth - 1];
+        const node = postman.detachChild(self.session.docArena(), old_parent, from_index) orelse return self.session.failNow("That row is gone. Try again.");
+        // The document moved under the pointer, so the target is re-addressed before anything is written to it.
+        const destination = shiftDown(to, from_parent.depth, from_index);
+        const container = self.session.nodeAt(destination) orelse return self.session.failNow("That folder is gone. Try again.");
+        const at = postman.appendChild(self.session.gpa, container, node) catch return self.session.failNow("Could not move that row.");
+        self.expand(destination, true);
+        self.expandAncestors(destination);
+        self.session.selection = destination.child(@intCast(at));
         self.session.commit();
-        self.session.setStatus(false, "Moved {s} next to {s}.", .{ self.session.nodeAt(from).?.object.get("name").?.string, self.session.nodeAt(to).?.object.get("name").?.string });
+        self.session.setStatus(false, "Moved {s} into {s}.", .{ moved_name, Session.name(container.*) });
+    }
+
+    // A drop ABOVE or BELOW another row: a reorder among siblings, or a move into another folder's list.
+    fn dropBeside(self: *Sidebar, from: Path, to: Path, above: bool) void {
+        const from_parent = from.parent();
+        const to_parent = to.parent();
+        // Two collections are siblings in the workspace's own array, which is the same move one level up.
+        if (from_parent == null and to_parent == null) return self.moveCollectionBeside(from, to, above);
+        if (from_parent == null or to_parent == null) return self.session.failNow("A collection and a folder are not in one list. Drop the row inside a collection instead.");
+        const from_index = from.segments[from.depth - 1];
+        const source = self.session.nodeAt(from) orelse return self.session.failNow("That row is gone. Try again.");
+        const target = self.session.nodeAt(to) orelse return self.session.failNow("That row is gone. Try again.");
+        const moved_name = Session.name(source.*);
+        const target_name = Session.name(target.*);
+        if (Path.eql(from_parent.?, to_parent.?)) {
+            const parent = self.session.nodeAt(from_parent.?) orelse return self.session.failNow("That folder is gone. Try again.");
+            const to_index = to.segments[to.depth - 1];
+            // The slot is asked in the list the row has ALREADY left, so anything past it comes back one.
+            var at = if (above) to_index else to_index + 1;
+            if (at > from_index) at -= 1;
+            if (at == from_index) return;
+            if (!postman.moveChild(parent, from_index, at)) return self.session.failNow("Could not move that row.");
+            self.expand(from_parent.?, true);
+            self.session.selection = from_parent.?.child(@intCast(at));
+            self.session.commit();
+            self.session.setStatus(false, "Moved {s} {s} {s}.", .{ moved_name, side(above), target_name });
+            return;
+        }
+        // Cross-parent: the row leaves one folder and takes the slot it was dropped on in another.
+        const old_parent = self.session.nodeAt(from_parent.?) orelse return self.session.failNow("That folder is gone. Try again.");
+        const node = postman.detachChild(self.session.docArena(), old_parent, from_index) orelse return self.session.failNow("That row is gone. Try again.");
+        const destination = shiftDown(to, from_parent.?.depth, from_index);
+        const new_parent_path = destination.parent() orelse return self.session.failNow("That row is gone. Try again.");
+        const new_parent = self.session.nodeAt(new_parent_path) orelse return self.session.failNow("That folder is gone. Try again.");
+        const to_index = destination.segments[destination.depth - 1];
+        const at = postman.insertChild(self.session.gpa, new_parent, if (above) to_index else to_index + 1, node) catch return self.session.failNow("Could not move that row.");
+        self.expand(new_parent_path, true);
+        self.expandAncestors(new_parent_path);
+        self.session.selection = new_parent_path.child(@intCast(at));
+        self.session.commit();
+        self.session.setStatus(false, "Moved {s} {s} {s}.", .{ moved_name, side(above), target_name });
+    }
+
+    // Two collections in one workspace: the same above-or-below move, applied to `collections[]`.
+    fn moveCollectionBeside(self: *Sidebar, from: Path, to: Path, above: bool) void {
+        const from_index: usize = from.segments[0];
+        const to_index: usize = to.segments[0];
+        var at = if (above) to_index else to_index + 1;
+        if (at > from_index) at -= 1;
+        if (at == from_index) return;
+        const source = store.collectionAt(self.session.doc, self.session.workspace, from_index) orelse return self.session.failNow("That collection is gone. Try again.");
+        const target = store.collectionAt(self.session.doc, self.session.workspace, to_index) orelse return self.session.failNow("That collection is gone. Try again.");
+        const moved_name = Session.name(source);
+        const target_name = Session.name(target);
+        if (!store.moveCollection(self.session.gpa, &self.session.doc, self.session.workspace, from_index, at)) return self.session.failNow("Could not move that collection.");
+        self.session.selection = Path.empty.child(@intCast(at));
+        self.session.commit();
+        self.session.setStatus(false, "Moved {s} {s} {s}.", .{ moved_name, side(above), target_name });
     }
 
     // A right-click menu pick for the row at `row_index`: the row's PATH is read now, so a shifted row cannot act on a neighbour.

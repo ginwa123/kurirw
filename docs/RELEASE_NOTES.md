@@ -28,6 +28,20 @@ Or download the archive for your machine from the assets below and run the binar
 | Linux x86_64 | `kurirw-linux-x86_64.tar.gz` | built on Ubuntu 24.04, so it wants glibc 2.39+; run it in a Wayland session with the pango/cairo and libcurl runtime libraries installed |
 | Windows x86_64 | `kurirw-windows-x86_64.zip` | self-contained: `Send` works over http and https, with TLS through Windows' own certificate store |
 
+## New: drop a row anywhere — beside a row, or inside a folder
+
+- **Every drop is now a real move.** Onto the **top or bottom edge** of a row it takes that slot; onto
+  the **middle of a folder or a collection** it goes *inside*, and the container opens to show it. One
+  rule, one gesture: the third of the row you let go over is the answer.
+- **Cross-folder moves work.** Dragging a request out of one folder and onto a line in another was
+  refused before; it now carries the request across, and the sidebar selects what moved so the status
+  line can say where it went ("Moved Request 1 into Folder 2").
+- **The folder glyph is back**, and a method chip sits where the folder is for a request row, so a
+  folder and its contents read as one column.
+- **The tree looks the way it did before it became a component:** `v` / `>` carets at twelve points,
+  four points of gutter, an accent bar on the selected row, and a slightly heavier label on a
+  container.
+
 ## New: drag to reorder, and a calmer selection
 
 - **Drag a request or a folder onto a sibling** in the sidebar and it takes that slot. The rule is

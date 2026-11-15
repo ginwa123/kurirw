@@ -136,6 +136,15 @@ pub fn removeCollection(doc: *Value, workspace_index: usize, index: usize) void 
     _ = list.array.orderedRemove(index);
 }
 
+// Move a collection within its workspace, so the top level reorders like any other list of rows.
+pub fn moveCollection(alloc: Allocator, doc: *Value, workspace_index: usize, from: usize, to: usize) bool {
+    const list = collectionsPtr(alloc, doc, workspace_index) catch return false;
+    if (from >= list.items.len or to >= list.items.len or from == to) return false;
+    const collection = list.orderedRemove(from);
+    list.insert(to, collection) catch return false;
+    return true;
+}
+
 // ---- the file ------------------------------------------------------------------------------------------------
 
 // `$KURIR_HOME`, else `$HOME/.kurir`, else the current directory. Returns the full path to the document file.

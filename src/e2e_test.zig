@@ -976,6 +976,131 @@ test "dragging a request onto its sibling reorders the document" {
     try testing.expectEqualStrings("Request 2", kurirw.postman.str(kurirw.postman.itemAt(collection.*, 0).?, "name"));
     try testing.expectEqualStrings("Request 1", kurirw.postman.str(kurirw.postman.itemAt(collection.*, 1).?, "name"));
     try testing.expect(std.mem.indexOf(u8, h.app.vm().uiState().status, "Moved") != null);
+    // The row that moved is the one selected, whichever zone the drop used.
+    const selection = h.app.vm().session.selection orelse return error.NothingSelected;
+    try testing.expectEqual(@as(?u16, 0), selection.at(1));
+}
+
+// A drag between two tree rows: `f` picks the point in the target's band, 0 its top edge and 1 its bottom.
+fn dragRows(h: *Harness, from_row: usize, to_row: usize, f: f32) !void {
+    const a = glinlandui.frame.bounds(glinlandui.components.tree.rowId("kurir.tree", from_row)) orelse return error.ElementNotFound;
+    const b = glinlandui.frame.bounds(glinlandui.components.tree.rowId("kurir.tree", to_row)) orelse return error.ElementNotFound;
+    h.driver.drag(a.x + a.width * 0.5, a.y + a.height * 0.5, b.x + b.width * 0.5, b.y + b.height * f);
+}
+
+// A plain click on a tree row, which selects it and opens or closes a container.
+fn clickTreeRow(h: *Harness, index: usize) !void {
+    const bb = glinlandui.frame.bounds(glinlandui.components.tree.rowId("kurir.tree", index)) orelse return error.ElementNotFound;
+    h.driver.clickAt(bb.x + bb.width * 0.5, bb.y + bb.height * 0.5);
+}
+
+test "dragging a request onto the middle of a folder moves it inside, and the folder opens" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
+    // Selecting the collection and adding a folder appends it after the request, and reopens the collection.
+    try clickTreeRow(&h, 0);
+    try newMenu(&h, 2);
+    h.driver.frame();
+    // Rows: 0 the collection, 1 "Request 1", 2 the folder.
+    try testing.expectEqual(@as(usize, 3), h.app.vm().uiState().rows.len);
+    const folder_row = h.app.vm().session.nodeAt(kurirw.state.Path.empty.child(0).child(1)) orelse return error.NothingThere;
+    // The folder's own name, read before the drop: this test is about the move, not about the naming counter.
+    const folder_name = kurirw.postman.str(folder_row.*, "name");
+
+    // The middle third of a container row is the drop INSIDE it.
+    try dragRows(&h, 1, 2, 0.5);
+    h.driver.frame();
+
+    const collection = h.app.vm().session.nodeAt(kurirw.state.Path.empty.child(0)) orelse return error.NothingThere;
+    try testing.expectEqual(@as(usize, 1), kurirw.postman.itemCount(collection.*));
+    const folder = kurirw.postman.itemAt(collection.*, 0) orelse return error.NothingThere;
+    try testing.expectEqualStrings(folder_name, kurirw.postman.str(folder, "name"));
+    try testing.expectEqual(@as(usize, 1), kurirw.postman.itemCount(folder));
+    try testing.expectEqualStrings("Request 1", kurirw.postman.str(kurirw.postman.itemAt(folder, 0) orelse return error.NothingThere, "name"));
+
+    // The folder is open, and the selection followed the row into it: the collection, the folder, the request.
+    try testing.expect(h.app.vm().sidebar.isExpanded(kurirw.state.Path.empty.child(0).child(0)));
+    const selection = h.app.vm().session.selection orelse return error.NothingSelected;
+    try testing.expectEqual(@as(usize, 3), selection.depth);
+    try testing.expectEqual(@as(?u16, 0), selection.at(1));
+    try testing.expect(std.mem.indexOf(u8, h.app.vm().uiState().status, "into") != null);
+}
+
+test "dragging a request onto the top of another folder's row carries it out of its own folder" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try newMenu(&h, 0);
+    try newMenu(&h, 2);
+    try newMenu(&h, 1);
+    // Back to the collection, so the second folder lands beside the first instead of inside it.
+    try clickTreeRow(&h, 0);
+    try newMenu(&h, 2);
+    h.driver.frame();
+    // Rows: 0 the collection, 1 "Folder 1", 2 "Request 1" inside it, 3 "Folder 2".
+    try testing.expectEqual(@as(usize, 4), h.app.vm().uiState().rows.len);
+
+    // The top of a row is a boundary, not a drop inside: the request lands beside "Folder 2", in the collection.
+    try dragRows(&h, 2, 3, 0.1);
+    h.driver.frame();
+
+    const collection = h.app.vm().session.nodeAt(kurirw.state.Path.empty.child(0)) orelse return error.NothingThere;
+    try testing.expectEqual(@as(usize, 3), kurirw.postman.itemCount(collection.*));
+    const first = kurirw.postman.itemAt(collection.*, 0) orelse return error.NothingThere;
+    const middle = kurirw.postman.itemAt(collection.*, 1) orelse return error.NothingThere;
+    const last = kurirw.postman.itemAt(collection.*, 2) orelse return error.NothingThere;
+    try testing.expectEqualStrings("Folder 1", kurirw.postman.str(first, "name"));
+    try testing.expectEqualStrings("Request 1", kurirw.postman.str(middle, "name"));
+    try testing.expectEqualStrings("Folder 2", kurirw.postman.str(last, "name"));
+    // It left the folder it was in, rather than being copied.
+    try testing.expectEqual(@as(usize, 0), kurirw.postman.itemCount(first));
+    // The selection moved with it: a child of the collection now, not of the folder.
+    const selection = h.app.vm().session.selection orelse return error.NothingSelected;
+    try testing.expectEqual(@as(usize, 2), selection.depth);
+    try testing.expectEqual(@as(?u16, 1), selection.at(1));
+    try testing.expect(std.mem.indexOf(u8, h.app.vm().uiState().status, "above") != null);
+}
+
+test "dragging a request onto a collection row moves it into that collection" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
+    try newMenu(&h, 0);
+    h.driver.frame();
+    // Rows: 0 "Collection 1", 1 its request, 2 "Collection 2".
+    try testing.expectEqual(@as(usize, 3), h.app.vm().uiState().rows.len);
+
+    try dragRows(&h, 1, 2, 0.5);
+    h.driver.frame();
+
+    const first = h.app.vm().session.nodeAt(kurirw.state.Path.empty.child(0)) orelse return error.NothingThere;
+    const second = h.app.vm().session.nodeAt(kurirw.state.Path.empty.child(1)) orelse return error.NothingThere;
+    try testing.expectEqual(@as(usize, 0), kurirw.postman.itemCount(first.*));
+    try testing.expectEqual(@as(usize, 1), kurirw.postman.itemCount(second.*));
+    try testing.expectEqualStrings("Request 1", kurirw.postman.str(kurirw.postman.itemAt(second.*, 0) orelse return error.NothingThere, "name"));
+    // The collection it landed in is open, and the request inside it is the selection.
+    try testing.expect(h.app.vm().sidebar.isExpanded(kurirw.state.Path.empty.child(1)));
+    const selection = h.app.vm().session.selection orelse return error.NothingSelected;
+    try testing.expectEqual(@as(usize, 2), selection.depth);
+    try testing.expectEqual(@as(?u16, 0), selection.at(1));
+    try testing.expect(std.mem.indexOf(u8, h.app.vm().uiState().status, "into") != null);
 }
 
 test "dragging inside the response body selects text and leaves the pane where it was" {
