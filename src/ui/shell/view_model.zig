@@ -113,9 +113,6 @@ pub const KurirViewModel = struct {
         self.pump = deps.pump;
         self.session.start(deps.gpa, deps.io, deps.theme, deps.path, deps.workspace);
         self.sidebar.start(&self.session);
-        // A row click selects here, not in the panel: the editor has to follow the selection.
-        self.sidebar.click_owner = self;
-        self.sidebar.click_fn = onRowClick;
         self.editor.start(&self.session);
         self.response.start(&self.session);
         // The one intent that crosses panels: Ctrl/Cmd+Enter while the body has the keyboard sends.
@@ -217,12 +214,6 @@ pub const KurirViewModel = struct {
 
     pub fn toggleSidebar(self: *KurirViewModel) void {
         self.sidebar.togglePanel();
-    }
-
-    // The row click the panel's boxes raise, installed once in `start`.
-    fn onRowClick(raw: ?*anyopaque, index: usize) void {
-        const self: *KurirViewModel = @ptrCast(@alignCast(raw.?));
-        self.onRowSelect(index);
     }
 
     // The panel's two menus and its filter, as the view raises them.

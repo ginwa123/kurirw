@@ -177,14 +177,14 @@ The rules the code keeps:
   under its anchor with no scrim, and closes when the pointer leaves the button and the card as one
   box. A card is only as wide as its anchor, so `+ New` is 84 points wide with short row labels
   (`Collection`, `Request`, `Folder`, `Import`), and the workspace menu hangs from the whole header row.
-- **The collection tree is hand-rolled boxes, not `components.list`**: a row is a click target with a
-  2-point accent bar when selected, a caret, a folder drawn from two rectangles (a tab and a body) or
-  a method chip, the name, and a container's child count at the right edge. `list` was the wrong
-  shape — one `row_h` for every row, and a row that is a clickable box of children needs its own
-  context (see below).
-- **A row's click context is a fixed array on the panel** (`row_ctxs: [max_tree_rows]RowCtx`). A click
-  is dispatched on a later frame than the one that registered it, so a growable list would move and
-  leave the registered pointer on freed memory.
+- **The collection tree is `components.tree`, not hand-rolled boxes**: the panel hands it one `Row` per
+  tree row (label, depth, caret state, and a container's child count as the meta) plus one
+  `ContextMenu` per row, and the component owns the band, the indent, the caret, the selection bar and
+  the drag. A request's method chip is its `row_extra`, so it still sits between the caret and the name.
+- **A row's click context is a fixed array on the panel** (`row_ctxs: [max_tree_rows]RowCtx`), and each
+  row's context menu carries `&row_ctxs[i]` as its select ctx. A click is dispatched on a later frame
+  than the one that registered it, so a growable list would move and leave the registered pointer on
+  freed memory.
 - **The filter is a real filter**: it narrows the tree to requests whose name or URL holds the text,
   keeps the collection and folder above each match, opens containers while a query is live, and says
   "Nothing matches that filter" instead of drawing a blank panel.

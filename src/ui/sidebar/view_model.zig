@@ -3,11 +3,12 @@ const std = @import("std");
 const glinlandui = @import("glinlandui");
 const input_mod = glinlandui.components.input;
 const sidebar_mod = glinlandui.components.sidebar;
+const tree_mod = glinlandui.components.tree;
 const frame = glinlandui.frame;
+const prop = glinlandui.props;
 
 const postman = @import("../../data/model/postman.zig");
 const curl = @import("../../data/model/curl.zig");
-const reorder_mod = glinlandui.components.reorder;
 const curl_transfer = @import("../../domain/usecase/curl_transfer.zig");
 const store = @import("../../data/local/workspace_store.zig");
 const state_mod = @import("../../ui/state.zig");
@@ -35,8 +36,7 @@ pub const ws_panel_id = "kurir.ws.panel";
 pub const new_rows = [_][]const u8{ "Collection", "Request", "Folder", "Import", "From cURL" };
 // What a request row offers on a right click, in the order `pickRowMenu` switches on.
 pub const row_menu_items = [_][]const u8{ "Rename", "Duplicate", "Delete" };
-// The id the tree's rows register their drag-to-reorder under, and the box ids they are named with.
-pub const tree_reorder_id = "kurir.tree";
+// The workspace menu's rows, in the order `onWsPick` switches on.
 pub const ws_rows = [_][]const u8{ "New workspace", "Delete workspace", "Export collection" };
 
 // How many bytes a row's name may take before its tail becomes "..".
@@ -88,6 +88,12 @@ fn matchesQuery(node: Value, query: []const u8) bool {
     return false;
 }
 
+// The menu names the row it was raised from, and the panel turns that row into its path.
+pub fn onRowMenu(raw: ?*anyopaque, action: usize) void {
+    const rc: *const Sidebar.RowCtx = @ptrCast(@alignCast(raw.?));
+    rc.sidebar.pickRowMenu(rc.index, action);
+}
+
 pub const Sidebar = struct {
     session: *Session = undefined,
 
@@ -110,10 +116,6 @@ pub const Sidebar = struct {
     // One click context per row, in a FIXED array: an ArrayList reallocs and a registered click outlives the frame.
     row_ctxs: [state_mod.max_tree_rows]RowCtx = undefined,
     row_ctx_count: usize = 0,
-
-    // The intent a row click raises. The shell installs it, because selecting moves the editor too.
-    click_owner: ?*anyopaque = null,
-    click_fn: ?*const fn (?*anyopaque, usize) void = null,
 
     pub const RowCtx = struct {
         sidebar: *Sidebar,
@@ -672,10 +674,46 @@ pub const Sidebar = struct {
         self.session.touch();
     }
 
+    // The tree component's own row shape: a label, a depth, its caret state, and its count as the meta.
+    fn treeRows(self: *Sidebar, arena: Allocator) []const tree_mod.Row {
+        const out = arena.alloc(tree_mod.Row, self.rows.items.len) catch return &.{};
+        for (self.rows.items, out) |r, *row| {
+            row.* = .{
+                .label = r.label,
+                .depth = r.depth,
+                .has_children = r.has_children,
+                .expanded = r.expanded,
+                .selected = r.selected,
+                .meta = if (r.count > 0) std.fmt.allocPrint(arena, "{d}", .{r.count}) catch "" else "",
+                .kind = if (r.kind == .request) .item else .group,
+            };
+        }
+        return out;
+    }
+
+    // One menu per row: a request offers rename, duplicate and delete; a container offers nothing.
+    fn treeMenus(self: *Sidebar, arena: Allocator) []const prop.ContextMenu {
+        const out = arena.alloc(prop.ContextMenu, self.rows.items.len) catch return &.{};
+        const t = self.session.theme;
+        for (self.rows.items, out, 0..) |r, *menu, i| {
+            menu.* = if (r.kind != .request) .{} else .{
+                .items = &row_menu_items,
+                .on_select = .{ .f = onRowMenu, .ctx = &self.row_ctxs[i] },
+                .bg = t.colors.surface,
+                .fg = t.colors.text,
+                .hover_bg = t.colors.hover,
+                .border = t.colors.divider,
+            };
+        }
+        return out;
+    }
+
     // The panel's slice of the frame: the rows, the workspace strip, and what the tools may do.
     pub fn snapshot(self: *Sidebar, u: *UiState, arena: Allocator) void {
         self.rebuildRows();
         u.rows = self.rows.items;
+        u.tree_rows = self.treeRows(arena);
+        u.tree_menus = self.treeMenus(arena);
         u.selection = self.session.selection;
         u.workspace_index = self.session.workspace;
         u.workspace_count = store.workspaceCount(self.session.doc);

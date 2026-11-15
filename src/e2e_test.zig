@@ -844,7 +844,7 @@ fn clickMenuRow(h: *Harness, index: usize) !void {
 
 // A secondary press on a tree row, and the frame that draws the card it opened.
 fn rightClickTreeRow(h: *Harness, index: usize) !void {
-    const bb = h.driver.box(glinlandui.frame.elementId("kurir.tree.row", index)) orelse return error.ElementNotFound;
+    const bb = glinlandui.frame.bounds(glinlandui.components.tree.rowId("kurir.tree", index)) orelse return error.ElementNotFound;
     const x = bb.x + bb.width * 0.5;
     const y = bb.y + bb.height * 0.5;
     const right = glinlandui.components.dispatch.BTN_RIGHT;
@@ -965,8 +965,8 @@ test "dragging a request onto its sibling reorders the document" {
     // Rows: 0 the collection, 1 "Request 1", 2 "Request 2".
     try testing.expectEqual(@as(usize, 3), h.app.vm().uiState().rows.len);
 
-    const from = h.driver.box(glinlandui.frame.elementId("kurir.tree.row", 2)).?;
-    const onto = h.driver.box(glinlandui.frame.elementId("kurir.tree.row", 1)).?;
+    const from = glinlandui.frame.bounds(glinlandui.components.tree.rowId("kurir.tree", 2)).?;
+    const onto = glinlandui.frame.bounds(glinlandui.components.tree.rowId("kurir.tree", 1)).?;
     // Aim at the TOP of the target row: a drop boundary is the nearest row edge above the pointer.
     h.driver.drag(from.x + from.width * 0.5, from.y + from.height * 0.5, onto.x + onto.width * 0.5, onto.y + 4);
     h.driver.frame();

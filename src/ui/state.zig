@@ -1,6 +1,10 @@
 //! The screen's state as a VALUE: every field the view draws, and the pure helpers that turn numbers into labels.
 const std = @import("std");
+const glinlandui = @import("glinlandui");
 const postman = @import("../data/model/postman.zig");
+
+const tree_mod = glinlandui.components.tree;
+const props = glinlandui.props;
 
 // The two panes share the window between them: the response may not grow past the editor's floor, and vice versa.
 pub const editor_min_h: f32 = 260;
@@ -117,6 +121,9 @@ pub const ResponseView = struct {
 // Everything the frame draws. Slices point into memory the ViewModel owns and keeps until the next intent.
 pub const UiState = struct {
     rows: []const TreeRow = &.{},
+    // The same rows in the tree component's shape, and one right-click menu per row, both built in the view arena.
+    tree_rows: []const tree_mod.Row = &.{},
+    tree_menus: []const props.ContextMenu = &.{},
     selection: ?Path = null,
     workspace_name: []const u8 = "",
     workspace_index: usize = 0,

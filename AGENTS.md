@@ -61,8 +61,8 @@ src/e2e_test.zig                   the acceptance path, headless
   at a declare-time stack value.
 - **A row's click context lives in a fixed array on the panel** (`vm.sidebar.row_ctxs[512]`). A click is
   dispatched on a later frame than the one that registered it, so an `ArrayList` of contexts would move
-  and leave the registered pointer on freed memory. A tree row is a `box.on_click`, not a `list` row:
-  rows are 30 points with a chip, a count and a selection bar, which `list`'s single `row_h` cannot carry.
+  and leave the registered pointer on freed memory. The tree hands each row's context menu
+  `&row_ctxs[i]`, and the panel builds those menus in its snapshot.
 - **A menu card is as wide as its anchor.** `+ New` is 84 points wide with four short labels and the
   workspace menu hangs from the whole header row; a card anchored to a 26-point button clips its rows.
 - **Element ids must be unique per frame.** `frame.elementId(prefix, i)` for anything per-row.

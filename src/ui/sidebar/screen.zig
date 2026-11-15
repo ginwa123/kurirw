@@ -1,4 +1,4 @@
-//! The left panel's screen: the workspace header, the filter and "+ New" row, and the hand-rolled tree.
+//! The left panel's screen: the workspace header, the filter and "+ New" row, and the collection tree.
 const glinlandui = @import("glinlandui");
 
 const box_mod = glinlandui.components.box;
@@ -8,19 +8,20 @@ const input_mod = glinlandui.components.input;
 const scroll_mod = glinlandui.components.scroll;
 const sidebar_mod = glinlandui.components.sidebar;
 const text_mod = glinlandui.components.text;
+const tree_mod = glinlandui.components.tree;
 const frame = glinlandui.frame;
 const props = glinlandui.props;
-const reorder_mod = glinlandui.components.reorder;
 
-const state_mod = @import("../../ui/state.zig");
 const theme_mod = @import("../theme/theme.zig");
 const scope_mod = @import("../shell/scope.zig");
 const sidebar_vm = @import("view_model.zig");
 const actions = @import("../shell/actions.zig");
 
 const Scope = scope_mod.Scope;
+const Color = glinlandui.Color;
 const row_h = scope_mod.row_h;
 const indent = scope_mod.indent;
+const tree_id = "kurir.tree";
 
 pub fn sidebarChildren(scope: *Scope) void {
     // Pinned to the panel's own width: text metrics must never widen the panel past the line the pointer holds.
@@ -145,14 +146,6 @@ pub fn searchRowChildren(scope: *Scope) void {
     });
 }
 
-pub fn noChildren(scope: *Scope) void {
-    _ = scope;
-}
-
-fn iconNoChildren(ic: *const IconCtx) void {
-    _ = ic;
-}
-
 pub fn sectionLabel(scope: *Scope) void {
     const t = scope.theme;
     box_mod.box(.{
@@ -176,7 +169,7 @@ pub fn tree(scope: *Scope) void {
         return;
     }
     scroll_mod.scroll(.{
-        .id = .{ .text = "kurir.tree" },
+        .id = .{ .text = "kurir.tree.scroll" },
         .direction = .vertical,
         .w = .grow,
         .h = .grow,
@@ -216,10 +209,29 @@ pub fn emptyTreeChildren(scope: *Scope) void {
 }
 
 pub fn treeChildren(scope: *Scope) void {
-    var i: usize = 0;
-    while (i < scope.state.rows.len and i < state_mod.max_tree_rows) : (i += 1) row(scope, i);
-    // Last, so the drop line paints over the rows it separates.
-    reorder_mod.declareLine(sidebar_vm.tree_reorder_id);
+    const t = scope.theme;
+    tree_mod.tree(.{
+        .src = @src(),
+        .id = .{ .text = tree_id },
+        .rows = scope.state.tree_rows,
+        .row_h = .{ .px = @floatFromInt(row_h) },
+        .indent = .{ .px = @floatFromInt(indent) },
+        .pad_lr = .{ .px = 8 },
+        .row_bg = t.colors.surface,
+        .selected_bg = Color.lerp(t.colors.surface, theme_mod.accent, 0.12),
+        .hover_bg = t.colors.hover,
+        .fg = t.colors.text,
+        .selected_fg = t.colors.text,
+        .group_fg = t.colors.text,
+        .meta_fg = t.colors.text_done,
+        .caret_fg = t.colors.text_dim,
+        .radius = .{ .px = 4 },
+        .selected_bar = theme_mod.accent,
+        .on_select = .{ .f = actions.onRow, .ctx = scope.vm },
+        .context_menus = scope.state.tree_menus,
+        .reorder = .{ .on_move = onTreeMove, .ctx = &scope.vm.sidebar },
+        .row_extra = .{ .f = chipExtra, .ctx = scope },
+    });
 }
 
 // The engine reports the two row indices; the panel owns what a move means for the document.
@@ -228,174 +240,27 @@ fn onTreeMove(ctx: ?*anyopaque, from: usize, to: usize) void {
     sb.onTreeMove(from, to);
 }
 
-// One row is one click target: a bar, a caret, an icon or a method chip, the name, and what else it knows.
-pub fn row(scope: *Scope, index: usize) void {
+// The app's own decor for a row: a request carries its method chip between the engine's caret and label.
+fn chipExtra(ctx: ?*anyopaque, index: usize) void {
+    const scope: *Scope = @ptrCast(@alignCast(ctx.?));
+    if (index >= scope.state.rows.len) return;
     const r = scope.state.rows[index];
-    const row_text = frame.elementId("kurir.tree.row", index);
-    // A request or a folder can be dragged onto a sibling to reorder it; a collection sits at the top level.
-    if (r.kind != .collection) {
-        reorder_mod.register(sidebar_vm.tree_reorder_id, frame.clayId(row_text), index, .{ .on_move = onTreeMove, .ctx = &scope.vm.sidebar });
-    }
-    box_mod.box(.{
-        .src = @src(),
-        .id = .{ .text = row_text },
-        .direction = .row,
-        .w = .grow,
-        .h = .{ .fixed = @floatFromInt(row_h) },
-        .bg = if (r.selected) Color.lerp(scope.theme.colors.surface, theme_mod.accent, 0.12) else null,
-        .hover_bg = scope.theme.colors.hover,
-        .gap = .{ .px = 6 },
-        .pad = props.Pad.sides(0, 8, 0, @floatFromInt(4 + r.depth * indent)),
-        .child_align = .{ .y = .center },
-        .on_click = .{ .f = actions.onRowCtx, .ctx = &scope.vm.sidebar.row_ctxs[index] },
-        .context_menu = rowMenu(scope, index, r.kind),
-    }, &RowCtx{ .scope = scope, .index = index }, rowChildren);
-}
-
-// A request row offers rename, duplicate and delete on a right click; a collection or folder has no menu.
-fn rowMenu(scope: *Scope, index: usize, kind: state_mod.NodeKind) props.ContextMenu {
-    if (kind != .request) return .{};
-    const t = scope.theme;
-    return .{
-        .items = &sidebar_vm.row_menu_items,
-        .on_select = .{ .f = onRowMenu, .ctx = &scope.vm.sidebar.row_ctxs[index] },
-        .bg = t.colors.surface,
-        .fg = t.colors.text,
-        .hover_bg = t.colors.hover,
-        .border = t.colors.divider,
-    };
-}
-
-// The menu names the row it was raised from, and the panel turns that row into its path.
-fn onRowMenu(ctx: ?*anyopaque, action: usize) void {
-    const rc: *const sidebar_vm.Sidebar.RowCtx = @ptrCast(@alignCast(ctx.?));
-    rc.sidebar.pickRowMenu(rc.index, action);
-}
-
-const Color = glinlandui.Color;
-
-const RowCtx = struct {
-    scope: *Scope,
-    index: usize,
-};
-
-pub fn rowChildren(rc: *const RowCtx) void {
-    const scope = rc.scope;
-    const t = scope.theme;
-    const r = scope.state.rows[rc.index];
-
-    // The selection mark: a full-height accent bar, drawn even when nothing is selected so text never shifts.
-    box_mod.box(.{
-        .src = @src(),
-        .id = .{ .text = frame.elementId("kurir.tree.bar", rc.index) },
-        .direction = .row,
-        .w = .{ .fixed = 2 },
-        .h = .grow,
-        .bg = if (r.selected) theme_mod.accent else null,
-    }, scope, noChildren);
-
-    if (r.kind == .request) {
-        // A request has no caret, so its chip sits exactly where a container's icon does.
-        methodChip(scope, rc.index, r.method);
-        text_mod.label(.{ .label = .{ .text = r.label, .size = t.type_scale.body, .color = t.colors.text } });
-    } else {
-        box_mod.box(.{
-            .src = @src(),
-            .id = .{ .text = frame.elementId("kurir.tree.caret", rc.index) },
-            .direction = .row,
-            .w = .{ .fixed = 10 },
-            .h = .grow,
-            .child_align = .{ .x = .center, .y = .center },
-        }, &CaretCtx{ .theme = t, .row = r }, caretChildren);
-        folderIcon(scope, rc.index);
-        text_mod.label(.{ .label = .{ .text = r.label, .size = t.type_scale.body, .color = t.colors.text } });
-        box_mod.spacer(.{ .text = frame.elementId("kurir.tree.gap", rc.index) });
-        if (r.count > 0) {
-            text_mod.label(.{ .label = .{
-                .text = frame.formatText("{d}", .{r.count}),
-                .size = t.type_scale.caption,
-                .color = t.colors.text_done,
-            } });
-        }
-    }
-}
-
-const CaretCtx = struct {
-    theme: glinlandui.theme.Theme,
-    row: state_mod.TreeRow,
-};
-
-pub fn caretChildren(cc: *const CaretCtx) void {
-    if (!cc.row.has_children) return;
-    text_mod.label(.{ .label = .{
-        .text = if (cc.row.expanded) "v" else ">",
-        .size = cc.theme.type_scale.caption,
-        .color = cc.theme.colors.text_dim,
-    } });
-}
-
-// A container's icon, drawn rather than typed: the font has no folder glyph, and a box would read as one missing.
-pub fn folderIcon(scope: *Scope, index: usize) void {
-    box_mod.box(.{
-        .src = @src(),
-        .id = .{ .text = frame.elementId("kurir.tree.icon", index) },
-        .direction = .column,
-        .w = .{ .fixed = 12 },
-        .h = .{ .fixed = 10 },
-        .gap = .{ .px = 0 },
-    }, &IconCtx{ .theme = scope.theme, .index = index }, folderChildren);
-}
-
-const IconCtx = struct {
-    theme: glinlandui.theme.Theme,
-    index: usize,
-};
-
-pub fn folderChildren(ic: *const IconCtx) void {
-    const t = ic.theme;
-    // The tab first, then the body: a two-part silhouette reads as a folder, where a ring or a glyph cannot.
-    box_mod.box(.{
-        .src = @src(),
-        .id = .{ .text = frame.elementId("kurir.tree.icon.tab", ic.index) },
-        .direction = .row,
-        .w = .{ .fixed = 5 },
-        .h = .{ .fixed = 2 },
-        .bg = t.colors.text_done,
-        .radius = props.Radius.all(1),
-    }, ic, iconNoChildren);
-    box_mod.box(.{
-        .src = @src(),
-        .id = .{ .text = frame.elementId("kurir.tree.icon.body", ic.index) },
-        .direction = .row,
-        .w = .{ .fixed = 12 },
-        .h = .{ .fixed = 8 },
-        .bg = Color.withAlpha(t.colors.text_dim, 46),
-        .border = .all(1, t.colors.text_done),
-        .radius = props.Radius.all(2),
-    }, ic, iconNoChildren);
-}
-
-// A verb's chip: a tint of its own tone, so the column of requests can be read at a glance.
-pub fn methodChip(scope: *Scope, index: usize, method: []const u8) void {
-    _ = scope;
+    if (r.kind != .request) return;
     box_mod.box(.{
         .src = @src(),
         .id = .{ .text = frame.elementId("kurir.tree.chip", index) },
         .direction = .row,
         .w = .{ .fixed = 46 },
         .h = .{ .fixed = 18 },
-        .bg = theme_mod.chipBg(method),
+        .bg = theme_mod.chipBg(r.method),
         .radius = props.Radius.all(4),
         .child_align = .{ .x = .center, .y = .center },
-    }, &ChipCtx{ .method = method }, chipChildren);
+    }, &r.method, chipLabel);
 }
 
-const ChipCtx = struct {
-    method: []const u8,
-};
-
-pub fn chipChildren(cc: *const ChipCtx) void {
-    text_mod.label(.{ .label = .{ .text = cc.method, .size = .{ .px = 10 }, .color = theme_mod.methodColor(cc.method) } });
+// A verb's chip: a tint of its own tone, so the column of requests can be read at a glance.
+fn chipLabel(method: *const []const u8) void {
+    text_mod.label(.{ .label = .{ .text = method.*, .size = .{ .px = 10 }, .color = theme_mod.methodColor(method.*) } });
 }
 
 // ---- the two menus ----------------------------------------------------------------------------------
