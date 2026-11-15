@@ -1,4 +1,33 @@
+# Zig build artifacts
 .zig-cache/
+zig-cache/
 zig-out/
-.zig-cache
 zig-pkg/
+
+# Objects and libraries a stray `zig build-exe`/`zig cc` leaves behind
+*.o
+*.obj
+*.a
+*.lib
+*.so
+*.so.*
+*.dylib
+*.pdb
+*.ilk
+*.gcda
+*.gcno
+
+# Import libraries / archives Zig writes next to an executable
+*.dll.a
+*.exe.lib
+
+# A local package override (path deps) and the release archives the installer fetches
+dist/
+*.tar.gz
+*.zip
+
+# Editors and operating systems
+.DS_Store
+.idea/
+.vscode/
+*.swp
