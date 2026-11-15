@@ -199,7 +199,7 @@ pub const Session = struct {
             .caret_fg = t.colors.primary,
             .radius = glinlandui.props.Radius.all(6),
             .pad = glinlandui.props.Pad.axes(7, 9),
-            .border = .{ .width = 1, .color = t.colors.divider },
+            .border = .all(1, t.colors.divider),
             .h = .{ .fixed = 30 },
         };
     }

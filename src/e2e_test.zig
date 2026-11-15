@@ -176,6 +176,42 @@ test "a slow request does not block the frame: the window keeps drawing and the 
     try h.driver.expectText("200 OK");
 }
 
+test "a one-megabyte answer is kept whole and drawn from the top" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try h.driver.click("kurir.add.collection");
+    try h.driver.click("kurir.add.request");
+    try h.driver.click(view_model.url_field_id);
+    try h.driver.typeText("https://api.example.com/big");
+
+    // One megabyte of JSON the size of the demo file, with the same shape: many short lines.
+    var body: std.ArrayList(u8) = .empty;
+    defer body.deinit(gpa);
+    try body.appendSlice(gpa, "[\n");
+    while (body.items.len < 1024 * 1024) {
+        try body.appendSlice(gpa, "  { \"name\": \"Adeel Solangi\", \"language\": \"Sindhi\", \"id\": \"V59OF92YF627HFY0\" },\n");
+    }
+    try body.appendSlice(gpa, "]\n");
+    h.fake.body = body.items;
+
+    try h.driver.click("kurir.send");
+    try settle(&h);
+
+    const state = h.app.vm().uiState();
+    try testing.expectEqual(kurirw.state.ResponseKind.ok, state.response.kind);
+    // Every byte is there: a body is not capped, whatever its size.
+    try testing.expect(state.response.body.len >= 1024 * 1024);
+    try testing.expect(state.response.lines.len > 10_000);
+    // And the pane draws the top of it, not twenty-five thousand text runs: "[" then the first record.
+    try h.driver.expectText("[");
+    try h.driver.expectText("  { \"name\": \"Adeel Solangi\", \"language\": \"Sindhi\", \"id\": \"V59OF92YF627HFY0\" },");
+}
+
 test "each endpoint keeps its own result, so the pane follows the selection" {
     const gpa = std.heap.page_allocator;
     var scratch = try Scratch.make(gpa);

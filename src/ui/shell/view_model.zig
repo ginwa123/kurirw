@@ -38,7 +38,6 @@ pub const workspace_field_id = sidebar_mod.workspace_field_id;
 pub const body_id = editor_mod.body_id;
 pub const header_key_prefix = editor_mod.header_key_prefix;
 pub const header_value_prefix = editor_mod.header_value_prefix;
-pub const max_response_bytes = response_mod.max_response_bytes;
 pub const body_pad = editor_mod.body_pad;
 pub const line_height = editor_mod.line_height;
 
@@ -292,6 +291,11 @@ pub const KurirViewModel = struct {
         self.response.setTab(tab);
     }
 
+    // Which body lines a frame must declare. The pane asks the panel, never the geometry itself.
+    pub fn visibleBodyLines(self: *KurirViewModel, total: usize) response_mod.Visible {
+        return self.response.visibleLines(total);
+    }
+
     // ---- sending ----------------------------------------------------------------------------------------
 
     pub fn transport(self: *KurirViewModel, arena: Allocator) http_mod.Transport {
@@ -333,10 +337,11 @@ pub const KurirViewModel = struct {
         const pending = self.job orelse return;
         if (!pending.job.poll()) return;
         const result = pending.job.take();
-        pending.job.destroy(self.session.gpa);
         self.job = null;
         self.pump.set(false);
-        self.response.store(pending.key, result);
+        // Store FIRST: the result and the formatted body point into the job's arena, and `store` copies them out.
+        self.response.store(pending.key, result, pending.job.shown);
+        pending.job.destroy(self.session.gpa);
     }
 
     // ---- import and export ------------------------------------------------------------------------------

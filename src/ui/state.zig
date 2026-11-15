@@ -101,7 +101,8 @@ pub const ResponseView = struct {
     size_text: []const u8 = "",
     time_text: []const u8 = "",
     body: []const u8 = "",
-    truncated_lines: usize = 0,
+    // Byte offset of every line start, so the pane can draw only the lines it can see.
+    lines: []const usize = &.{},
     headers: []const HeaderRow = &.{},
     error_title: []const u8 = "",
     error_message: []const u8 = "",

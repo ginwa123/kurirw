@@ -49,7 +49,7 @@ pub fn workspaceStrip(scope: *Scope) void {
         .direction = .column,
         .w = .grow,
         .pad = props.Pad.sides(10, 10, 8, 10),
-        .gap = 6,
+        .gap = .{ .px = 6 },
     }, scope, workspaceStripChildren);
 }
 
@@ -60,7 +60,7 @@ pub fn workspaceStripChildren(scope: *Scope) void {
         .id = .{ .text = "kurir.ws.head" },
         .direction = .row,
         .w = .grow,
-        .gap = 6,
+        .gap = .{ .px = 6 },
         .child_align = .{ .y = .center },
     }, scope, wsHead);
 
@@ -88,7 +88,7 @@ pub fn toolbar(scope: *Scope) void {
         .direction = .column,
         .w = .grow,
         .pad = props.Pad.sides(0, 10, 8, 10),
-        .gap = 6,
+        .gap = .{ .px = 6 },
     }, scope, toolbarChildren);
 }
 
@@ -98,7 +98,7 @@ pub fn toolbarChildren(scope: *Scope) void {
         .id = .{ .text = "kurir.tools.row1" },
         .direction = .row,
         .w = .grow,
-        .gap = 6,
+        .gap = .{ .px = 6 },
         .child_align = .{ .y = .center },
     }, scope, toolsRowOne);
 
@@ -107,7 +107,7 @@ pub fn toolbarChildren(scope: *Scope) void {
         .id = .{ .text = "kurir.tools.row2" },
         .direction = .row,
         .w = .grow,
-        .gap = 6,
+        .gap = .{ .px = 6 },
         .child_align = .{ .y = .center },
     }, scope, toolsRowTwo);
 }
@@ -132,7 +132,7 @@ pub fn tree(scope: *Scope) void {
             .direction = .column,
             .w = .grow,
             .pad = props.Pad.all(16),
-            .gap = 8,
+            .gap = .{ .px = 8 },
             .hover_bg = scope.theme.colors.hover,
             // The empty state is the first button a new user presses, so it is one.
             .on_click = .{ .f = actions.onAddCollection, .ctx = scope.vm },
@@ -160,13 +160,13 @@ pub fn treeChildren(scope: *Scope) void {
     const t = scope.theme;
     list_mod.list(.{
         .id = .{ .text = "kurir.tree.list" },
-        .row_h = row_h,
+        .row_h = .{ .px = @floatFromInt(row_h) },
         .row_bg = t.colors.surface,
         .hover_bg = t.colors.hover,
         .selected_bg = t.colors.surface_variant,
         .selected_fg = t.colors.text,
         .row_fg = t.colors.text,
-        .radius = 0,
+        .radius = .{ .px = 0 },
         .on_select = .{ .f = actions.onRow, .ctx = scope.vm },
     }, scope.state.rows, scope, renderRow);
 }
@@ -185,8 +185,8 @@ pub fn renderRow(scope: *Scope, row: state_mod.TreeRow, index: usize) void {
         .direction = .row,
         .w = .grow,
         .h = .{ .fixed = @floatFromInt(row_h) },
-        .pad = props.Pad.sides(0, 8, 0, @intCast(8 + row.depth * indent)),
-        .gap = 6,
+        .pad = props.Pad.sides(0, 8, 0, @floatFromInt(8 + row.depth * indent)),
+        .gap = .{ .px = 6 },
         .child_align = .{ .y = .center },
     }, &RowScope{ .scope = scope, .row = row, .index = index }, rowChildren);
 }

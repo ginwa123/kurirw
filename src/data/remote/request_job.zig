@@ -2,6 +2,7 @@
 const std = @import("std");
 
 const http = @import("http_client.zig");
+const body_mod = @import("../model/body.zig");
 
 pub const Allocator = std.mem.Allocator;
 
@@ -11,6 +12,8 @@ pub const Job = struct {
     arena_state: std.heap.ArenaAllocator,
     request: http.Request = .{},
     result: http.Result = .{},
+    // The body as the pane shows it, re-indented and line-indexed: done here, never on the frame thread.
+    shown: body_mod.Shown = .{},
     // The worker stores this LAST, so the frame loop can read `result` without a lock.
     finished: std.atomic.Value(bool) = .init(false),
     future: ?std.Io.Future(http.Result) = null,
@@ -36,6 +39,7 @@ pub const Job = struct {
 
     fn work(job: *Job, transport: http.Transport) http.Result {
         const result = transport.perform(job.request);
+        if (!result.failed) job.shown = body_mod.format(job.arena(), result.body);
         job.result = result;
         job.finished.store(true, .release);
         return result;

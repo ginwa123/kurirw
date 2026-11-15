@@ -18,7 +18,10 @@ const smallButton = widgets.smallButton;
 const tabButton = widgets.tabButton;
 
 const Scope = scope_mod.Scope;
-const max_body_lines = scope_mod.max_body_lines;
+const response_vm = @import("view_model.zig");
+const body_mod = @import("../../data/model/body.zig");
+// One absurd line is drawn cut: a body keeps every byte, a single text run does not.
+const max_line_chars: usize = 1024;
 const Theme = glinlandui.theme.Theme;
 
 pub fn responsePane(scope: *Scope) void {
@@ -30,7 +33,7 @@ pub fn responsePane(scope: *Scope) void {
         .h = .grow,
         .bg = scope.theme.colors.background,
         .pad = props.Pad.all(12),
-        .gap = 8,
+        .gap = .{ .px = 8 },
     }, scope, responseChildren);
 }
 
@@ -45,7 +48,7 @@ pub fn responseHeader(scope: *Scope) void {
         .id = .{ .text = "kurir.response.head" },
         .direction = .row,
         .w = .grow,
-        .gap = 12,
+        .gap = .{ .px = 12 },
         .child_align = .{ .y = .center },
     }, scope, responseHeadChildren);
 }
@@ -82,9 +85,9 @@ pub fn errorBanner(scope: *Scope) void {
         .direction = .column,
         .w = .grow,
         .pad = props.Pad.all(12),
-        .gap = 6,
+        .gap = .{ .px = 6 },
         .bg = t.colors.surface,
-        .border = .{ .width = 1, .color = theme_mod.danger },
+        .border = .all(1, theme_mod.danger),
         .radius = props.Radius.all(6),
     }, scope, errorBannerChildren);
 }
@@ -109,15 +112,15 @@ pub fn okResponse(scope: *Scope) void {
         return;
     }
     scroll_mod.scroll(.{
-        .id = .{ .text = "kurir.response.body" },
+        .id = .{ .text = response_vm.body_scroll_id },
         .direction = .both,
         .w = .grow,
         .h = .grow,
         .bg = t.colors.surface,
-        .border_width = 1,
+        .border_width = .{ .px = 1 },
         .border_color = t.colors.divider,
-        .radius = 6,
-        .pad = 10,
+        .radius = .{ .px = 6 },
+        .pad = .{ .px = 10 },
         .thumb_bg = t.colors.surface_variant,
         .thumb_hover_bg = t.colors.primary,
     }, scope, responseBodyLines);
@@ -130,7 +133,7 @@ pub fn responseHeaderRows(scope: *Scope) void {
             .id = .{ .text = frame.elementId("kurir.response.header", i) },
             .direction = .row,
             .w = .grow,
-            .gap = 8,
+            .gap = .{ .px = 8 },
         }, &HeaderNameScope{ .name = header.name, .value = header.value, .theme = scope.theme }, responseHeaderRowChildren);
     }
 }
@@ -149,16 +152,61 @@ pub fn responseHeaderRowChildren(hs: *const HeaderNameScope) void {
 pub fn responseBodyLines(scope: *Scope) void {
     const t = scope.theme;
     const body = scope.state.response.body;
+    const lines = scope.state.response.lines;
     if (body.len == 0) {
         text_mod.label(.{ .label = .{ .text = "(empty body)", .size = t.type_scale.body, .color = t.colors.text_dim } });
         return;
     }
-    var start: usize = 0;
-    var lines: usize = 0;
-    while (start < body.len and lines < max_body_lines) : (lines += 1) {
-        const end = std.mem.findScalarPos(u8, body, start, '\n') orelse body.len;
-        const line = body[start..end];
-        text_mod.label(.{ .label = .{ .text = if (line.len == 0) " " else line, .size = t.type_scale.body, .color = t.colors.text } });
-        start = end + 1;
+
+    const total = if (lines.len > 1) lines.len - 1 else 0;
+    const vis = scope.vm.visibleBodyLines(total);
+
+    // Everything above the viewport is ONE rectangle of its exact height: the scrollbar stays honest, cheaply.
+    if (vis.first > 0) {
+        pad(scope, "kurir.response.pad.top", @as(f32, @floatFromInt(vis.first)) * response_vm.row_h);
     }
+    var i: usize = 0;
+    while (i < vis.count) : (i += 1) lineRow(scope, vis.first + i);
+
+    const after = vis.first + vis.count;
+    if (after < total) {
+        pad(scope, "kurir.response.pad.bottom", @as(f32, @floatFromInt(total - after)) * response_vm.row_h);
+    }
+}
+
+fn pad(scope: *Scope, id: []const u8, h: f32) void {
+    box_mod.box(.{
+        .src = @src(),
+        .id = .{ .text = id },
+        .direction = .column,
+        .w = .grow,
+        .h = .{ .fixed = h },
+    }, scope, noChildren);
+}
+
+fn noChildren(_: *Scope) void {}
+
+const LineCtx = struct {
+    scope: *Scope,
+    index: usize,
+};
+
+fn lineRow(scope: *Scope, index: usize) void {
+    box_mod.box(.{
+        .src = @src(),
+        .id = .{ .text = frame.elementId("kurir.response.line", index) },
+        .direction = .row,
+        .w = .grow,
+        .h = .{ .fixed = response_vm.row_h },
+        .child_align = .{ .x = .left, .y = .center },
+    }, LineCtx{ .scope = scope, .index = index }, lineChildren);
+}
+
+fn lineChildren(ctx: LineCtx) void {
+    const scope = ctx.scope;
+    const t = scope.theme;
+    const body = scope.state.response.body;
+    var line = body_mod.line(body, scope.state.response.lines, ctx.index);
+    if (line.len > max_line_chars) line = line[0..max_line_chars];
+    text_mod.label(.{ .label = .{ .text = if (line.len == 0) " " else line, .size = t.type_scale.body, .color = t.colors.text } });
 }

@@ -117,6 +117,9 @@ The rules the code keeps:
   panels share lives in `ui/shell/session.zig`.
 - **The shell composes, it does not compute.** Every intent on `KurirViewModel` is a one-line facade
   over a panel; `uiState()` asks each panel for its snapshot once per frame, and only while stale.
+- **A body is never capped.** `data/model/body.zig` re-indents JSON, sanitises what a font cannot draw, and
+  indexes every line start; the pane declares the lines inside the viewport plus two of overscan, with a spacer
+  above and below, so a megabyte costs three commands and the scrollbar still reports the true length.
 - **The frame never waits for the network.** `send` builds the request in a `request_job.Job`, hands it
   to the Io pool (`std.Io.concurrent`) and returns; `uiState()` does an acquire load per frame and collects
   the answer when it lands. The window's frame pump is turned on while a job is in flight, so a result is
@@ -192,12 +195,13 @@ reason, time, size, pretty-printed body, response headers, import, export, and a
 
 | limit | value | why |
 |---|---|---|
-| response shown | 256 kB | the body is text runs, not a download |
+| response shown | no cap | the body is kept whole; the pane declares only the lines the viewport shows |
+| one drawn line | 1024 chars | a single text run, not a paragraph — the body keeps every byte |
 | request body | 64 kB | one field buffer |
 | headers per request | 32 | one field pair each |
 | tree rows | 512 | a flat array per frame |
 | nesting | 8 levels | `state.Path` is a fixed-depth address |
-| send | synchronous, 15 s timeout | see the roadmap |
+| send | off the frame thread, 15 s timeout | `data/remote/request_job.zig` |
 
 ## Roadmap (PRD §6) and where each lands
 

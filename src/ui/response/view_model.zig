@@ -1,7 +1,10 @@
-//! The response pane's ViewModel: one last result PER endpoint, and the two views it can show.
+//! The response pane's ViewModel: one last result PER endpoint, and what the body view needs to draw it.
 const std = @import("std");
+const glinlandui = @import("glinlandui");
+const scroll_mod = glinlandui.components.scroll;
 
 const postman = @import("../../data/model/postman.zig");
+const body_mod = @import("../../data/model/body.zig");
 const http_mod = @import("../../data/remote/http_client.zig");
 const state_mod = @import("../../ui/state.zig");
 const session_mod = @import("../shell/session.zig");
@@ -9,14 +12,15 @@ const session_mod = @import("../shell/session.zig");
 const Allocator = std.mem.Allocator;
 const UiState = state_mod.UiState;
 const Session = session_mod.Session;
-const Value = postman.Value;
 const Path = state_mod.Path;
 
-// A response bigger than this is cut before it is drawn: the body is a text run, not a download.
-pub const max_response_bytes: usize = 256 * 1024;
+// The body scroll container, and the height of one drawn line. The pane declares only the lines inside it.
+pub const body_scroll_id = "kurir.response.body";
+pub const row_h: f32 = 20;
 
-// How many endpoints keep their last result in memory. One body is capped at 256 KiB, so this bounds it.
+// The bodies are not capped, so the cache is bounded in BYTES: a few megabyte answers fit, twenty do not.
 pub const max_cached: usize = 24;
+pub const max_cached_bytes: usize = 32 * 1024 * 1024;
 
 // What a result belongs to: an endpoint is its path inside its workspace.
 pub const Key = struct {
@@ -35,9 +39,15 @@ const Entry = struct {
     view: state_mod.ResponseView = .{},
 };
 
+// The lines a frame must declare: the ones inside the viewport, plus a little overscan.
+pub const Visible = struct {
+    first: usize = 0,
+    count: usize = 0,
+};
+
 pub const Response = struct {
     session: *Session = undefined,
-    // One result per endpoint, oldest first, bounded by `max_cached`.
+    // One result per endpoint, oldest first, bounded by `max_cached` and `max_cached_bytes`.
     entries: std.ArrayList(*Entry) = .empty,
     tab: state_mod.Tab = .body,
 
@@ -61,7 +71,7 @@ pub const Response = struct {
         u.response_tab = self.tab;
     }
 
-    // A send begins: the endpoint's arena, reset, plus the key the result will be stored under.
+    // A send begins: the endpoint the answer will belong to.
     pub fn begin(self: *Response) ?Key {
         const key = self.keyNow() orelse return null;
         _ = self.entryFor(key) orelse self.create(key) orelse return null;
@@ -69,7 +79,7 @@ pub const Response = struct {
     }
 
     // The arena is reset HERE: while the request is in flight the pane still shows the previous result.
-    pub fn store(self: *Response, key: Key, result: http_mod.Result) void {
+    pub fn store(self: *Response, key: Key, result: http_mod.Result, shown: body_mod.Shown) void {
         const entry = self.entryFor(key) orelse return;
         _ = entry.arena.reset(.retain_capacity);
         const arena = entry.arena.allocator();
@@ -91,24 +101,46 @@ pub const Response = struct {
             entry.view = response;
             self.session.setStatus(true, "Request failed: {s}", .{result.error_title});
             self.session.touch();
+            self.evictOverBudget(entry);
             return;
         }
 
         response.kind = .ok;
         response.status = result.status;
         response.status_text = arena.dupe(u8, state_mod.statusLabel(&status_buf, result.status, result.reason)) catch "";
-        const shown = pretty(arena, result.body);
-        response.body = shown.text;
-        response.truncated_lines = shown.truncated_lines;
+        // The body is copied whole: no cap, and the line index travels with it so the pane can draw one line.
+        response.body = arena.dupe(u8, shown.text) catch "";
+        response.lines = arena.dupe(usize, shown.lines) catch &.{};
 
         var header_rows: std.ArrayList(state_mod.HeaderRow) = .empty;
         for (result.headers) |header| {
-            header_rows.append(arena, .{ .name = header.name, .value = header.value }) catch break;
+            // Copied, not borrowed: the answer's strings die with the job that fetched it.
+            const name = arena.dupe(u8, header.name) catch break;
+            const value = arena.dupe(u8, header.value) catch break;
+            header_rows.append(arena, .{ .name = name, .value = value }) catch break;
         }
         response.headers = header_rows.toOwnedSlice(arena) catch &.{};
         entry.view = response;
         self.session.setStatus(false, "{d} {s} · {s} · {s}", .{ result.status, result.reason, response.time_text, response.size_text });
         self.session.touch();
+        self.evictOverBudget(entry);
+    }
+
+    // The line range a frame must declare, from the scroll container's own offset and height.
+    pub fn visibleLines(self: *Response, total: usize) Visible {
+        _ = self;
+        const view = scroll_mod.view(body_scroll_id);
+        return rangeFor(total, view.y, if (view.found and view.height > 0) view.height else 480);
+    }
+
+    // Pure, so the arithmetic is testable without a window: which lines a viewport at `y` covers.
+    pub fn rangeFor(total: usize, y: f32, height: f32) Visible {
+        const overscan: usize = 2;
+        const at: usize = if (y > 0) @intFromFloat(@max(y, 0) / row_h) else 0;
+        const first = if (at > overscan) at - overscan else 0;
+        const per_page: usize = @as(usize, @intFromFloat(@ceil(height / row_h))) + 1 + 2 * overscan;
+        const remaining = if (total > first) total - first else 0;
+        return .{ .first = first, .count = @min(per_page, remaining) };
     }
 
     // A node was deleted, so a path can now address a different endpoint: no result survives that.
@@ -136,12 +168,6 @@ pub const Response = struct {
 
     fn create(self: *Response, key: Key) ?*Entry {
         const gpa = self.session.gpa;
-        // Oldest first: a full cache drops the result that has been on screen longest.
-        if (self.entries.items.len >= max_cached) {
-            const old = self.entries.orderedRemove(0);
-            old.arena.deinit();
-            gpa.destroy(old);
-        }
         const entry = gpa.create(Entry) catch return null;
         entry.* = .{ .key = key, .arena = std.heap.ArenaAllocator.init(gpa) };
         self.entries.append(gpa, entry) catch {
@@ -152,51 +178,33 @@ pub const Response = struct {
         return entry;
     }
 
-    // A response body, pretty-printed or not: what the pane draws, and how many lines were cut.
-    pub const Pretty = struct {
-        text: []const u8 = "",
-        truncated_lines: usize = 0,
-    };
-
-    pub fn pretty(arena: Allocator, body: []const u8) Pretty {
-        const capped = if (body.len > max_response_bytes) body[0..max_response_bytes] else body;
-        const parsed = std.json.parseFromSliceLeaky(Value, arena, capped, .{}) catch
-            return .{ .text = sanitize(arena, capped), .truncated_lines = if (body.len > capped.len) 1 else 0 };
-        const text = postman.write(arena, parsed, true) catch
-            return .{ .text = sanitize(arena, capped), .truncated_lines = if (body.len > capped.len) 1 else 0 };
-        return .{ .text = sanitize(arena, text) };
+    // Keep the cache inside its byte budget by dropping the oldest results, never the one just stored.
+    fn evictOverBudget(self: *Response, keep: *Entry) void {
+        const gpa = self.session.gpa;
+        var i: usize = 0;
+        while (i < self.entries.items.len) {
+            if (self.entries.items.len <= 1 or self.totalBytes() <= max_cached_bytes) return;
+            const candidate = self.entries.items[i];
+            if (candidate == keep) {
+                i += 1;
+                continue;
+            }
+            _ = self.entries.orderedRemove(i);
+            candidate.arena.deinit();
+            gpa.destroy(candidate);
+        }
     }
 
-    pub fn sanitize(arena: Allocator, bytes: []const u8) []const u8 {
-        const out = arena.alloc(u8, bytes.len) catch return "";
-        for (bytes, 0..) |byte, i| {
-            out[i] = if (byte == '\n' or byte == '\t' or (byte >= 0x20 and byte < 0x7f)) byte else 0xb7;
+    fn totalBytes(self: *Response) usize {
+        var sum: usize = 0;
+        for (self.entries.items) |entry| {
+            sum += entry.view.body.len + entry.view.lines.len * @sizeOf(usize);
         }
-        return out;
+        return sum;
     }
 };
 
 const testing = std.testing;
-
-test "a JSON body reads as a document, and a body that is not JSON is shown as it arrived" {
-    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-
-    const pretty = Response.pretty(arena, "{\"a\":1}");
-    try testing.expect(std.mem.indexOfScalar(u8, pretty.text, '\n') != null);
-    const plain = Response.pretty(arena, "hello");
-    try testing.expectEqualStrings("hello", plain.text);
-}
-
-test "a byte a font cannot draw becomes a middle dot, so a binary body never breaks the run" {
-    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
-    defer arena_state.deinit();
-    const arena = arena_state.allocator();
-
-    try testing.expectEqualSlices(u8, &.{ 'a', 0xb7, 'b' }, Response.sanitize(arena, "a\x00b"));
-    try testing.expectEqualStrings("a\nb\tc", Response.sanitize(arena, "a\nb\tc"));
-}
 
 test "a key is the endpoint AND its workspace, so two workspaces never share a result" {
     const one = Key{ .workspace = 0, .path = Path.empty.child(0).child(1) };
@@ -207,4 +215,20 @@ test "a key is the endpoint AND its workspace, so two workspaces never share a r
     try testing.expect(one.eql(same));
     try testing.expect(!one.eql(other_workspace));
     try testing.expect(!one.eql(other_path));
+}
+
+test "a viewport declares its own lines, with a little overscan, never more than there is" {
+    // 480 points of viewport at 20 points a line is 24 lines, plus the overscan.
+    const top = Response.rangeFor(100_000, 0, 480);
+    try testing.expectEqual(@as(usize, 0), top.first);
+    try testing.expect(top.count >= 24 and top.count <= 30);
+
+    // Scrolled down: the range follows the offset, and stops at the end of the body.
+    const down = Response.rangeFor(100_000, 2_000, 480);
+    try testing.expectEqual(@as(usize, 98), down.first);
+
+    const short = Response.rangeFor(3, 0, 480);
+    try testing.expectEqual(@as(usize, 3), short.count);
+
+    try testing.expectEqual(@as(usize, 0), Response.rangeFor(0, 0, 480).count);
 }

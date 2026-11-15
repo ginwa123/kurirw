@@ -64,7 +64,7 @@ fn statusBar(scope: *Scope) void {
         .pad = props.Pad.axes(6, 14),
         .child_align = .{ .y = .center },
         .bg = t.colors.surface,
-        .border = .{ .width = 1, .color = t.colors.divider },
+        .border = .all(1, t.colors.divider),
     }, scope, statusChildren);
 }
 

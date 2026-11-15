@@ -77,6 +77,9 @@ src/e2e_test.zig                   the acceptance path, headless
 - **The font has Latin-1 and arrows, not geometric shapes.** `▾`, `▸` and `▼` render as tofu boxes; the
   tree and the method dropdown use `v` / `>` for exactly this reason. Check a glyph in a screenshot before
   shipping it.
+- **The response body is never truncated**, and the pane never declares one text run per line of it: the lines
+  are indexed in `data/model/body.zig` and only the viewport's range is drawn (top spacer, lines, bottom spacer).
+  Re-indenting a megabyte happens on the request's own thread, not the frame's.
 - **Nothing long runs on the frame thread.** A request goes through `data/remote/request_job.zig`
   (`std.Io.concurrent` + an atomic `finished`), never a direct `perform` in an intent. A test that sends
   must `settle()`: the answer arrives on a later frame. The real window's pump is `setAnimating`, wired in

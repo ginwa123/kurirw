@@ -46,9 +46,9 @@ pub fn requestEditor(scope: *Scope) void {
         .w = .grow,
         .h = .{ .fixed = @floatFromInt(editor_h) },
         .bg = scope.theme.colors.surface,
-        .border = .{ .width = 1, .color = scope.theme.colors.divider },
+        .border = .all(1, scope.theme.colors.divider),
         .pad = props.Pad.all(12),
-        .gap = 8,
+        .gap = .{ .px = 8 },
     }, scope, editorChildren);
 }
 
@@ -65,7 +65,7 @@ pub fn nameRow(scope: *Scope) void {
         .id = .{ .text = "kurir.name.row" },
         .direction = .row,
         .w = .grow,
-        .gap = 8,
+        .gap = .{ .px = 8 },
         .child_align = .{ .y = .center },
     }, scope, nameRowChildren);
 }
@@ -104,7 +104,7 @@ pub fn methodRow(scope: *Scope) void {
         .id = .{ .text = "kurir.method.row" },
         .direction = .row,
         .w = .grow,
-        .gap = 4,
+        .gap = .{ .px = 4 },
         .child_align = .{ .y = .center },
     }, scope, methodRowChildren);
 }
@@ -135,21 +135,21 @@ pub fn methodRowChildren(scope: *Scope) void {
             .field_id = "kurir.method.picker",
             .list_id = editor_vm.method_list_id,
             .field = null,
-            .row_h = 30,
+            .row_h = .{ .px = 30 },
             .row_bg = t.colors.surface,
             .row_fg = t.colors.text,
             .hover_bg = t.colors.hover,
-            .border_width = 0,
-            .radius = 0,
-            .gap = 0,
+            .border_width = .{ .px = 0 },
+            .radius = .{ .px = 0 },
+            .gap = .{ .px = 0 },
             .font_size = t.type_scale.caption,
             .on_select = .{ .f = actions.onMethodPick, .ctx = scope.vm },
             .overlay = true,
             .anchor_text = editor_vm.method_trigger_id,
             .overlay_id = editor_vm.method_menu_id,
             .overlay_bg = t.colors.surface,
-            .overlay_pad = 4,
-            .overlay_border_width = 1,
+            .overlay_pad = .{ .px = 4 },
+            .overlay_border_width = .{ .px = 1 },
             .overlay_border_color = t.colors.divider,
             .z_index = 20,
         }, postman.methods[0..], MethodMenu{ .theme = t }, renderMethodRow);
@@ -179,7 +179,7 @@ pub fn editorTabs(scope: *Scope) void {
         .id = .{ .text = "kurir.editor.tabs" },
         .direction = .row,
         .w = .grow,
-        .gap = 6,
+        .gap = .{ .px = 6 },
         .child_align = .{ .y = .center },
     }, scope, editorTabsChildren);
 }
@@ -204,7 +204,7 @@ pub fn editorBody(scope: *Scope) void {
             .h = .grow,
             .pad = props.Pad.all(8),
             .direction = .column,
-            .gap = 6,
+            .gap = .{ .px = 6 },
         }, scope, editorEmpty);
         return;
     }
@@ -230,7 +230,7 @@ pub fn headersTable(scope: *Scope) void {
             .h = .grow,
             .pad = props.Pad.all(8),
             .direction = .column,
-            .gap = 6,
+            .gap = .{ .px = 6 },
         }, scope, headersEmpty);
         return;
     }
@@ -267,7 +267,7 @@ pub fn headerRow(scope: *Scope, index: usize) void {
         .id = .{ .text = frame.elementId("kurir.header.row", index) },
         .direction = .row,
         .w = .grow,
-        .gap = 6,
+        .gap = .{ .px = 6 },
         .pad = props.Pad.sides(2, 0, 2, 0),
         .child_align = .{ .y = .center },
     }, &HeaderScope{ .scope = scope, .index = index }, headerRowChildren);
@@ -323,9 +323,9 @@ pub fn bodyEditor(scope: *Scope) void {
         .w = .grow,
         .h = .grow,
         .bg = t.colors.background,
-        .border_width = 1,
+        .border_width = .{ .px = 1 },
         .border_color = t.colors.divider,
-        .radius = 6,
+        .radius = .{ .px = 6 },
         .thumb_bg = t.colors.surface_variant,
         .thumb_hover_bg = t.colors.primary,
     }, scope, bodyField);
