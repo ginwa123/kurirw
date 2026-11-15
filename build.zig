@@ -79,11 +79,11 @@ pub fn build(b: *std.Build) void {
     const unit_step = b.step("test-unit", "Run only the unit suite");
     unit_step.dependOn(&run_unit_tests.step);
 
-    installLintGates(b, target, optimize);
+    installLintGates(b, target, optimize, test_step);
 }
 
 // The two repo gates: zginlint's style rules, and the 3000-line cap.
-fn installLintGates(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode) void {
+fn installLintGates(b: *std.Build, target: std.Build.ResolvedTarget, optimize: std.builtin.OptimizeMode, test_step: *std.Build.Step) void {
     const zginlint_dep = b.dependency("zginlint", .{ .target = target, .optimize = optimize });
     const zginlint_exe = zginlint_dep.artifact("zginlint");
     const install_zginlint = b.addInstallArtifact(zginlint_exe, .{});
@@ -96,11 +96,22 @@ fn installLintGates(b: *std.Build, target: std.Build.ResolvedTarget, optimize: s
     run_zginlint.has_side_effects = true;
     zginlint_check.dependOn(&run_zginlint.step);
 
+    // A Zig tool rather than a shell pipeline: `sh` + `find` + `awk` do not exist on a Windows runner.
     const lines_check = b.step("lines:check", "Fail if any .zig file exceeds 3000 lines");
-    const run_lines = b.addSystemCommand(&.{
-        "sh",                                                                                                                                                "-c",
-        "find src -name '*.zig' -exec wc -l {} + | awk '$1 > 3000 && $2 != \"total\" { print $2 \": \" $1 \" lines (max 3000)\"; bad=1 } END { exit bad }'",
+    const lines_tool = b.addExecutable(.{
+        .name = "check-lines",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("tools/check_lines.zig"),
+            .target = b.graph.host,
+            .optimize = .Debug,
+        }),
     });
+    const run_lines = b.addRunArtifact(lines_tool);
+    run_lines.setCwd(b.path("."));
     run_lines.has_side_effects = true;
     lines_check.dependOn(&run_lines.step);
+
+    // The tool's own tests run with the unit suite, so a change to it is covered.
+    const lines_tests = b.addTest(.{ .root_module = lines_tool.root_module });
+    test_step.dependOn(&b.addRunArtifact(lines_tests).step);
 }

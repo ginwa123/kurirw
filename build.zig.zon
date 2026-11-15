@@ -3,13 +3,20 @@
     .version = "0.1.0",
     .fingerprint = 0xb79b56d6a2fb776b,
     .minimum_zig_version = "0.16.0",
-    // Both dependencies are LOCAL path deps: Zig 0.16 rejects absolute paths here.
-    //   ../glinlandui  the GUI toolkit (Cocoa on macOS, Wayland on Linux, portable in tests)
-    //   ../kabelweb    the libcurl-backed HTTP client Kurir sends with
-    //   zginlint       the linter behind `zig build zginlint:check`
+    // The two real dependencies, pinned by commit: a clone builds them from source.
+    //   glinlandui  the toolkit (Cocoa on macOS, Wayland on Linux, Win32 on Windows)
+    //   kabelweb    the libcurl-backed HTTP client Kurir sends with
+    //   zginlint    the linter behind `zig build zginlint:check`
+    // To work on a dependency locally, point its entry at a path (`.path = "../glinlandui"`).
     .dependencies = .{
-        .glinlandui = .{ .path = "../glinlandui" },
-        .kabelweb = .{ .path = "../kabelweb" },
+        .glinlandui = .{
+            .url = "git+https://github.com/ginwa123/glinlandui.git#b193fe763a74d0e310483aabcec95e6d4725c882",
+            .hash = "glinlandui-0.0.0-ngP3RostMADCK28AFwvW1X-HDWcElJXKHGn8aIwqPCar",
+        },
+        .kabelweb = .{
+            .url = "git+https://github.com/ginwa123/kabelweb.git#8217401386be9b4fedd86c5713a7026b477ddad5",
+            .hash = "kabelweb-0.0.0-vhZam-8mHgAHu806WdRLD-Tn-Tl4GL7etBOrookfIytX",
+        },
         .zginlint = .{
             .url = "git+https://github.com/ginwa123/zglint.git#7e1faeba4d75640c7ae37efe2987f6be85fa2a89",
             .hash = "zginlint-0.0.0-0kYHpg4dAQARigMlrQ54kyJUpbIlGU0fYVNhFMDuUvah",
@@ -20,6 +27,7 @@
         "build.zig",
         "build.zig.zon",
         "src",
+        "tools",
         "README.md",
         "AGENTS.md",
     },

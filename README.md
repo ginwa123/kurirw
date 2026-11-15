@@ -23,18 +23,43 @@ Wireframe                          Kurir
 └───────────────┴──────────────────────────────────────────────┘
 ```
 
-## Run it
+## Install it
 
-Kurir needs its two sibling checkouts, because Zig 0.16 rejects absolute paths in `build.zig.zon`:
+One command, no build, no Docker — the installer fetches the prebuilt binary for your machine from
+the latest release:
 
 ```sh
-cd ..
-git clone https://github.com/ginwa123/glinlandui.git glinlandui
-git clone https://github.com/ginwa123/kabelweb.git   kabelweb
-cd kurirw
+# macOS and Linux
+curl -fsSL https://raw.githubusercontent.com/ginwa123/kurirw/main/install.sh | sh
+kurirw
+```
 
+```powershell
+# Windows, no admin
+irm https://raw.githubusercontent.com/ginwa123/kurirw/main/install.ps1 | iex
+```
+
+Or take the archive for your platform from the [releases page][releases] and run the binary inside it.
+`KURIR_VERSION=v0.1.0` pins a release instead of the latest one, and `KURIR_INSTALL_DIR` picks where
+the Linux/macOS installer puts it (default `~/.local/bin`).
+
+[releases]: https://github.com/ginwa123/kurirw/releases
+
+Windows carries one caveat: the CI runner has no libcurl development files, so the shipped `.exe`
+links a stub and `Send` does not reach the network. Building from source on a machine with vcpkg
+installed fixes that; a static-curl Windows build is the next piece of work.
+
+## Build it
+
+A clone is self-contained: `build.zig.zon` pins glinlandui and kabelweb by commit and hash, so
+`zig build` fetches them (once) and there are no sibling checkouts to arrange.
+
+```sh
+git clone https://github.com/ginwa123/kurirw && cd kurirw
+
+zig build --fetch      # glinlandui + kabelweb, pinned by commit
 zig build run          # the window
-zig build test         # unit + headless E2E (56 tests)
+zig build test         # unit + headless E2E (75 tests)
 ```
 
 `kabelweb`'s client is libcurl-backed, so the build wants a system `libcurl` + OpenSSL (Homebrew's

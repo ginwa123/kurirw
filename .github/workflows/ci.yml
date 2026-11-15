@@ -1,0 +1,177 @@
+# CI: build, test and package Kurir on macOS, Linux and Windows.
+#
+# Three legs, one per platform, all of them real: the app links the platform's own window stack
+# (Cocoa, Wayland/EGL/GLES3, Win32/D3D11) and the suite drives the real App headlessly.
+#
+# A `v*` tag turns the same jobs into a release: every leg uploads its binary as a workflow
+# artifact, and the `release` job publishes them on the GitHub release for that tag.
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test / ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            label: Linux
+            slug: linux-x86_64
+            archive: kurirw-linux-x86_64.tar.gz
+          - os: macos-15
+            label: macOS (arm64)
+            slug: macos-arm64
+            archive: kurirw-macos-arm64.tar.gz
+          - os: windows-2022
+            label: Windows
+            slug: windows-x86_64
+            archive: kurirw-windows-x86_64.zip
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: "0.16.0"
+
+      # The toolkit's Linux window stack: wayland-client/EGL/GLES3 plus the pango/cairo text path.
+      # Its build shells out to /usr/sbin/wayland-scanner, which is why the binary is symlinked there.
+      - name: Install the Linux native dependencies
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            pkg-config \
+            fonts-dejavu-core \
+            libcairo2-dev \
+            libegl-dev \
+            libfontconfig1-dev \
+            libfreetype6-dev \
+            libfribidi-dev \
+            libglib2.0-dev \
+            libgles-dev \
+            libharfbuzz-dev \
+            libpango1.0-dev \
+            libpixman-1-dev \
+            libpng-dev \
+            libwayland-dev \
+            libcurl4-openssl-dev \
+            libssl-dev
+
+          scanner="$(command -v wayland-scanner)"
+          test -n "$scanner"
+          sudo ln -sf "$scanner" /usr/sbin/wayland-scanner
+
+          echo "C_INCLUDE_PATH=/usr/lib/$(gcc -print-multiarch)/glib-2.0/include" >> "$GITHUB_ENV"
+
+      # kabelweb accepts only Homebrew's keg paths for curl + openssl, and the repository carries no
+      # vendored curl archive, so the system pair has to be installed.
+      - name: Install the macOS curl and openssl kegs
+        if: runner.os == 'macOS'
+        run: brew install curl openssl@3
+
+      # No install step on Windows on purpose: kabelweb falls back to its own stub libcurl there, so
+      # the suite compiles, links and runs without vcpkg. This step only records what was found, so a
+      # red Windows leg is readable.
+      - name: Report the Windows TLS/libcurl situation
+        if: runner.os == 'Windows'
+        run: |
+          set -uo pipefail
+          for p in "/c/vcpkg/installed/x64-windows/include/curl/curl.h" \
+                   "/c/Program Files/Git/mingw64/include/curl/curl.h"; do
+            if [ -f "$p" ]; then echo "found: $p"; else echo "absent: $p"; fi
+          done
+
+      - name: Check formatting
+        run: zig fmt --check build.zig src tools
+
+      - name: Build
+        run: zig build
+
+      - name: Test (unit + headless E2E + the line-count tool)
+        run: zig build test --summary all
+
+      - name: Lint (zginlint) and the 3000-line cap
+        run: |
+          zig build zginlint:check
+          zig build lines:check
+
+      - name: Build the release binary
+        run: zig build -Doptimize=ReleaseSafe
+
+      # One binary per platform, packaged the way the installer expects to find it.
+      - name: Package
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          if [ -f zig-out/bin/kurirw.exe ]; then
+            cp zig-out/bin/kurirw.exe dist/
+          else
+            cp zig-out/bin/kurirw dist/kurirw
+          fi
+          case "$RUNNER_OS" in
+            Windows)
+              powershell -NoProfile -Command "Compress-Archive -Path dist/kurirw.exe -DestinationPath '${{ matrix.archive }}' -Force"
+              ;;
+            *)
+              tar -czf "${{ matrix.archive }}" -C dist kurirw
+              ;;
+          esac
+          ls -l "${{ matrix.archive }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kurirw-${{ matrix.slug }}
+          path: ${{ matrix.archive }}
+          if-no-files-found: error
+
+  # Publishes the three binaries on the tag's GitHub release. It runs only for `v*` tags, and only
+  # after every platform leg is green, so a release can never carry a binary that failed its tests.
+  release:
+    name: Release ${{ github.ref_name }}
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ls -l assets
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" \
+              --title "Kurir $GITHUB_REF_NAME" \
+              --notes-file docs/RELEASE_NOTES.md
+          fi
+          gh release upload "$GITHUB_REF_NAME" assets/* --clobber
+          gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name'
