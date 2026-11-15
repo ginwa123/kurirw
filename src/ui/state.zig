@@ -124,6 +124,8 @@ pub const UiState = struct {
     header_count: usize = 0,
     body: []const u8 = "",
     editor_tab: Tab = .headers,
+    // The method dropdown is the panel's: the frame only reads whether it is open.
+    method_open: bool = false,
     response_tab: Tab = .body,
     response: ResponseView = .{},
 

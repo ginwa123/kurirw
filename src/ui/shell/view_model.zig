@@ -41,7 +41,9 @@ pub const body_pad = editor_mod.body_pad;
 pub const line_height = editor_mod.line_height;
 
 pub const Dialogs = file_picker.Dialogs;
-pub const MethodCtx = Editor.MethodCtx;
+pub const method_trigger_id = editor_mod.method_trigger_id;
+pub const method_list_id = editor_mod.method_list_id;
+pub const method_menu_id = editor_mod.method_menu_id;
 pub const HeaderCtx = Editor.HeaderCtx;
 
 // Everything the screen needs from outside, built once by `di/container.zig`.
@@ -56,8 +58,7 @@ pub const Deps = struct {
 };
 
 pub const KurirViewModel = struct {
-    // The view addresses a method button and a header toggle by the context the editor creates.
-    pub const MethodCtx = Editor.MethodCtx;
+    // The view addresses a header toggle by the context the editor creates.
     pub const HeaderCtx = Editor.HeaderCtx;
 
     // The three panels plus the document they share.
@@ -116,6 +117,8 @@ pub const KurirViewModel = struct {
 
     // `uiState`: what the view draws. A panel resizes while the frame is declared, so its numbers refresh here.
     pub fn uiState(self: *KurirViewModel) UiState {
+        // The method menu has no scrim: the panel closes it when the pointer leaves it, read from the last frame.
+        self.editor.closeIfPointerAway();
         if (self.session.dirty) self.refresh();
         self.view.sidebar_width = self.sidebar.width();
         self.view.sidebar_collapsed = self.sidebar.state.collapsed;
@@ -214,6 +217,14 @@ pub const KurirViewModel = struct {
 
     pub fn setMethod(self: *KurirViewModel, method: []const u8) void {
         self.editor.setMethod(method);
+    }
+
+    pub fn toggleMethods(self: *KurirViewModel) void {
+        self.editor.toggleMethods();
+    }
+
+    pub fn pickMethod(self: *KurirViewModel, index: usize) void {
+        self.editor.pickMethod(index);
     }
 
     pub fn onUrlChange(self: *KurirViewModel, url: []const u8) void {

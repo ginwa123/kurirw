@@ -80,6 +80,15 @@ const Scratch = struct {
     }
 };
 
+// Open the trigger if needed, then click the verb's row: a list row is a Clay pair id, so it is hit by box.
+fn pickMethod(h: *Harness, index: usize) !void {
+    if (!h.app.vm().uiState().method_open) try h.driver.click(view_model.method_trigger_id);
+    if (!h.app.vm().uiState().method_open) return error.MenuDidNotOpen;
+    const row = glinlandui.frame.bounds(glinlandui.components.list.rowId(view_model.method_list_id, index)) orelse
+        return error.ElementNotFound;
+    h.driver.clickAt(row.x + row.width * 0.5, row.y + row.height * 0.5);
+}
+
 test "the acceptance path: a workspace, a collection, a folder, a request, send, and the response on screen" {
     const gpa = std.heap.page_allocator;
     var scratch = try Scratch.make(gpa);
@@ -104,9 +113,10 @@ test "the acceptance path: a workspace, a collection, a folder, a request, send,
     try h.driver.typeText("https://api.example.com/v1/charges");
     try testing.expectEqualStrings("https://api.example.com/v1/charges", h.app.vm().uiState().url);
 
-    // POST from the method bar, then Send.
-    try h.driver.click("kurir.method.1");
+    // POST from the method dropdown, then Send.
+    try pickMethod(&h, 1);
     try testing.expectEqualStrings("POST", h.app.vm().uiState().method);
+    try testing.expect(!h.app.vm().uiState().method_open);
 
     h.fake.status = 201;
     h.fake.body = "{\"id\":7,\"paid\":true}";
@@ -118,6 +128,35 @@ test "the acceptance path: a workspace, a collection, a folder, a request, send,
     try h.driver.expectText("201 Created");
     try h.driver.expectText("  \"id\": 7,");
     try testing.expectEqual(kurirw.state.ResponseKind.ok, h.app.vm().uiState().response.kind);
+}
+
+test "the method is a dropdown: it opens under its trigger, picks a verb, and closes when the pointer leaves" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try h.driver.click("kurir.add.collection");
+    try h.driver.click("kurir.add.request");
+    try testing.expectEqualStrings("GET", h.app.vm().uiState().method);
+    try testing.expect(!h.app.vm().uiState().method_open);
+
+    // Opened by the ONE trigger, with the whole verb list drawn in the card.
+    try h.driver.click(view_model.method_trigger_id);
+    try testing.expect(h.app.vm().uiState().method_open);
+    try h.driver.expectText("OPTIONS");
+
+    try pickMethod(&h, 3);
+    try testing.expectEqualStrings("PATCH", h.app.vm().uiState().method);
+    try testing.expect(!h.app.vm().uiState().method_open);
+
+    // A menu with no scrim closes itself when the pointer is no longer on it.
+    try h.driver.click(view_model.method_trigger_id);
+    try testing.expect(h.app.vm().uiState().method_open);
+    h.driver.move(640, 780);
+    try testing.expect(!h.app.vm().uiState().method_open);
 }
 
 test "the sidebar resizes by dragging its line, collapses past the threshold, and reopens with a click" {
@@ -308,7 +347,7 @@ test "a reload restores the tree and the request the user was editing" {
         try h.driver.typeText("Charge");
         try h.driver.click(view_model.url_field_id);
         try h.driver.typeText("https://api.example.com/v1/charges");
-        try h.driver.click("kurir.method.2");
+        try pickMethod(&h, 2);
         try testing.expectEqualStrings("PUT", h.app.vm().uiState().method);
     }
 

@@ -13,6 +13,10 @@ const UiState = state_mod.UiState;
 const Session = session_mod.Session;
 
 pub const url_field_id = "kurir.url";
+// The method menu: the trigger is the anchor the card attaches to, and the rows come from the list.
+pub const method_trigger_id = "kurir.method";
+pub const method_list_id = "kurir.method.options";
+pub const method_menu_id = "kurir.method.menu";
 pub const body_id = "kurir.body";
 pub const header_key_prefix = "kurir.header.key";
 pub const header_value_prefix = "kurir.header.value";
@@ -31,15 +35,10 @@ pub const Editor = struct {
     body_buf: []u8 = &.{},
     // The body is the toolkit's multiline field: Enter types a line, Ctrl/Cmd+Enter sends.
     body_field: input_mod.Field = undefined,
-    method_ctxs: [postman.methods.len]MethodCtx = undefined,
 
     tab: state_mod.Tab = .headers,
-
-    // One method button's context: the panel, and which verb it stands for.
-    pub const MethodCtx = struct {
-        editor: *Editor,
-        method: []const u8 = "",
-    };
+    // The method dropdown: the panel decides whether its card is declared, the toolkit draws it.
+    menu_open: bool = false,
 
     pub const HeaderCtx = struct {
         editor: *Editor,
@@ -112,9 +111,6 @@ pub const Editor = struct {
         self.url_field.on_focus = .{ .f = onUrlFocused, .ctx = self };
         self.body_field.on_change = .{ .f = onBodyTyped, .ctx = self };
         self.body_field.on_focus = .{ .f = onBodyFocused, .ctx = self };
-        for (postman.methods, 0..) |method, index| {
-            self.method_ctxs[index] = .{ .editor = self, .method = method };
-        }
     }
 
     pub fn deinit(self: *Editor) void {
@@ -141,6 +137,7 @@ pub const Editor = struct {
     // The editor's slice of the frame: what the selected request holds.
     pub fn snapshot(self: *Editor, u: *UiState, arena: Allocator) void {
         u.editor_tab = self.tab;
+        u.method_open = self.menu_open;
         const node = if (self.session.selection) |path| self.session.nodeAt(path) else null;
         if (node) |item| {
             if (Session.kind(item.*) != .request) return;
@@ -154,6 +151,37 @@ pub const Editor = struct {
                 header_rows.append(arena, .{ .name = header.key, .value = header.value }) catch break;
             }
             u.headers = header_rows.toOwnedSlice(arena) catch &.{};
+        }
+    }
+
+    // The method dropdown's three intents: open or close it, and take a verb out of it.
+    pub fn toggleMethods(self: *Editor) void {
+        self.menu_open = !self.menu_open;
+        self.session.touch();
+    }
+
+    pub fn closeMethods(self: *Editor) void {
+        if (!self.menu_open) return;
+        self.menu_open = false;
+        self.session.touch();
+    }
+
+    pub fn pickMethod(self: *Editor, index: usize) void {
+        if (index >= postman.methods.len) return;
+        self.setMethod(postman.methods[index]);
+    }
+
+    // No scrim: the menu closes when the pointer leaves the trigger and the card as one box, so the gap is inside.
+    pub fn closeIfPointerAway(self: *Editor) void {
+        if (!self.menu_open) return;
+        const trigger = frame.bounds(frame.clayId(method_trigger_id)) orelse return;
+        const card = frame.bounds(frame.clayId(method_menu_id)) orelse return;
+        const left = @min(trigger.x, card.x);
+        const top = @min(trigger.y, card.y);
+        const right = @max(trigger.x + trigger.width, card.x + card.width);
+        const bottom = @max(trigger.y + trigger.height, card.y + card.height);
+        if (frame.ptr_x < left or frame.ptr_x > right or frame.ptr_y < top or frame.ptr_y > bottom) {
+            self.closeMethods();
         }
     }
 
@@ -180,6 +208,7 @@ pub const Editor = struct {
     pub fn setMethod(self: *Editor, method: []const u8) void {
         const node = self.session.selectedRequest() orelse return self.session.failNow("Select a request first, then pick a method.");
         postman.setMethod(self.session.doc_arena.allocator(), node, method) catch return self.session.failNow("Could not change the method.");
+        self.menu_open = false;
         self.session.commit();
     }
 

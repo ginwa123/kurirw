@@ -74,6 +74,9 @@ src/e2e_test.zig                   the acceptance path, headless
   `box.x + pad + measure(prefix)`; a fractional `box.x` (an auto-width button before the field)
   trips `glinlandui audit: hairline_off_grid`, which is an error log and fails the suite. Give the
   widgets before a field a fixed width (the method bar is `56` each for exactly this reason).
+- **The font has Latin-1 and arrows, not geometric shapes.** `▾`, `▸` and `▼` render as tofu boxes; the
+  tree and the method dropdown use `v` / `>` for exactly this reason. Check a glyph in a screenshot before
+  shipping it.
 - **Tests never touch the network.** `http.Fake` answers requests, `Dialogs` answers the file
   panels. `zig build smoke` is the only place a socket is opened.
 - **`build.zig` is linted too.** A comment in it that spells a banned pattern (a bare

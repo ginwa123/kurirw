@@ -9,9 +9,15 @@ pub fn onRow(ctx: ?*anyopaque, index: usize) void {
     vm.onRowSelect(index);
 }
 
-pub fn onMethod(ctx: ?*anyopaque) void {
-    const method_ctx: *KurirViewModel.MethodCtx = @ptrCast(@alignCast(ctx.?));
-    method_ctx.editor.setMethod(method_ctx.method);
+pub fn onMethodToggle(ctx: ?*anyopaque) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.toggleMethods();
+}
+
+// The dropdown hands back the row's index; the facade turns it into the verb.
+pub fn onMethodPick(ctx: ?*anyopaque, index: usize) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.pickMethod(index);
 }
 
 pub fn onSend(ctx: ?*anyopaque) void {

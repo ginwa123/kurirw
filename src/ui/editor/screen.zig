@@ -3,6 +3,7 @@ const std = @import("std");
 const glinlandui = @import("glinlandui");
 
 const box_mod = glinlandui.components.box;
+const dropdown_mod = glinlandui.components.dropdown;
 const button_mod = glinlandui.components.button;
 const input_mod = glinlandui.components.input;
 const scroll_mod = glinlandui.components.scroll;
@@ -14,6 +15,7 @@ const postman = @import("../../data/model/postman.zig");
 const state_mod = @import("../../ui/state.zig");
 const theme_mod = @import("../theme/theme.zig");
 const scope_mod = @import("../shell/scope.zig");
+const editor_vm = @import("view_model.zig");
 const widgets = @import("../shell/widgets.zig");
 const actions = @import("../shell/actions.zig");
 
@@ -24,6 +26,17 @@ const Scope = scope_mod.Scope;
 const editor_h = scope_mod.editor_h;
 const body_min_h = scope_mod.body_min_h;
 const max_body_lines = scope_mod.max_body_lines;
+
+// What a menu row reads: the theme, so each verb keeps its colour inside the card too.
+const MethodMenu = struct {
+    theme: glinlandui.theme.Theme,
+};
+
+fn renderMethodRow(menu: MethodMenu, item: []const u8, index: usize) void {
+    _ = index;
+    const t = menu.theme;
+    text_mod.label(.{ .label = .{ .text = item, .size = t.type_scale.caption, .color = theme_mod.methodColor(item) } });
+}
 
 pub fn requestEditor(scope: *Scope) void {
     box_mod.box(.{
@@ -99,20 +112,47 @@ pub fn methodRow(scope: *Scope) void {
 pub fn methodRowChildren(scope: *Scope) void {
     const t = scope.theme;
     const enabled = scope.state.node_kind == .request;
-    for (postman.methods, 0..) |method, i| {
-        const active = std.mem.eql(u8, scope.state.method, method);
-        const color = theme_mod.methodColor(method);
-        button_mod.button(.{
-            .id = .{ .text = frame.elementId("kurir.method", i) },
-            .label = .{ .text = method, .size = t.type_scale.caption, .color = if (active) t.colors.on_primary else color },
-            .bg = if (active) color else t.colors.background,
-            .hover_bg = t.colors.surface_variant,
-            .disabled = !enabled,
-            .w = .{ .fixed = 56 },
-            .pad = props.Pad.axes(4, 6),
-            .radius = props.Radius.all(4),
-            .on_click = .{ .f = actions.onMethod, .ctx = &scope.vm.editor.method_ctxs[i] },
-        });
+    const method = scope.state.method;
+    const color = theme_mod.methodColor(method);
+
+    // The trigger is the anchor: the card attaches to this element by name, and nothing shifts when it opens.
+    button_mod.button(.{
+        .id = .{ .text = editor_vm.method_trigger_id },
+        .label = .{ .text = frame.formatText("{s}  v", .{method}), .size = t.type_scale.caption, .color = if (enabled) t.colors.on_primary else t.colors.text_dim },
+        .bg = if (enabled) color else t.colors.background,
+        .hover_bg = t.colors.surface_variant,
+        .disabled = !enabled,
+        .w = .{ .fixed = 96 },
+        .pad = props.Pad.axes(4, 6),
+        .radius = props.Radius.all(4),
+        .on_click = .{ .f = actions.onMethodToggle, .ctx = scope.vm },
+    });
+
+    if (scope.state.method_open) {
+        dropdown_mod.dropdown(.{
+            .src = @src(),
+            // No element carries this id: it is the menu's name in the semantics tree only.
+            .field_id = "kurir.method.picker",
+            .list_id = editor_vm.method_list_id,
+            .field = null,
+            .row_h = 30,
+            .row_bg = t.colors.surface,
+            .row_fg = t.colors.text,
+            .hover_bg = t.colors.hover,
+            .border_width = 0,
+            .radius = 0,
+            .gap = 0,
+            .font_size = t.type_scale.caption,
+            .on_select = .{ .f = actions.onMethodPick, .ctx = scope.vm },
+            .overlay = true,
+            .anchor_text = editor_vm.method_trigger_id,
+            .overlay_id = editor_vm.method_menu_id,
+            .overlay_bg = t.colors.surface,
+            .overlay_pad = 4,
+            .overlay_border_width = 1,
+            .overlay_border_color = t.colors.divider,
+            .z_index = 20,
+        }, postman.methods[0..], MethodMenu{ .theme = t }, renderMethodRow);
     }
 
     const field = &scope.vm.editor.url_field;
