@@ -1,6 +1,6 @@
 .{
     .name = .kurirw,
-    .version = "0.1.5",
+    .version = "0.1.6",
     .fingerprint = 0xb79b56d6a2fb776b,
     .minimum_zig_version = "0.16.0",
     // The two real dependencies, pinned by commit: a clone builds them from source.
@@ -10,8 +10,8 @@
     // To work on a dependency locally, point its entry at a path (`.path = "../glinlandui"`).
     .dependencies = .{
         .glinlandui = .{
-            .url = "git+https://github.com/ginwa123/glinlandui.git#765df5e3ae55a607541bd6f30272de47af6ec0e2",
-            .hash = "glinlandui-0.0.0-ngP3RtETMQBgvMhcNdYj9kgrrHAf-bhOLsnXz0iQjXJX",
+            .url = "git+https://github.com/ginwa123/glinlandui.git#ace0b9b64dd7a6fb0d4de8de6f0f5d3b6bd7e25a",
+            .hash = "glinlandui-0.0.0-ngP3RldQMQB8nIL7NVPpSXBW11pNM-VJY_UyA5L-RMw8",
         },
         .kabelweb = .{
             .url = "git+https://github.com/ginwa123/kabelweb.git#1726a5786b49f0c9469d99219232eb52f4766339",

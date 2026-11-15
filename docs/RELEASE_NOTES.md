@@ -28,6 +28,15 @@ Or download the archive for your machine from the assets below and run the binar
 | Linux x86_64 | `kurirw-linux-x86_64.tar.gz` | built on Ubuntu 24.04, so it wants glibc 2.39+; run it in a Wayland session with the pango/cairo and libcurl runtime libraries installed |
 | Windows x86_64 | `kurirw-windows-x86_64.zip` | self-contained: `Send` works over http and https, with TLS through Windows' own certificate store |
 
+## New: a right-click menu on every request
+
+Right-click a request in the sidebar and it offers **Rename**, **Duplicate** and
+**Delete** — on the row you clicked, not on whatever happened to be selected.
+Rename puts the keyboard in the name field with the whole name selected, so the
+first keystroke replaces it; Duplicate makes a real copy (headers, body and all)
+named "… copy" and selects it; Delete removes just that row. The menu closes on
+Escape, on a click outside, and after an action.
+
 ## New: the response body is selectable text
 
 The body used to be a list of drawn lines: readable, but you could not select a

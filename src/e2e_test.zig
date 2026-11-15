@@ -835,3 +835,117 @@ test "the response body is one text surface: select all, copy, and typing cannot
     try testing.expectEqualStrings(shown, h.app.vm().uiState().response.body);
     try testing.expectEqualStrings(shown, h.app.vm().response.body_field.text());
 }
+
+// The right-click card is drawn by the engine, so a test addresses its rows by their own ids.
+fn clickMenuRow(h: *Harness, index: usize) !void {
+    const bb = glinlandui.frame.bounds(glinlandui.components.context_menu.rowId(index)) orelse return error.MenuRowMissing;
+    h.driver.clickAt(bb.x + bb.width * 0.5, bb.y + bb.height * 0.5);
+}
+
+// A secondary press on a tree row, and the frame that draws the card it opened.
+fn rightClickTreeRow(h: *Harness, index: usize) !void {
+    const bb = h.driver.box(glinlandui.frame.elementId("kurir.tree.row", index)) orelse return error.ElementNotFound;
+    const x = bb.x + bb.width * 0.5;
+    const y = bb.y + bb.height * 0.5;
+    const right = glinlandui.components.dispatch.BTN_RIGHT;
+    h.driver.host.onPointerEvent(x, y, true, right);
+    h.driver.host.onPointerEvent(x, y, false, right);
+    h.driver.frame();
+}
+
+test "a right click on a request offers the three actions, and Duplicate makes an editable copy" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
+    try h.driver.click(view_model.url_field_id);
+    try h.driver.typeText("https://api.example.com/v1/items");
+
+    // Row 0 is the collection, row 1 the request it holds.
+    try rightClickTreeRow(&h, 1);
+    try h.driver.expectText("Rename");
+    try h.driver.expectText("Duplicate");
+    try h.driver.expectText("Delete");
+
+    try clickMenuRow(&h, 1);
+    h.driver.frame();
+
+    // The copy is a sibling, named after the row it came from, and it is selected.
+    try testing.expectEqual(@as(usize, 3), h.app.vm().uiState().rows.len);
+    try h.driver.expectText("Request 1 copy");
+    const node = h.app.vm().session.nodeAt(h.app.vm().session.selection.?) orelse return error.NothingSelected;
+    try testing.expectEqualStrings("Request 1 copy", kurirw.postman.str(node.*, "name"));
+    try testing.expectEqualStrings("https://api.example.com/v1/items", kurirw.postman.urlRaw(node.object.get("request").?));
+    // The card is gone once a row was picked.
+    try testing.expect(!glinlandui.components.context_menu.isOpen());
+}
+
+test "Delete in the row's menu removes exactly the row that was right-clicked" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
+    try newMenu(&h, 1);
+    h.driver.frame();
+    try testing.expectEqual(@as(usize, 3), h.app.vm().uiState().rows.len);
+
+    // Delete the FIRST request, the one on row 1.
+    try rightClickTreeRow(&h, 1);
+    try clickMenuRow(&h, 2);
+    h.driver.frame();
+
+    try testing.expectEqual(@as(usize, 2), h.app.vm().uiState().rows.len);
+    // "Request 2" survives: the menu acted on the row it was raised from, not on the selection.
+    try h.driver.expectText("Request 2");
+    try h.driver.expectNoText("Request 1");
+}
+
+test "Rename hands the keyboard to the name field, so typing renames the row" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
+    h.driver.frame();
+
+    try rightClickTreeRow(&h, 1);
+    try clickMenuRow(&h, 0);
+    h.driver.frame();
+    h.driver.frame();
+    try testing.expect(std.mem.indexOf(u8, h.app.vm().uiState().status, "Type a new name") != null);
+
+    // The caret is in the name field: typed text lands on the request's own name.
+    try h.driver.typeText("!");
+    h.driver.frame();
+    // The name was selected, so the keystroke replaced it: rename is type-what-you-want, not type-into-a-name.
+    const node = h.app.vm().session.nodeAt(h.app.vm().session.selection.?) orelse return error.NothingSelected;
+    try testing.expectEqualStrings("!", kurirw.postman.str(node.*, "name"));
+}
+
+test "a collection row has no menu: a right click on it opens nothing" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try newMenu(&h, 0);
+    try rightClickTreeRow(&h, 0);
+    try testing.expect(!glinlandui.components.context_menu.isOpen());
+    try h.driver.expectNoText("Duplicate");
+}

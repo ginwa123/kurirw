@@ -234,7 +234,28 @@ pub fn row(scope: *Scope, index: usize) void {
         .pad = props.Pad.sides(0, 8, 0, @floatFromInt(4 + r.depth * indent)),
         .child_align = .{ .y = .center },
         .on_click = .{ .f = actions.onRowCtx, .ctx = &scope.vm.sidebar.row_ctxs[index] },
+        .context_menu = rowMenu(scope, index, r.kind),
     }, &RowCtx{ .scope = scope, .index = index }, rowChildren);
+}
+
+// A request row offers rename, duplicate and delete on a right click; a collection or folder has no menu.
+fn rowMenu(scope: *Scope, index: usize, kind: state_mod.NodeKind) props.ContextMenu {
+    if (kind != .request) return .{};
+    const t = scope.theme;
+    return .{
+        .items = &sidebar_vm.row_menu_items,
+        .on_select = .{ .f = onRowMenu, .ctx = &scope.vm.sidebar.row_ctxs[index] },
+        .bg = t.colors.surface,
+        .fg = t.colors.text,
+        .hover_bg = t.colors.hover,
+        .border = t.colors.divider,
+    };
+}
+
+// The menu names the row it was raised from, and the panel turns that row into its path.
+fn onRowMenu(ctx: ?*anyopaque, action: usize) void {
+    const rc: *const sidebar_vm.Sidebar.RowCtx = @ptrCast(@alignCast(ctx.?));
+    rc.sidebar.pickRowMenu(rc.index, action);
 }
 
 const Color = glinlandui.Color;

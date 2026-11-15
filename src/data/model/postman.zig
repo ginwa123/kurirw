@@ -229,6 +229,30 @@ pub fn newRequest(alloc: Allocator, name: []const u8, method: []const u8, url: [
     return .{ .object = item };
 }
 
+// A deep copy into `alloc`, so editing the copy never reaches the original it was made from.
+pub fn clone(alloc: Allocator, value: Value) !Value {
+    return switch (value) {
+        .null => .{ .null = {} },
+        .bool => |b| .{ .bool = b },
+        .integer => |i| .{ .integer = i },
+        .float => |f| .{ .float = f },
+        .number_string => |s| .{ .number_string = try own(alloc, s) },
+        .string => |s| .{ .string = try own(alloc, s) },
+        .array => |a| blk: {
+            var out = Array.init(alloc);
+            try out.ensureTotalCapacity(a.items.len);
+            for (a.items) |item| out.appendAssumeCapacity(try clone(alloc, item));
+            break :blk .{ .array = out };
+        },
+        .object => |o| blk: {
+            var out: Object = .empty;
+            var it = o.iterator();
+            while (it.next()) |entry| try out.put(alloc, try own(alloc, entry.key_ptr.*), try clone(alloc, entry.value_ptr.*));
+            break :blk .{ .object = out };
+        },
+    };
+}
+
 // `{ mode: "raw", raw: "", options: { raw: { language: "json" } } }`, the shape the PRD pins.
 pub fn rawBody(alloc: Allocator, raw: []const u8) !Value {
     var language: Object = .empty;

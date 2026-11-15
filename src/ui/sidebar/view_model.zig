@@ -32,6 +32,8 @@ pub const ws_panel_id = "kurir.ws.panel";
 
 // The two menus' rows, in declaration order: a pick joins the row's index to the intent it raises.
 pub const new_rows = [_][]const u8{ "Collection", "Request", "Folder", "Import", "From cURL" };
+// What a request row offers on a right click, in the order `pickRowMenu` switches on.
+pub const row_menu_items = [_][]const u8{ "Rename", "Duplicate", "Delete" };
 pub const ws_rows = [_][]const u8{ "New workspace", "Delete workspace", "Export collection" };
 
 // How many bytes a row's name may take before its tail becomes "..".
@@ -390,6 +392,51 @@ pub const Sidebar = struct {
 
         self.session.commit();
         self.session.setStatus(false, "Imported {s} from cURL: {s} {s}.", .{ imported.name, imported.request.method, imported.request.url });
+    }
+
+    // A right-click menu pick for the row at `row_index`: the row's PATH is read now, so a shifted row cannot act on a neighbour.
+    pub fn pickRowMenu(self: *Sidebar, row_index: usize, action: usize) void {
+        const path = self.rowAt(row_index) orelse return self.session.failNow("That row is gone. Right-click it again.");
+        const node = self.session.nodeAt(path) orelse return self.session.failNow("That request is gone. Right-click it again.");
+        if (!postman.isRequest(node.*)) return;
+        switch (action) {
+            0 => self.renameAt(path),
+            1 => self.duplicateAt(path),
+            else => self.deleteAt(path),
+        }
+    }
+
+    // Rename: select the row and hand the keyboard to the name field, which is where a name is typed.
+    pub fn renameAt(self: *Sidebar, path: Path) void {
+        self.select(path);
+        frame.setFocus(name_field_id);
+        // The whole name is selected, so the first keystroke replaces it instead of landing inside it.
+        self.name_field.editor.selectAll();
+        self.session.setStatus(false, "Type a new name, then press Enter.", .{});
+    }
+
+    // Duplicate: a deep copy under the same parent, named "… copy", selected so it can be edited at once.
+    pub fn duplicateAt(self: *Sidebar, path: Path) void {
+        const parent_path = path.parent() orelse return self.session.failNow("That row has no parent to hold a copy.");
+        const parent = self.session.nodeAt(parent_path) orelse return self.session.failNow("That folder is gone. Right-click the request again.");
+        const source = self.session.nodeAt(path) orelse return self.session.failNow("That request is gone. Right-click it again.");
+        const arena = self.session.docArena();
+        var copy = postman.clone(arena, source.*) catch return self.session.failNow("Could not duplicate that request.");
+        const name = postman.str(source.*, "name");
+        const copy_name = std.fmt.allocPrint(arena, "{s} copy", .{name}) catch name;
+        postman.setName(arena, &copy, copy_name) catch {};
+        const index = postman.appendChild(self.session.gpa, parent, copy) catch return self.session.failNow("Could not duplicate that request.");
+        self.expand(parent_path, true);
+        self.session.selection = parent_path.child(@intCast(index));
+
+        self.session.commit();
+        self.session.setStatus(false, "Duplicated as {s}.", .{copy_name});
+    }
+
+    // Delete: the row's own node, selected first so the delete acts on what was right-clicked.
+    pub fn deleteAt(self: *Sidebar, path: Path) void {
+        self.session.selection = path;
+        self.deleteSelected();
     }
 
     pub fn containerForInsert(self: *Sidebar) ?Path {
