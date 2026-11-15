@@ -30,7 +30,9 @@ pub fn main(init: std.process.Init) !void {
     try window.run();
 }
 
+// Ask for another frame while a request is in flight. Only the backends that can be asked have the call:
+// the Linux/Wayland window draws on demand and exposes no `setAnimating`, so there the pump is a no-op.
 fn setAnimating(ctx: ?*anyopaque, on: bool) void {
     const win: *glinlandui.Window = @ptrCast(@alignCast(ctx.?));
-    win.setAnimating(on);
+    if (@hasDecl(glinlandui.Window, "setAnimating")) win.setAnimating(on);
 }

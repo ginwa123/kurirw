@@ -90,17 +90,9 @@ jobs:
         if: runner.os == 'macOS'
         run: brew install curl openssl@3
 
-      # No install step on Windows on purpose: kabelweb falls back to its own stub libcurl there, so
-      # the suite compiles, links and runs without vcpkg. This step only records what was found, so a
-      # red Windows leg is readable.
-      - name: Report the Windows TLS/libcurl situation
-        if: runner.os == 'Windows'
-        run: |
-          set -uo pipefail
-          for p in "/c/vcpkg/installed/x64-windows/include/curl/curl.h" \
-                   "/c/Program Files/Git/mingw64/include/curl/curl.h"; do
-            if [ -f "$p" ]; then echo "found: $p"; else echo "absent: $p"; fi
-          done
+      # No install step on Windows on purpose: kabelweb probes for vcpkg's curl and, finding none,
+      # builds its own stub libcurl, so the suite compiles, links and runs here. The build prints which
+      # path it took ("[kabelweb] using ... libcurl"), which is where a red leg is read from.
 
       - name: Check formatting
         run: zig fmt --check build.zig src tools
