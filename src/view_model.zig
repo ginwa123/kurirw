@@ -5,11 +5,11 @@ const input_mod = glinlandui.components.input;
 const sidebar_mod = glinlandui.components.sidebar;
 const frame = glinlandui.frame;
 
-const postman = @import("model/postman.zig");
-const store = @import("model/store.zig");
-const http_mod = @import("model/http.zig");
+const postman = @import("data/model/postman.zig");
+const store = @import("data/local/workspace_store.zig");
+const http_mod = @import("data/remote/http_client.zig");
 const state_mod = @import("state.zig");
-const theme_mod = @import("theme.zig");
+const theme_mod = @import("ui/theme/theme.zig");
 
 const Allocator = std.mem.Allocator;
 const UiState = state_mod.UiState;

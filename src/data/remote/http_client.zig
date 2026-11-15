@@ -1,7 +1,7 @@
 //! The HTTP layer: one injectable transport, a real kabelweb client, and a fake so tests never touch the network.
 const std = @import("std");
 const kabelweb = @import("kabelweb");
-const postman = @import("postman.zig");
+const postman = @import("../model/postman.zig");
 
 pub const Allocator = std.mem.Allocator;
 pub const client = kabelweb.client;

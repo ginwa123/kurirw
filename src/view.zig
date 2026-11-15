@@ -12,9 +12,9 @@ const text_mod = glinlandui.components.text;
 const frame = glinlandui.frame;
 const props = glinlandui.props;
 
-const postman = @import("model/postman.zig");
+const postman = @import("data/model/postman.zig");
 const state_mod = @import("state.zig");
-const theme_mod = @import("theme.zig");
+const theme_mod = @import("ui/theme/theme.zig");
 const view_model = @import("view_model.zig");
 
 const UiState = state_mod.UiState;

@@ -1,6 +1,6 @@
 //! The screen's state as a VALUE: every field the view draws, and the pure helpers that turn numbers into labels.
 const std = @import("std");
-const postman = @import("model/postman.zig");
+const postman = @import("data/model/postman.zig");
 
 pub const max_depth: usize = 8;
 pub const max_tree_rows: usize = 512;

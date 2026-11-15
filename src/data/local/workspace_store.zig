@@ -1,6 +1,6 @@
 //! Kurir's on-disk document: one JSON file holding an array of workspaces, each holding Postman collections.
 const std = @import("std");
-const postman = @import("postman.zig");
+const postman = @import("../model/postman.zig");
 
 pub const Value = postman.Value;
 pub const Object = postman.Object;

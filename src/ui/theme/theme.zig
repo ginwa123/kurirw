@@ -1,7 +1,7 @@
 //! Kurir's palette: the toolkit's Kanagawa Dragon kit plus the tones a request list needs and a theme has no role for.
 const std = @import("std");
 const glinlandui = @import("glinlandui");
-const postman = @import("model/postman.zig");
+const postman = @import("../../data/model/postman.zig");
 
 pub const Theme = glinlandui.theme.Theme;
 pub const Color = glinlandui.Color;
