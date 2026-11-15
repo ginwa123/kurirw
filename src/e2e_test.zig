@@ -209,6 +209,50 @@ test "the body is a multiline field: Enter types a line with the caret on it, Ct
     try h.driver.expectText("200 OK");
 }
 
+test "paste goes through the field's clipboard and lands in the model, newlines and all" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try h.driver.click("kurir.add.collection");
+    try h.driver.click("kurir.add.request");
+    try h.driver.click("kurir.tab.body");
+    try h.driver.click(view_model.body_id);
+
+    // A scripted pasteboard: the real one belongs to the machine running the test.
+    h.app.vm().body_field.clipboard = .{ .read_fn = clipRead, .write_fn = clipWrite };
+    clipSet("{\n  \"a\": 1\n}");
+
+    _ = h.driver.host.onKeyEvent(29, true);
+    _ = try h.driver.key(47);
+    _ = h.driver.host.onKeyEvent(29, false);
+
+    try testing.expectEqualStrings("{\n  \"a\": 1\n}", h.app.vm().uiState().body);
+    // And the draft the field shows is the same text.
+    try testing.expectEqualStrings("{\n  \"a\": 1\n}", h.app.vm().body_field.text());
+}
+
+var clip_buf: [512]u8 = undefined;
+var clip_len: usize = 0;
+
+fn clipSet(text: []const u8) void {
+    clip_len = @min(text.len, clip_buf.len);
+    @memcpy(clip_buf[0..clip_len], text[0..clip_len]);
+}
+
+fn clipRead(_: ?*anyopaque, buf: []u8) []const u8 {
+    const n = @min(clip_len, buf.len);
+    @memcpy(buf[0..n], clip_buf[0..n]);
+    return buf[0..n];
+}
+
+fn clipWrite(_: ?*anyopaque, text: []const u8) void {
+    clipSet(text);
+}
+
 // The caret bar a multiline field draws on one of its lines.
 fn caretOnLine(driver: *Driver, line: usize) bool {
     const caret = glinlandui.components.input.lineCaretId(view_model.body_id, line);

@@ -34,7 +34,7 @@ git clone https://github.com/ginwa123/kabelweb.git   kabelweb
 cd kurirw
 
 zig build run          # the window
-zig build test         # unit + headless E2E (47 tests)
+zig build test         # unit + headless E2E (48 tests)
 ```
 
 `kabelweb`'s client is libcurl-backed, so the build wants a system `libcurl` + OpenSSL (Homebrew's
@@ -114,7 +114,9 @@ The rules the code keeps:
 - **The body editor is the toolkit's field**, not a hand-rolled one: `components.input.Field` with
   `.multiline = true` types a line on Enter, keeps the caret on the line it belongs to (through
   glinlandui's per-line caret ids), and raises `on_submit` on Ctrl/Cmd+Enter, which is what sends.
-  Kurir routes no key at all — the engine types into the focused field.
+  Copy, cut and paste are the field's too (Ctrl/Cmd+C/X/V through the system clipboard), so the body
+  round-trips a JSON block in one gesture. Kurir routes no key at all — the engine types into the
+  focused field.
 - **The method bar** is seven fixed-width buttons, one tone each, not a dropdown: a method is one
   click, and the colour is the thing you scan for.
 
