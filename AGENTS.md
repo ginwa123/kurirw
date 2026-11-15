@@ -56,6 +56,14 @@ src/e2e_test.zig  the acceptance path, headless
 - **Element ids must be unique per frame.** `frame.elementId(prefix, i)` for anything per-row.
   A duplicate id is invisible in review and shows up as a Clay `duplicate_id` log line, which fails
   every test that reaches it.
+- **The left panel's width is the widget's, not the model's.** `components.sidebar` owns it (`vm.sidebar_state`)
+  and mutates it during the declare, so `UiState.sidebar_width` is refreshed in `uiState()`, not in `rebuild()`.
+  The panel's content is pinned to that width (`.w = .fixed(width)`) because a `.grow` column inside it is
+  widened by text metrics — which pushes a toolbar button's centre under the grab line and trips
+  `glinlandui audit: hit_target_not_self`.
+- **A cross-frame gesture needs the Driver's pointer bookkeeping.** `frame.ptr_down` / `ptr_press_x` are set by
+  the platform adapters AND by `testing.Driver`'s press/move/release helpers; without them a drag in an E2E
+  test reports `ptr_down == false` and silently does nothing.
 - **Hairlines land on the device grid.** A focused text field draws a 1-px caret at
   `box.x + pad + measure(prefix)`; a fractional `box.x` (an auto-width button before the field)
   trips `glinlandui audit: hairline_off_grid`, which is an error log and fails the suite. Give the

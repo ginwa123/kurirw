@@ -7,6 +7,7 @@ const button_mod = glinlandui.components.button;
 const input_mod = glinlandui.components.input;
 const list_mod = glinlandui.components.list;
 const scroll_mod = glinlandui.components.scroll;
+const sidebar_mod = glinlandui.components.sidebar;
 const text_mod = glinlandui.components.text;
 const frame = glinlandui.frame;
 const props = glinlandui.props;
@@ -20,7 +21,6 @@ const UiState = state_mod.UiState;
 const KurirViewModel = view_model.KurirViewModel;
 const Theme = glinlandui.theme.Theme;
 
-const sidebar_w: u32 = 300;
 const editor_h: u32 = 320;
 const row_h: u32 = 26;
 const indent: u16 = 14;
@@ -47,25 +47,28 @@ pub fn KurirScreen(scope: *Scope) void {
 }
 
 fn rootChildren(scope: *Scope) void {
-    sidebar(scope);
+    // The panel and its grab line are the toolkit's; what goes inside is Kurir's.
+    var panel = scope.vm.sidebarProps();
+    panel.src = @src();
+    sidebar_mod.sidebar(panel, scope, sidebarChildren);
     mainArea(scope);
 }
 
 // ---- sidebar -------------------------------------------------------------------------------------------------
 
-fn sidebar(scope: *Scope) void {
+fn sidebarChildren(scope: *Scope) void {
+    // Pinned to the panel's own width: text metrics must never widen the panel past the line the pointer holds.
+    const w = sidebar_mod.width(scope.vm.sidebarProps());
     box_mod.box(.{
         .src = @src(),
-        .id = .{ .text = "kurir.sidebar" },
+        .id = .{ .text = "kurir.sidebar.content" },
         .direction = .column,
-        .w = .{ .fixed = @floatFromInt(sidebar_w) },
+        .w = .{ .fixed = w },
         .h = .grow,
-        .bg = scope.theme.colors.surface,
-        .border = .{ .width = 1, .color = scope.theme.colors.divider },
-    }, scope, sidebarChildren);
+    }, scope, sidebarContent);
 }
 
-fn sidebarChildren(scope: *Scope) void {
+fn sidebarContent(scope: *Scope) void {
     workspaceStrip(scope);
     toolbar(scope);
     tree(scope);
@@ -821,5 +824,4 @@ fn onResponseHeadersTab(ctx: ?*anyopaque) void {
 test "the layout constants describe one row band per tree row" {
     try std.testing.expectEqual(@as(u32, 26), row_h);
     try std.testing.expect(editor_h > row_h * 3);
-    try std.testing.expect(sidebar_w > 200);
 }

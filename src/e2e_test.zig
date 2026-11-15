@@ -120,6 +120,37 @@ test "the acceptance path: a workspace, a collection, a folder, a request, send,
     try testing.expectEqual(kurirw.state.ResponseKind.ok, h.app.vm().uiState().response.kind);
 }
 
+test "the sidebar resizes by dragging its line, collapses past the threshold, and reopens with a click" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try testing.expectApproxEqAbs(@as(f32, 300), h.app.vm().uiState().sidebar_width, 0.01);
+
+    // The grab line sits on the panel's trailing edge, 300..307, and spans the window.
+    h.driver.pressAt(303, 300);
+    h.driver.move(383, 300);
+    h.driver.releaseAt(383, 300);
+    try testing.expectApproxEqAbs(@as(f32, 380), h.app.vm().uiState().sidebar_width, 0.01);
+    try testing.expect(!h.app.vm().uiState().sidebar_collapsed);
+
+    // Dragged far past the minimum it closes, instead of becoming a sliver the tool rows no longer fit in.
+    h.driver.pressAt(383, 300);
+    h.driver.move(40, 300);
+    h.driver.releaseAt(40, 300);
+    try testing.expect(h.app.vm().uiState().sidebar_collapsed);
+    try testing.expectApproxEqAbs(@as(f32, 0), h.app.vm().uiState().sidebar_width, 0.01);
+
+    // The line is still at the window's edge while the panel is shut, and a click reopens at the width it had.
+    h.driver.pressAt(3, 300);
+    h.driver.releaseAt(3, 300);
+    try testing.expect(!h.app.vm().uiState().sidebar_collapsed);
+    try testing.expectApproxEqAbs(@as(f32, 380), h.app.vm().uiState().sidebar_width, 0.01);
+}
+
 test "the empty state itself is a button: clicking it creates the first collection" {
     const gpa = std.heap.page_allocator;
     var scratch = try Scratch.make(gpa);

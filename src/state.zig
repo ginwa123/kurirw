@@ -130,6 +130,10 @@ pub const UiState = struct {
     status: []const u8 = "",
     status_is_error: bool = false,
 
+    // The left panel, as the sidebar component settled it this frame.
+    sidebar_width: f32 = 300,
+    sidebar_collapsed: bool = false,
+
     can_add_folder: bool = false,
     can_add_request: bool = false,
     can_delete: bool = false,

@@ -1,5 +1,6 @@
 // The entry point: the window, the Host, and the composable it renders. Nothing else.
 const std = @import("std");
+const builtin = @import("builtin");
 const glinlandui = @import("glinlandui");
 const kurirw = @import("kurirw");
 
@@ -12,6 +13,8 @@ pub fn main(init: std.process.Init) !void {
 
     var host = try glinlandui.host.Host.init(gpa, &app, kurirw.app.App.content);
     defer host.deinit();
+    // A Debug or ReleaseSafe build is a build a developer is looking at, so the component tree is one right-click away.
+    if (builtin.mode == .Debug or builtin.mode == .ReleaseSafe) _ = glinlandui.devtools.attach(gpa, &host);
 
     var window = glinlandui.Window.init(gpa, .{
         .app_id = "kurirw",

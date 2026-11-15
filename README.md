@@ -34,7 +34,7 @@ git clone https://github.com/ginwa123/kabelweb.git   kabelweb
 cd kurirw
 
 zig build run          # the window
-zig build test         # unit + headless E2E (48 tests)
+zig build test         # unit + headless E2E (49 tests)
 ```
 
 `kabelweb`'s client is libcurl-backed, so the build wants a system `libcurl` + OpenSSL (Homebrew's
@@ -109,6 +109,10 @@ The rules the code keeps:
 
 ## The widgets Kurir had to write itself
 
+- **The left panel** is `components.sidebar`: the panel holds Kurir's workspace strip, tool rows and
+  tree, and the toolkit owns the width and the grab line. Dragging the line resizes it, dragging it
+  past the minimum shuts the panel, and a click on the line — still there at the window edge, 7 points
+  wide — brings it back at the width it had.
 - **The collection tree** is a `list` with a custom row: an expand caret, the method as a coloured
   label, then the name, indented by depth.
 - **The body editor is the toolkit's field**, not a hand-rolled one: `components.input.Field` with
@@ -119,6 +123,13 @@ The rules the code keeps:
   focused field.
 - **The method bar** is seven fixed-width buttons, one tone each, not a dropdown: a method is one
   click, and the colour is the thing you scan for.
+
+## The inspector, in a dev build
+
+`zig build run` is a Debug build, and `-Doptimize=ReleaseSafe` keeps the same promise, so both attach
+glinlandui's devtool: **right-click anywhere** for this app's component tree — each node shows the
+widget it came from and, for anything Kurir declared with `.src = @src()`, the exact `view.zig` line.
+A `ReleaseFast` or `ReleaseSmall` build does not attach it (one `builtin.mode` check in `main.zig`).
 
 ## Commands
 

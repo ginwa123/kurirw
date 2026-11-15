@@ -2,6 +2,7 @@
 const std = @import("std");
 const glinlandui = @import("glinlandui");
 const input_mod = glinlandui.components.input;
+const sidebar_mod = glinlandui.components.sidebar;
 const frame = glinlandui.frame;
 
 const postman = @import("model/postman.zig");
@@ -96,6 +97,8 @@ pub const KurirViewModel = struct {
     body_buf: []u8 = &.{},
     // The body is the toolkit's multiline field: Enter types a line, Ctrl/Cmd+Enter sends.
     body_field: input_mod.Field = .{ .id = .{ .text = body_id } },
+    // The left panel is the toolkit's sidebar: it owns the width and the drag, Kurir owns what goes inside.
+    sidebar_state: sidebar_mod.State = .{},
     focus: state_mod.Focus = .none,
     editor_tab: state_mod.Tab = .headers,
     response_tab: state_mod.Tab = .body,
@@ -128,6 +131,8 @@ pub const KurirViewModel = struct {
             .doc_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator),
             .view_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator),
             .resp_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator),
+            // Wide enough for the tool rows, and the width a click comes back to after a collapse.
+            .sidebar_state = .{ .width = 300, .expanded_width = 300 },
         };
     }
 
@@ -497,6 +502,8 @@ pub const KurirViewModel = struct {
         view.response_tab = self.response_tab;
         view.has_collection = store.collectionCount(self.doc, self.workspace) > 0;
         view.response = self.response;
+        view.sidebar_width = sidebar_mod.width(self.sidebarProps());
+        view.sidebar_collapsed = self.sidebar_state.collapsed;
 
         if (self.selection) |path| {
             if (self.nodeValue(path)) |node| {
@@ -524,9 +531,37 @@ pub const KurirViewModel = struct {
         self.view = view;
     }
 
-    // `uiState`: the value the view draws.
+    // `uiState`: the value the view draws. The panel resizes while the frame is declared, so its width is read here.
     pub fn uiState(self: *KurirViewModel) UiState {
+        self.view.sidebar_width = sidebar_mod.width(self.sidebarProps());
+        self.view.sidebar_collapsed = self.sidebar_state.collapsed;
         return self.view;
+    }
+
+    // The left panel's props: the limits and tones live here, so the view only adds its own call site.
+    pub fn sidebarProps(self: *KurirViewModel) sidebar_mod.Props {
+        const t = self.theme;
+        return .{
+            .id = .{ .text = "kurir.sidebar" },
+            .state = &self.sidebar_state,
+            .min_width = 252,
+            .max_width = 460,
+            // Narrower than this and the tool rows no longer fit, so a drag past it means "close it".
+            .collapse_below = 180,
+            .collapsed_width = 0,
+            .h = .grow,
+            .bg = t.colors.surface,
+            .handle_bg = t.colors.surface_variant,
+            .handle_hover_bg = t.colors.hover,
+            .handle_active_bg = t.colors.primary,
+        };
+    }
+
+    // The keyboard-free way to open and close the panel, for a button or a shortcut later.
+    pub fn toggleSidebar(self: *KurirViewModel) void {
+        self.sidebar_state.collapsed = !self.sidebar_state.collapsed;
+        if (!self.sidebar_state.collapsed) self.sidebar_state.width = self.sidebar_state.expanded_width;
+        self.rebuild();
     }
 
     // True when Postman marks this header disabled, which the "on/off" button shows.
