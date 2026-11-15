@@ -9,7 +9,7 @@ const sidebar_mod = glinlandui.components.sidebar;
 const text_mod = glinlandui.components.text;
 
 const theme_mod = @import("../theme/theme.zig");
-const state_mod = @import("../../state.zig");
+const state_mod = @import("../state.zig");
 const scope_mod = @import("scope.zig");
 const sidebar_screen = @import("../sidebar/screen.zig");
 const editor_screen = @import("../editor/screen.zig");

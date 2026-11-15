@@ -5,7 +5,7 @@ const input_mod = glinlandui.components.input;
 const frame = glinlandui.frame;
 
 const postman = @import("../../data/model/postman.zig");
-const state_mod = @import("../../state.zig");
+const state_mod = @import("../../ui/state.zig");
 const session_mod = @import("../shell/session.zig");
 
 const Allocator = std.mem.Allocator;

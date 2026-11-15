@@ -2,7 +2,7 @@
 const std = @import("std");
 const glinlandui = @import("glinlandui");
 
-const state_mod = @import("../../state.zig");
+const state_mod = @import("../state.zig");
 const view_model = @import("../shell/view_model.zig");
 
 const UiState = state_mod.UiState;

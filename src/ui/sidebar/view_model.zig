@@ -6,7 +6,7 @@ const sidebar_mod = glinlandui.components.sidebar;
 
 const postman = @import("../../data/model/postman.zig");
 const store = @import("../../data/local/workspace_store.zig");
-const state_mod = @import("../../state.zig");
+const state_mod = @import("../../ui/state.zig");
 const session_mod = @import("../shell/session.zig");
 
 const Allocator = std.mem.Allocator;

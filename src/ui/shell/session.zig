@@ -6,7 +6,7 @@ const input_mod = glinlandui.components.input;
 const postman = @import("../../data/model/postman.zig");
 const store = @import("../../data/local/workspace_store.zig");
 const domain = @import("../../domain/repository/workspace.zig");
-const state_mod = @import("../../state.zig");
+const state_mod = @import("../../ui/state.zig");
 const theme_mod = @import("../theme/theme.zig");
 
 pub const Allocator = std.mem.Allocator;

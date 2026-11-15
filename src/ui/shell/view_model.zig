@@ -6,7 +6,7 @@ const input_mod = glinlandui.components.input;
 const postman = @import("../../data/model/postman.zig");
 const store = @import("../../data/local/workspace_store.zig");
 const http_mod = @import("../../data/remote/http_client.zig");
-const state_mod = @import("../../state.zig");
+const state_mod = @import("../state.zig");
 const theme_mod = @import("../theme/theme.zig");
 const file_store = @import("../../data/repository/workspace_impl.zig");
 

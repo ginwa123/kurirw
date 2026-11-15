@@ -2,7 +2,7 @@
 pub const app = @import("app.zig");
 pub const view = @import("ui/shell/screen.zig");
 pub const view_model = @import("ui/shell/view_model.zig");
-pub const state = @import("state.zig");
+pub const state = @import("ui/state.zig");
 pub const theme = @import("ui/theme/theme.zig");
 pub const postman = @import("data/model/postman.zig");
 pub const store = @import("data/local/workspace_store.zig");
@@ -16,7 +16,7 @@ pub const container = @import("di/container.zig");
 
 // Every file's own tests, collected without adding an anonymous one, so the suite counts real tests.
 comptime {
-    _ = @import("state.zig");
+    _ = @import("ui/state.zig");
     _ = @import("ui/theme/theme.zig");
     _ = @import("data/model/postman.zig");
     _ = @import("data/local/workspace_store.zig");

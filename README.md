@@ -102,8 +102,8 @@ src/
 │   ├── sidebar/                  view_model.zig + screen.zig — workspaces, tools, tree
 │   ├── editor/                   view_model.zig + screen.zig — method, url, headers, body
 │   ├── response/                 view_model.zig + screen.zig — status, time, size, body, headers
-│   └── theme/theme.zig           the palette: glinlandui `dragon` + one tone per HTTP method
-├── state.zig                     the state as a VALUE: Path, TreeRow, ResponseView, UiState
+│   ├── theme/theme.zig           the palette: glinlandui `dragon` + one tone per HTTP method
+├── ui/state.zig                     the state as a VALUE: Path, TreeRow, ResponseView, UiState
 ├── app.zig                       the Activity: theme + container + content(). No widget code
 ├── main.zig                      the only `pub fn main`: window, Host, key chain
 ├── root.zig                      the module surface (`@import("kurirw")` is the whole app)

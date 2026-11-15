@@ -3,7 +3,7 @@ const std = @import("std");
 
 const postman = @import("../../data/model/postman.zig");
 const http_mod = @import("../../data/remote/http_client.zig");
-const state_mod = @import("../../state.zig");
+const state_mod = @import("../../ui/state.zig");
 const session_mod = @import("../shell/session.zig");
 
 const Allocator = std.mem.Allocator;

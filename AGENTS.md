@@ -37,7 +37,7 @@ src/domain/usecase/                send_request, import_collection, export_colle
 src/data/{model,remote,local,repository}/  postman, kabelweb, the file, the dialogs, the FileStore
 src/ui/shell/                      session, view_model, screen, scope, widgets, actions
 src/ui/{sidebar,editor,response}/  view_model.zig (state + intents) + screen.zig (declaration)
-src/state.zig                      the state as a value + label helpers
+src/ui/state.zig                      the state as a value + label helpers
 src/app.zig, src/main.zig          the Activity and the entry point
 src/e2e_test.zig                   the acceptance path, headless
 ```

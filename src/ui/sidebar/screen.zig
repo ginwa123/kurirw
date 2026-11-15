@@ -11,7 +11,7 @@ const text_mod = glinlandui.components.text;
 const frame = glinlandui.frame;
 const props = glinlandui.props;
 
-const state_mod = @import("../../state.zig");
+const state_mod = @import("../../ui/state.zig");
 const theme_mod = @import("../theme/theme.zig");
 const scope_mod = @import("../shell/scope.zig");
 const widgets = @import("../shell/widgets.zig");
