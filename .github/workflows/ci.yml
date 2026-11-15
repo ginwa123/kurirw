@@ -122,11 +122,16 @@ jobs:
           elif [ "$RUNNER_OS" = "macOS" ]; then
             # A macOS build links Homebrew's curl + openssl by ABSOLUTE keg path, so a plain copy only
             # runs on a Mac with the same minor versions. dylibbundler copies the whole dyld graph into
-            # lib/ and rewrites every reference to @loader_path, which is what makes the download work
-            # on someone else's Mac.
+            # lib/ and rewrites the references, which is what makes the download work on someone else's Mac.
             cp zig-out/bin/kurirw dist/
             mkdir -p dist/lib
-            dylibbundler -of -b -x dist/kurirw -d dist/lib -p @loader_path/lib
+            # @executable_path, not @loader_path: a library INSIDE lib/ resolves @loader_path to lib/
+            # itself, which turns every reference into lib/lib/<name>.
+            dylibbundler -of -b -x dist/kurirw -d dist/lib -p @executable_path/lib
+            # An arm64 Mac refuses to load code whose signature no longer matches the file, and
+            # install_name_tool invalidated every one of them: re-sign the bundle ad-hoc.
+            codesign --force --sign - dist/lib/*.dylib
+            codesign --force --sign - dist/kurirw
             echo "bundled: $(ls dist/lib | tr '\n' ' ')"
             tar -czf "${{ matrix.archive }}" -C dist kurirw lib
           else
@@ -134,6 +139,27 @@ jobs:
             tar -czf "${{ matrix.archive }}" -C dist kurirw
           fi
           ls -l "${{ matrix.archive }}"
+
+      # A gate on the ARTIFACT, not on the build: the packaged binary has to start. A macOS dylib bundle
+      # is easy to get subtly wrong (a wrong prefix, a stale signature), and neither shows up in
+      # `zig build test` — only in a user's dyld error.
+      - name: The packaged binary starts
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          work=$(mktemp -d)
+          tar -xzf "${{ matrix.archive }}" -C "$work"
+          log="$work/run.log"
+          env KURIR_HOME="$work/home" "$work/kurirw" >"$log" 2>&1 &
+          pid=$!
+          for _ in $(seq 1 30); do
+            grep -q 'macOS first frame:' "$log" 2>/dev/null && break
+            kill -0 "$pid" 2>/dev/null || break
+            sleep 1
+          done
+          kill -9 "$pid" 2>/dev/null || true
+          cat "$log"
+          grep -q 'macOS first frame:' "$log"
 
       - uses: actions/upload-artifact@v4
         with:
