@@ -75,6 +75,8 @@ pub const TreeRow = struct {
     kind: NodeKind = .collection,
     label: []const u8 = "",
     method: []const u8 = "",
+    // How many children a container holds, drawn at the row's right edge; zero draws nothing.
+    count: u16 = 0,
     has_children: bool = false,
     expanded: bool = false,
     selected: bool = false,
@@ -138,6 +140,12 @@ pub const UiState = struct {
     // The left panel, as the sidebar component settled it this frame.
     sidebar_width: f32 = 300,
     sidebar_collapsed: bool = false,
+    // The filter box's text, and whether it is narrowing the tree right now.
+    filter: []const u8 = "",
+    filter_active: bool = false,
+    // The panel's two menus: "+ New" and the workspace menu behind the gear.
+    new_menu_open: bool = false,
+    ws_menu_open: bool = false,
 
     can_add_folder: bool = false,
     can_add_request: bool = false,
@@ -155,6 +163,7 @@ pub const Focus = enum {
     url,
     name,
     workspace,
+    filter,
     header_key,
     header_value,
     body,

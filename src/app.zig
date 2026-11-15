@@ -58,6 +58,8 @@ pub const App = struct {
         _ = h;
         const self: *App = @ptrCast(@alignCast(ctx.?));
         const model = self.vm();
+        // A Host forgets the focus an Activity claimed before it existed, so the first frame claims it again.
+        if (!frame.focusKnown() and model.uiState().node_kind == .request) frame.setFocus(view_model.url_field_id);
         var scope = view.Scope{
             .theme = self.theme,
             .vm = model,

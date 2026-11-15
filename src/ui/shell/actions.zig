@@ -2,11 +2,39 @@
 const glinlandui = @import("glinlandui");
 
 const view_model = @import("../shell/view_model.zig");
+const sidebar_mod = @import("../sidebar/view_model.zig");
 const KurirViewModel = view_model.KurirViewModel;
 
 pub fn onRow(ctx: ?*anyopaque, index: usize) void {
     const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
     vm.onRowSelect(index);
+}
+
+// A tree row is a hand-rolled box, so its click carries its own row context; selecting crosses panels.
+pub fn onRowCtx(ctx: ?*anyopaque) void {
+    const row: *sidebar_mod.Sidebar.RowCtx = @ptrCast(@alignCast(ctx.?));
+    const sb = row.sidebar;
+    if (sb.click_fn) |raise| raise(sb.click_owner, row.index);
+}
+
+pub fn onNewToggle(ctx: ?*anyopaque) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.toggleNewMenu();
+}
+
+pub fn onNewPick(ctx: ?*anyopaque, index: usize) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.pickNewMenu(index);
+}
+
+pub fn onWsToggle(ctx: ?*anyopaque) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.toggleWorkspaceMenu();
+}
+
+pub fn onWsPick(ctx: ?*anyopaque, index: usize) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.pickWorkspaceMenu(index);
 }
 
 pub fn onMethodToggle(ctx: ?*anyopaque) void {

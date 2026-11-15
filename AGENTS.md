@@ -59,6 +59,12 @@ src/e2e_test.zig                   the acceptance path, headless
   values passed to a `box`, whose children callback runs synchronously — that is fine. A callback
   registered with `click_registry` must point at model-owned memory (`vm.editor.header_ctxs`), never
   at a declare-time stack value.
+- **A row's click context lives in a fixed array on the panel** (`vm.sidebar.row_ctxs[512]`). A click is
+  dispatched on a later frame than the one that registered it, so an `ArrayList` of contexts would move
+  and leave the registered pointer on freed memory. A tree row is a `box.on_click`, not a `list` row:
+  rows are 30 points with a chip, a count and a selection bar, which `list`'s single `row_h` cannot carry.
+- **A menu card is as wide as its anchor.** `+ New` is 84 points wide with four short labels and the
+  workspace menu hangs from the whole header row; a card anchored to a 26-point button clips its rows.
 - **Element ids must be unique per frame.** `frame.elementId(prefix, i)` for anything per-row.
   A duplicate id is invisible in review and shows up as a Clay `duplicate_id` log line, which fails
   every test that reaches it.
@@ -75,8 +81,10 @@ src/e2e_test.zig                   the acceptance path, headless
   trips `glinlandui audit: hairline_off_grid`, which is an error log and fails the suite. Give the
   widgets before a field a fixed width (the method bar is `56` each for exactly this reason).
 - **The font has Latin-1 and arrows, not geometric shapes.** `▾`, `▸` and `▼` render as tofu boxes; the
-  tree and the method dropdown use `v` / `>` for exactly this reason. Check a glyph in a screenshot before
-  shipping it.
+  tree and the method dropdown use `v` / `>` for exactly this reason, and the "gear" is `...`. There is no
+  icon font, so an icon is DRAWN: a folder is a 5x2 tab over a 12x8 body. A border does not follow a
+  corner radius here, so a ring (a magnifier) cannot be drawn at all — use a hint instead of a shape that
+  would read as a missing glyph. Check a glyph in a screenshot before shipping it.
 - **The response body is never truncated**, and the pane never declares one text run per line of it: the lines
   are indexed in `data/model/body.zig` and only the viewport's range is drawn (top spacer, lines, bottom spacer).
   Re-indenting a megabyte happens on the request's own thread, not the frame's.

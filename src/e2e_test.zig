@@ -100,6 +100,26 @@ fn pickMethod(h: *Harness, index: usize) !void {
     h.driver.clickAt(row.x + row.width * 0.5, row.y + row.height * 0.5);
 }
 
+// The "+ New" menu: the button opens the card, and a list row is a Clay pair id, so it is hit by its box.
+fn newMenu(h: *Harness, index: usize) !void {
+    if (!h.app.vm().uiState().new_menu_open) try h.driver.click(view_model.new_trigger_id);
+    if (!h.app.vm().uiState().new_menu_open) return error.MenuDidNotOpen;
+    try pickCardRow(h, view_model.new_list_id, index);
+}
+
+// The workspace menu behind the gear, same shape.
+fn workspaceMenu(h: *Harness, index: usize) !void {
+    if (!h.app.vm().uiState().ws_menu_open) try h.driver.click(view_model.ws_trigger_id);
+    if (!h.app.vm().uiState().ws_menu_open) return error.MenuDidNotOpen;
+    try pickCardRow(h, view_model.ws_list_id, index);
+}
+
+fn pickCardRow(h: *Harness, list_id: []const u8, index: usize) !void {
+    const row = glinlandui.frame.bounds(glinlandui.components.list.rowId(list_id, index)) orelse
+        return error.ElementNotFound;
+    h.driver.clickAt(row.x + row.width * 0.5, row.y + row.height * 0.5);
+}
+
 test "the acceptance path: a workspace, a collection, a folder, a request, send, and the response on screen" {
     const gpa = std.heap.page_allocator;
     var scratch = try Scratch.make(gpa);
@@ -113,9 +133,9 @@ test "the acceptance path: a workspace, a collection, a folder, a request, send,
     try testing.expectEqual(@as(usize, 0), h.app.vm().uiState().rows.len);
 
     // A collection, a folder and a request, each through the button the view declares.
-    try h.driver.click("kurir.add.collection");
-    try h.driver.click("kurir.add.folder");
-    try h.driver.click("kurir.add.request");
+    try newMenu(&h, 0);
+    try newMenu(&h, 2);
+    try newMenu(&h, 1);
     try testing.expectEqual(@as(usize, 3), h.app.vm().uiState().rows.len);
     try h.driver.expectText("Request 1");
 
@@ -150,8 +170,8 @@ test "a slow request does not block the frame: the window keeps drawing and the 
     var h = try Harness.boot(gpa, scratch.home);
     defer h.stop(gpa);
 
-    try h.driver.click("kurir.add.collection");
-    try h.driver.click("kurir.add.request");
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
     try h.driver.click(view_model.url_field_id);
     try h.driver.typeText("https://api.example.com/slow");
 
@@ -184,8 +204,8 @@ test "a one-megabyte answer is kept whole and drawn from the top" {
     var h = try Harness.boot(gpa, scratch.home);
     defer h.stop(gpa);
 
-    try h.driver.click("kurir.add.collection");
-    try h.driver.click("kurir.add.request");
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
     try h.driver.click(view_model.url_field_id);
     try h.driver.typeText("https://api.example.com/big");
 
@@ -220,10 +240,10 @@ test "each endpoint keeps its own result, so the pane follows the selection" {
     var h = try Harness.boot(gpa, scratch.home);
     defer h.stop(gpa);
 
-    try h.driver.click("kurir.add.collection");
+    try newMenu(&h, 0);
 
     // Endpoint one, sent.
-    try h.driver.click("kurir.add.request");
+    try newMenu(&h, 1);
     try h.driver.click(view_model.url_field_id);
     try h.driver.typeText("https://api.example.com/one");
     h.fake.status = 200;
@@ -233,7 +253,7 @@ test "each endpoint keeps its own result, so the pane follows the selection" {
     try testing.expect(std.mem.indexOf(u8, h.app.vm().uiState().response.body, "one") != null);
 
     // Endpoint two was never sent, so it shows the empty pane — not endpoint one's body.
-    try h.driver.click("kurir.add.request");
+    try newMenu(&h, 1);
     try testing.expectEqual(kurirw.state.ResponseKind.none, h.app.vm().uiState().response.kind);
 
     try h.driver.click(view_model.url_field_id);
@@ -262,8 +282,8 @@ test "the method is a dropdown: it opens under its trigger, picks a verb, and cl
     var h = try Harness.boot(gpa, scratch.home);
     defer h.stop(gpa);
 
-    try h.driver.click("kurir.add.collection");
-    try h.driver.click("kurir.add.request");
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
     try testing.expectEqualStrings("GET", h.app.vm().uiState().method);
     try testing.expect(!h.app.vm().uiState().method_open);
 
@@ -314,6 +334,69 @@ test "the sidebar resizes by dragging its line, collapses past the threshold, an
     try testing.expectApproxEqAbs(@as(f32, 380), h.app.vm().uiState().sidebar_width, 0.01);
 }
 
+test "the filter box narrows the tree as it is typed, and the empty state says why" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
+    try h.driver.click(view_model.name_field_id);
+    try h.driver.typeText("List charges");
+    try newMenu(&h, 1);
+    try h.driver.click(view_model.name_field_id);
+    try h.driver.typeText("Ping");
+    try testing.expectEqual(@as(usize, 3), h.app.vm().uiState().rows.len);
+
+    // Typed into the real field: one match and the collection that holds it.
+    try h.driver.click(view_model.filter_field_id);
+    try h.driver.typeText("charges");
+    const narrowed = h.app.vm().uiState();
+    try testing.expect(narrowed.filter_active);
+    try testing.expectEqual(@as(usize, 2), narrowed.rows.len);
+    try h.driver.expectText("List charges");
+
+    // A query that matches nothing explains itself instead of drawing a blank panel.
+    try h.driver.typeText("zzz");
+    try testing.expectEqual(@as(usize, 0), h.app.vm().uiState().rows.len);
+    try h.driver.expectText("Nothing matches that filter.");
+}
+
+test "the + New and workspace menus open, act, and close when the pointer leaves" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    // The card lists every intent the old toolbar had, then one of them runs.
+    try h.driver.click(view_model.new_trigger_id);
+    try testing.expect(h.app.vm().uiState().new_menu_open);
+    try h.driver.expectText("Collection");
+    try h.driver.expectText("Import");
+    try newMenu(&h, 0);
+    try testing.expectEqual(@as(usize, 1), h.app.vm().uiState().rows.len);
+    try testing.expect(!h.app.vm().uiState().new_menu_open);
+
+    // The pointer leaving the button and its card closes the card: there is no scrim.
+    try h.driver.click(view_model.new_trigger_id);
+    try testing.expect(h.app.vm().uiState().new_menu_open);
+    h.driver.move(1200, 760);
+    try testing.expect(!h.app.vm().uiState().new_menu_open);
+
+    // The workspace menu: a new workspace switches to it, so the tree changes with it.
+    try h.driver.click(view_model.ws_trigger_id);
+    try testing.expect(h.app.vm().uiState().ws_menu_open);
+    try h.driver.expectText("New workspace");
+    try workspaceMenu(&h, 0);
+    try testing.expectEqual(@as(usize, 2), h.app.vm().uiState().workspace_count);
+    try testing.expectEqual(@as(usize, 0), h.app.vm().uiState().rows.len);
+}
+
 test "the empty state itself is a button: clicking it creates the first collection" {
     const gpa = std.heap.page_allocator;
     var scratch = try Scratch.make(gpa);
@@ -336,8 +419,8 @@ test "a refused connection says so on screen, and never leaves the pane blank" {
     var h = try Harness.boot(gpa, scratch.home);
     defer h.stop(gpa);
 
-    try h.driver.click("kurir.add.collection");
-    try h.driver.click("kurir.add.request");
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
     try h.driver.click(view_model.url_field_id);
     try h.driver.typeText("http://127.0.0.1:1/");
 
@@ -360,8 +443,8 @@ test "a request with no URL explains itself instead of sending an empty one" {
     var h = try Harness.boot(gpa, scratch.home);
     defer h.stop(gpa);
 
-    try h.driver.click("kurir.add.collection");
-    try h.driver.click("kurir.add.request");
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
     try h.driver.click("kurir.send");
     try settle(&h);
 
@@ -379,8 +462,8 @@ test "the body is a multiline field: Enter types a line with the caret on it, Ct
     var h = try Harness.boot(gpa, scratch.home);
     defer h.stop(gpa);
 
-    try h.driver.click("kurir.add.collection");
-    try h.driver.click("kurir.add.request");
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
     try h.driver.click(view_model.url_field_id);
     try h.driver.typeText("https://api.example.com/v1/charges");
 
@@ -414,8 +497,8 @@ test "paste goes through the field's clipboard and lands in the model, newlines 
     var h = try Harness.boot(gpa, scratch.home);
     defer h.stop(gpa);
 
-    try h.driver.click("kurir.add.collection");
-    try h.driver.click("kurir.add.request");
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
     try h.driver.click("kurir.tab.body");
     try h.driver.click(view_model.body_id);
 
@@ -468,8 +551,8 @@ test "a reload restores the tree and the request the user was editing" {
         var h = try Harness.boot(gpa, scratch.home);
         defer h.stop(gpa);
 
-        try h.driver.click("kurir.add.collection");
-        try h.driver.click("kurir.add.request");
+        try newMenu(&h, 0);
+        try newMenu(&h, 1);
         try h.driver.click(view_model.name_field_id);
         try h.driver.typeText("Charge");
         try h.driver.click(view_model.url_field_id);
@@ -503,10 +586,10 @@ test "export writes a Postman v2.1 collection, and import reads it back into the
     defer h.stop(gpa);
 
     // A collection with one real request inside it.
-    try h.driver.click("kurir.add.collection");
+    try newMenu(&h, 0);
     try h.driver.click(view_model.name_field_id);
     try h.driver.typeText("Payments");
-    try h.driver.click("kurir.add.request");
+    try newMenu(&h, 1);
     try h.driver.click(view_model.url_field_id);
     try h.driver.typeText("https://api.example.com/v1/charges");
 
@@ -519,7 +602,7 @@ test "export writes a Postman v2.1 collection, and import reads it back into the
         .available = true,
     };
 
-    try h.driver.click("kurir.export");
+    try workspaceMenu(&h, 2);
     try testing.expectEqual(@as(usize, 1), dialogs.saves);
 
     const bytes = try std.Io.Dir.cwd().readFileAlloc(testing.io, export_path, gpa, .limited(1 << 20));
@@ -543,7 +626,7 @@ test "export writes a Postman v2.1 collection, and import reads it back into the
         .save_fn = dialogsSave,
         .available = true,
     };
-    try h.driver.click("kurir.import");
+    try newMenu(&h, 3);
     try testing.expectEqual(@as(usize, 1), import_dialogs.opens);
     try testing.expectEqual(@as(usize, 1), store_mod.collectionCount(h.app.vm().session.doc, 0) - 1);
     try h.driver.expectText("Payments");

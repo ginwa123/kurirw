@@ -141,20 +141,37 @@ The rules the code keeps:
 
 ## The widgets Kurir had to write itself
 
-- **The left panel** is `components.sidebar`: the panel holds Kurir's workspace strip, tool rows and
-  tree, and the toolkit owns the width and the grab line. Dragging the line resizes it, dragging it
-  past the minimum shuts the panel, and a click on the line — still there at the window edge, 7 points
-  wide — brings it back at the width it had.
-- **The collection tree** is a `list` with a custom row: an expand caret, the method as a coloured
-  label, then the name, indented by depth.
+- **The left panel** is `components.sidebar`: the panel holds Kurir's header, filter row and tree, and
+  the toolkit owns the width and the grab line. Dragging the line resizes it, dragging it past the
+  minimum shuts the panel, and a click on the line — still there at the window edge, 7 points wide —
+  brings it back at the width it had.
+- **The panel's header** is one row: the workspace badge (the accent, with the workspace's initial),
+  the name as an inline field, `1 / 3` and a chevron that cycles workspaces, and `...` which opens the
+  workspace menu (new, delete, export). Under it one row: the filter field and `+ New`.
+- **The two menus are `components.dropdown` in overlay mode**, like the method picker: the card hangs
+  under its anchor with no scrim, and closes when the pointer leaves the button and the card as one
+  box. A card is only as wide as its anchor, so `+ New` is 84 points wide with short row labels
+  (`Collection`, `Request`, `Folder`, `Import`), and the workspace menu hangs from the whole header row.
+- **The collection tree is hand-rolled boxes, not `components.list`**: a row is a click target with a
+  2-point accent bar when selected, a caret, a folder drawn from two rectangles (a tab and a body) or
+  a method chip, the name, and a container's child count at the right edge. `list` was the wrong
+  shape — one `row_h` for every row, and a row that is a clickable box of children needs its own
+  context (see below).
+- **A row's click context is a fixed array on the panel** (`row_ctxs: [max_tree_rows]RowCtx`). A click
+  is dispatched on a later frame than the one that registered it, so a growable list would move and
+  leave the registered pointer on freed memory.
+- **The filter is a real filter**: it narrows the tree to requests whose name or URL holds the text,
+  keeps the collection and folder above each match, opens containers while a query is live, and says
+  "Nothing matches that filter" instead of drawing a blank panel.
 - **The body editor is the toolkit's field**, not a hand-rolled one: `components.input.Field` with
   `.multiline = true` types a line on Enter, keeps the caret on the line it belongs to (through
   glinlandui's per-line caret ids), and raises `on_submit` on Ctrl/Cmd+Enter, which is what sends.
   Copy, cut and paste are the field's too (Ctrl/Cmd+C/X/V through the system clipboard), so the body
   round-trips a JSON block in one gesture. Kurir routes no key at all — the engine types into the
   focused field.
-- **The method bar** is seven fixed-width buttons, one tone each, not a dropdown: a method is one
-  click, and the colour is the thing you scan for.
+- **The method bar** is one trigger (`POST  v`, in the verb's own tone) and the toolkit's dropdown in
+  overlay mode: the card floats under the trigger, one flat row per verb in its colour, and the card
+  closes when the pointer leaves it.
 
 ## The inspector, in a dev build
 

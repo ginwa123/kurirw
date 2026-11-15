@@ -3,6 +3,7 @@ const std = @import("std");
 const glinlandui = @import("glinlandui");
 const input_mod = glinlandui.components.input;
 const sidebar_mod = glinlandui.components.sidebar;
+const frame = glinlandui.frame;
 
 const postman = @import("../../data/model/postman.zig");
 const store = @import("../../data/local/workspace_store.zig");
@@ -17,6 +18,68 @@ const Value = session_mod.Value;
 
 pub const name_field_id = "kurir.name";
 pub const workspace_field_id = "kurir.workspace";
+pub const filter_field_id = "kurir.filter";
+// The "+ New" menu: the button is the anchor, the rows come from the list, the card is the overlay.
+pub const new_trigger_id = "kurir.new";
+pub const new_list_id = "kurir.new.options";
+pub const new_menu_id = "kurir.new.menu";
+// The workspace menu: the gear beside the name is the button, the name field is the anchor it drops under.
+pub const ws_trigger_id = "kurir.ws.menu";
+pub const ws_list_id = "kurir.ws.options";
+pub const ws_panel_id = "kurir.ws.panel";
+
+// The two menus' rows, in declaration order: a pick joins the row's index to the intent it raises.
+pub const new_rows = [_][]const u8{ "Collection", "Request", "Folder", "Import" };
+pub const ws_rows = [_][]const u8{ "New workspace", "Delete workspace", "Export collection" };
+
+// How many bytes a row's name may take before its tail becomes "..".
+const name_max: usize = 30;
+
+// ---- what a row is built from ------------------------------------------------------------------
+
+// The URL a request item carries, or "" when the node is not one.
+fn requestUrl(node: Value) []const u8 {
+    if (node != .object) return "";
+    const request = node.object.get("request") orelse return "";
+    return postman.urlRaw(request);
+}
+
+// A one-line label that fits a narrow row: past the buffer the tail becomes "..", never mid-codepoint.
+pub fn clip(text: []const u8, buffer: []u8) []const u8 {
+    if (text.len <= buffer.len) {
+        @memcpy(buffer[0..text.len], text);
+        return buffer[0..text.len];
+    }
+    var head = buffer.len - 2;
+    while (head > 0 and (text[head] & 0xC0) == 0x80) head -= 1;
+    @memcpy(buffer[0..head], text[0..head]);
+    @memcpy(buffer[head..][0..2], "..");
+    return buffer[0 .. head + 2];
+}
+
+// A case-insensitive substring test, which is what a filter box does.
+fn containsIgnoreCase(haystack: []const u8, needle: []const u8) bool {
+    if (needle.len == 0) return true;
+    if (needle.len > haystack.len) return false;
+    var i: usize = 0;
+    while (i + needle.len <= haystack.len) : (i += 1) {
+        if (std.ascii.eqlIgnoreCase(haystack[i..][0..needle.len], needle)) return true;
+    }
+    return false;
+}
+
+// A node passes the filter when its own name holds the query, or a request inside it does.
+fn matchesQuery(node: Value, query: []const u8) bool {
+    if (containsIgnoreCase(Session.name(node), query)) return true;
+    if (postman.isRequest(node)) return containsIgnoreCase(requestUrl(node), query);
+    const count = postman.itemCount(node);
+    var i: usize = 0;
+    while (i < count) : (i += 1) {
+        const item = postman.itemAt(node, i) orelse continue;
+        if (matchesQuery(item, query)) return true;
+    }
+    return false;
+}
 
 pub const Sidebar = struct {
     session: *Session = undefined,
@@ -26,9 +89,29 @@ pub const Sidebar = struct {
     // The toolkit's panel state: its width and whether it is collapsed. The app owns it, the widget drags it.
     state: sidebar_mod.State = .{ .width = 300, .expanded_width = 300 },
 
-    // Renaming a node, and naming a workspace: the panel's two fields.
+    // Renaming a node, naming a workspace, and narrowing the tree: the panel's three fields.
     name_field: input_mod.Field = undefined,
     workspace_field: input_mod.Field = undefined,
+    filter_field: input_mod.Field = undefined,
+    filter_buf: [256]u8 = undefined,
+    filter_len: usize = 0,
+
+    // The two menus. They close each other, so only one card is ever drawn.
+    new_menu_open: bool = false,
+    ws_menu_open: bool = false,
+
+    // One click context per row, in a FIXED array: an ArrayList reallocs and a registered click outlives the frame.
+    row_ctxs: [state_mod.max_tree_rows]RowCtx = undefined,
+    row_ctx_count: usize = 0,
+
+    // The intent a row click raises. The shell installs it, because selecting moves the editor too.
+    click_owner: ?*anyopaque = null,
+    click_fn: ?*const fn (?*anyopaque, usize) void = null,
+
+    pub const RowCtx = struct {
+        sidebar: *Sidebar,
+        index: usize,
+    };
 
     pub fn onNameTyped(raw: ?*anyopaque, text: []const u8) void {
         const self: *Sidebar = @ptrCast(@alignCast(raw.?));
@@ -96,43 +179,136 @@ pub const Sidebar = struct {
         }
     }
 
+    // The tree as the frame draws it: whole, or narrowed to what the filter box says.
     pub fn rebuildRows(self: *Sidebar) void {
         self.rows.clearRetainingCapacity();
+        self.row_ctx_count = 0;
+        const query = self.filterText();
+        // While filtering every container is open, because a match three levels down has to be reachable.
+        const filtering = query.len > 0;
         const count = store.collectionCount(self.session.doc, self.session.workspace);
         var i: usize = 0;
         while (i < count) : (i += 1) {
             const collection = store.collectionAt(self.session.doc, self.session.workspace, i) orelse continue;
+            if (filtering and !matchesQuery(collection, query)) continue;
             const path = Path.empty.child(@intCast(i));
             self.pushRow(collection, path, 0, .collection);
-            if (self.isExpanded(path)) self.pushChildren(collection, path, 1);
+            if (filtering or self.isExpanded(path)) self.pushChildren(collection, path, 1, query);
         }
     }
 
-    pub fn pushChildren(self: *Sidebar, node: Value, path: Path, depth: u16) void {
+    pub fn pushChildren(self: *Sidebar, node: Value, path: Path, depth: u16, query: []const u8) void {
         const count = postman.itemCount(node);
         var i: usize = 0;
         while (i < count) : (i += 1) {
             const item = postman.itemAt(node, i) orelse continue;
+            if (query.len > 0 and !matchesQuery(item, query)) continue;
             const child_path = path.child(@intCast(i));
             const kind = Session.kind(item);
             self.pushRow(item, child_path, depth, kind);
-            if (kind == .folder and self.isExpanded(child_path)) self.pushChildren(item, child_path, depth + 1);
+            if (kind == .folder and (query.len > 0 or self.isExpanded(child_path))) self.pushChildren(item, child_path, depth + 1, query);
         }
     }
 
     pub fn pushRow(self: *Sidebar, node: Value, path: Path, depth: u16, kind: state_mod.NodeKind) void {
         if (self.rows.items.len >= state_mod.max_tree_rows) return;
         const selected = if (self.session.selection) |current| Path.eql(current, path) else false;
+        const arena = self.session.view_arena.allocator();
+        var name_buf: [name_max]u8 = undefined;
+        const raw_name = Session.name(node);
+        const label = if (raw_name.len == 0) "(unnamed)" else clip(raw_name, &name_buf);
         self.rows.append(self.session.gpa, .{
             .path = path,
             .depth = depth,
             .kind = kind,
-            .label = Session.name(node),
+            .label = arena.dupe(u8, label) catch label,
             .method = if (kind == .request) postman.normalizeMethod(postman.str(node.object.get("request").?, "method")) else "",
+            .count = if (kind == .request) 0 else @intCast(@min(postman.itemCount(node), std.math.maxInt(u16))),
             .has_children = kind != .request,
             .expanded = self.isExpanded(path),
             .selected = selected,
         }) catch {};
+        self.row_ctx_count = self.rows.items.len;
+    }
+
+    // ---- the filter box -------------------------------------------------------------------------------
+
+    pub fn filterText(self: *const Sidebar) []const u8 {
+        return self.filter_buf[0..self.filter_len];
+    }
+
+    pub fn onFilterTyped(raw: ?*anyopaque, text: []const u8) void {
+        const self: *Sidebar = @ptrCast(@alignCast(raw.?));
+        self.session.focus = .filter;
+        self.setFilter(text);
+    }
+
+    pub fn onFilterFocused(raw: ?*anyopaque) void {
+        const self: *Sidebar = @ptrCast(@alignCast(raw.?));
+        self.session.focus = .filter;
+    }
+
+    pub fn setFilter(self: *Sidebar, text: []const u8) void {
+        // The field's draft IS this buffer, so the copy may be a self-copy: forwards, never @memcpy.
+        self.filter_len = @min(text.len, self.filter_buf.len);
+        std.mem.copyForwards(u8, self.filter_buf[0..self.filter_len], text[0..self.filter_len]);
+        self.session.touch();
+    }
+
+    pub fn clearFilter(self: *Sidebar) void {
+        self.filter_len = 0;
+        self.filter_field.setText("");
+        self.session.touch();
+    }
+
+    // ---- the two menus -------------------------------------------------------------------------------
+
+    pub fn toggleNew(self: *Sidebar) void {
+        self.new_menu_open = !self.new_menu_open;
+        if (self.new_menu_open) self.ws_menu_open = false;
+        self.session.touch();
+    }
+
+    pub fn closeNew(self: *Sidebar) void {
+        if (!self.new_menu_open) return;
+        self.new_menu_open = false;
+        self.session.touch();
+    }
+
+    pub fn closeWsMenu(self: *Sidebar) void {
+        if (!self.ws_menu_open) return;
+        self.ws_menu_open = false;
+        self.session.touch();
+    }
+
+    pub fn toggleWsMenu(self: *Sidebar) void {
+        self.ws_menu_open = !self.ws_menu_open;
+        if (self.ws_menu_open) self.new_menu_open = false;
+        self.session.touch();
+    }
+
+    // No scrim on either card: a menu closes when the pointer leaves its button and its card as one box.
+    pub fn closeMenusIfPointerAway(self: *Sidebar) void {
+        if (self.new_menu_open and self.pointerAway(new_trigger_id, new_menu_id)) {
+            self.new_menu_open = false;
+            self.session.touch();
+        }
+        if (self.ws_menu_open and self.pointerAway(ws_trigger_id, ws_panel_id)) {
+            self.ws_menu_open = false;
+            self.session.touch();
+        }
+    }
+
+    // True when the pointer is outside the union of a button and the card hanging under it.
+    fn pointerAway(self: *Sidebar, trigger_id: []const u8, card_id: []const u8) bool {
+        _ = self;
+        const trigger = frame.bounds(frame.clayId(trigger_id)) orelse return false;
+        const card = frame.bounds(frame.clayId(card_id)) orelse return false;
+        const left = @min(trigger.x, card.x);
+        const top = @min(trigger.y, card.y);
+        const right = @max(trigger.x + trigger.width, card.x + card.width);
+        const bottom = @max(trigger.y + trigger.height, card.y + card.height);
+        return frame.ptr_x < left or frame.ptr_x > right or frame.ptr_y < top or frame.ptr_y > bottom;
     }
 
     pub fn toggleSelected(self: *Sidebar) void {
@@ -313,11 +489,27 @@ pub const Sidebar = struct {
         self.name_field.bind();
         self.workspace_field = session.fieldStyle(.{ .text = workspace_field_id }, @src());
         self.workspace_field.bind();
+
+        // The filter box: quieter than an editor field, and its hint is the only thing it says when empty.
+        self.filter_field = session.fieldStyle(.{ .text = filter_field_id }, @src());
+        self.filter_field.bindTo(&self.filter_buf);
+        self.filter_field.placeholder = "Filter requests";
+        self.filter_field.placeholder_fg = session.theme.colors.text_done;
+        self.filter_field.font_size = session.theme.type_scale.caption;
+        self.filter_field.bg = session.theme.colors.surface_variant;
+        self.filter_field.sel_bg = session.theme.colors.hover;
+        self.filter_field.border = .{};
+        self.filter_field.h = .{ .fixed = 28 };
+        self.filter_field.pad = glinlandui.props.Pad.axes(0, 8);
+        // A click context per row: one fixed array, so a registered click never points at freed memory.
+        for (&self.row_ctxs, 0..) |*ctx, i| ctx.* = .{ .sidebar = self, .index = i };
         // The intents are set ONCE: a frame only hands each field the model's value.
         self.name_field.on_change = .{ .f = onNameTyped, .ctx = self };
         self.name_field.on_focus = .{ .f = onNameFocused, .ctx = self };
         self.workspace_field.on_change = .{ .f = onWorkspaceTyped, .ctx = self };
         self.workspace_field.on_focus = .{ .f = onWorkspaceFocused, .ctx = self };
+        self.filter_field.on_change = .{ .f = onFilterTyped, .ctx = self };
+        self.filter_field.on_focus = .{ .f = onFilterFocused, .ctx = self };
     }
 
     pub fn deinit(self: *Sidebar) void {
@@ -394,6 +586,10 @@ pub const Sidebar = struct {
         u.has_collection = store.collectionCount(self.session.doc, self.session.workspace) > 0;
         u.sidebar_width = self.width();
         u.sidebar_collapsed = self.state.collapsed;
+        u.filter = self.filterText();
+        u.filter_active = self.filter_len > 0;
+        u.new_menu_open = self.new_menu_open;
+        u.ws_menu_open = self.ws_menu_open;
 
         if (self.session.selection) |path| {
             if (self.session.nodeAt(path)) |node| {

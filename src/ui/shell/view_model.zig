@@ -42,6 +42,11 @@ pub const body_pad = editor_mod.body_pad;
 pub const line_height = editor_mod.line_height;
 
 pub const Dialogs = file_picker.Dialogs;
+pub const filter_field_id = sidebar_mod.filter_field_id;
+pub const new_trigger_id = sidebar_mod.new_trigger_id;
+pub const new_list_id = sidebar_mod.new_list_id;
+pub const ws_trigger_id = sidebar_mod.ws_trigger_id;
+pub const ws_list_id = sidebar_mod.ws_list_id;
 pub const method_trigger_id = editor_mod.method_trigger_id;
 pub const method_list_id = editor_mod.method_list_id;
 pub const method_menu_id = editor_mod.method_menu_id;
@@ -101,6 +106,9 @@ pub const KurirViewModel = struct {
         self.pump = deps.pump;
         self.session.start(deps.gpa, deps.io, deps.theme, deps.path, deps.workspace);
         self.sidebar.start(&self.session);
+        // A row click selects here, not in the panel: the editor has to follow the selection.
+        self.sidebar.click_owner = self;
+        self.sidebar.click_fn = onRowClick;
         self.editor.start(&self.session);
         self.response.start(&self.session);
         // The one intent that crosses panels: Ctrl/Cmd+Enter while the body has the keyboard sends.
@@ -138,8 +146,9 @@ pub const KurirViewModel = struct {
     pub fn uiState(self: *KurirViewModel) UiState {
         // A request on its own task is collected here, so a frame never waits for the network.
         self.collect();
-        // The method menu has no scrim: the panel closes it when the pointer leaves it, read from the last frame.
+        // Neither menu has a scrim: each panel closes its own when the pointer leaves it, read from the last frame.
         self.editor.closeIfPointerAway();
+        self.sidebar.closeMenusIfPointerAway();
         if (self.session.dirty) self.refresh();
         self.view.sidebar_width = self.sidebar.width();
         self.view.sidebar_collapsed = self.sidebar.state.collapsed;
@@ -172,6 +181,46 @@ pub const KurirViewModel = struct {
 
     pub fn toggleSidebar(self: *KurirViewModel) void {
         self.sidebar.togglePanel();
+    }
+
+    // The row click the panel's boxes raise, installed once in `start`.
+    fn onRowClick(raw: ?*anyopaque, index: usize) void {
+        const self: *KurirViewModel = @ptrCast(@alignCast(raw.?));
+        self.onRowSelect(index);
+    }
+
+    // The panel's two menus and its filter, as the view raises them.
+    pub fn toggleNewMenu(self: *KurirViewModel) void {
+        self.sidebar.toggleNew();
+    }
+
+    pub fn pickNewMenu(self: *KurirViewModel, index: usize) void {
+        self.sidebar.closeNew();
+        switch (index) {
+            0 => self.addCollection(),
+            1 => self.addRequest(),
+            2 => self.addFolder(),
+            3 => self.importCollection(),
+            else => {},
+        }
+    }
+
+    pub fn toggleWorkspaceMenu(self: *KurirViewModel) void {
+        self.sidebar.toggleWsMenu();
+    }
+
+    pub fn pickWorkspaceMenu(self: *KurirViewModel, index: usize) void {
+        self.sidebar.closeWsMenu();
+        switch (index) {
+            0 => self.addWorkspace(),
+            1 => self.deleteWorkspace(),
+            2 => self.exportSelected(),
+            else => {},
+        }
+    }
+
+    pub fn setFilter(self: *KurirViewModel, text: []const u8) void {
+        self.sidebar.setFilter(text);
     }
 
     pub fn onRowSelect(self: *KurirViewModel, index: usize) void {
@@ -795,4 +844,63 @@ test "a collection that was deleted from the document cannot be sent" {
     h.settle();
     try testing.expect(h.state().status_is_error);
     try testing.expect(std.mem.indexOf(u8, h.state().status, "Select a request") != null);
+}
+
+test "the filter narrows the tree to matches, keeps their collection, and clearing restores it" {
+    var h = try Harness.boot();
+    defer h.stop();
+
+    h.vm.addCollection();
+    h.vm.addRequest();
+    h.vm.onNameChange("List charges");
+    h.vm.addRequest();
+    h.vm.onNameChange("Ping");
+    try testing.expectEqual(@as(usize, 3), h.state().rows.len);
+
+    // One match keeps the container above it, because a row is not reachable without its collection.
+    h.vm.setFilter("charges");
+    const narrowed = h.state();
+    try testing.expect(narrowed.filter_active);
+    try testing.expectEqual(@as(usize, 2), narrowed.rows.len);
+    try testing.expectEqual(state_mod.NodeKind.collection, narrowed.rows[0].kind);
+    try testing.expectEqualStrings("List charges", narrowed.rows[1].label);
+
+    // The URL counts too: the request is named Ping, its URL is what holds the word.
+    h.vm.select(state_mod.Path.empty.child(0).child(1));
+    h.vm.onUrlChange("https://api.example.com/ping");
+    h.vm.setFilter("example.com");
+    try testing.expectEqual(@as(usize, 2), h.state().rows.len);
+
+    // Nothing matches: the tree is empty, and the panel knows why.
+    h.vm.setFilter("zzz");
+    try testing.expectEqual(@as(usize, 0), h.state().rows.len);
+    try testing.expect(h.state().filter_active);
+
+    h.vm.setFilter("");
+    try testing.expectEqual(@as(usize, 3), h.state().rows.len);
+    try testing.expect(!h.state().filter_active);
+}
+
+test "a collection row carries how many children it holds" {
+    var h = try Harness.boot();
+    defer h.stop();
+
+    h.vm.addCollection();
+    h.vm.addRequest();
+    h.vm.addRequest();
+    const rows = h.state().rows;
+    try testing.expectEqual(@as(usize, 3), rows.len);
+    try testing.expectEqual(@as(u16, 2), rows[0].count);
+    // A request counts nothing: it holds no children.
+    try testing.expectEqual(@as(u16, 0), rows[1].count);
+}
+
+test "a long label is clipped with two dots, never inside a codepoint" {
+    var buffer: [8]u8 = undefined;
+    try testing.expectEqualStrings("abcdefgh", sidebar_mod.clip("abcdefgh", &buffer));
+    try testing.expectEqualStrings("abcdef..", sidebar_mod.clip("abcdefghij", &buffer));
+
+    var small: [4]u8 = undefined;
+    // "aaa" + a two-byte "e acute": the clip backs off to a boundary instead of writing half a glyph.
+    try testing.expectEqualStrings("aa..", sidebar_mod.clip("aaa\xc3\xa9", &small));
 }

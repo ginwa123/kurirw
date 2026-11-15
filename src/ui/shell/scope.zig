@@ -11,8 +11,9 @@ const Theme = glinlandui.theme.Theme;
 
 // The fixed metrics of the frame: one row band, one indent step, and the editor's two heights.
 pub const editor_h: u32 = 320;
-pub const row_h: u32 = 26;
-pub const indent: u16 = 14;
+// One tree row: a single line, because a row is a name you scan, not a description you read.
+pub const row_h: u32 = 30;
+pub const indent: u16 = 12;
 pub const body_min_h: f32 = 170;
 pub const max_body_lines: usize = 4000;
 
@@ -23,6 +24,6 @@ pub const Scope = struct {
 };
 
 test "the layout constants describe one row band per tree row" {
-    try std.testing.expectEqual(@as(u32, 26), row_h);
+    try std.testing.expectEqual(@as(u32, 30), row_h);
     try std.testing.expect(editor_h > row_h * 3);
 }

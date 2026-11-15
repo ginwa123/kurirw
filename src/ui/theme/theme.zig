@@ -22,6 +22,17 @@ pub const success = Color.hexC("#87a987");
 pub const danger = Color.hexC("#c4746e");
 pub const warn = Color.hexC("#c4b28a");
 
+// The sidebar's accent: the badge, the "+ New" button and the selected row's bar are one colour.
+pub const accent = success;
+
+// How far a method chip's fill leans towards the verb's own tone. Low enough that a chip is a tint, not a block.
+const chip_tint: f32 = 0.28;
+
+// A method chip's fill: the surface moved a step towards the verb's colour, so a column of chips reads as ordered without shouting.
+pub fn chipBg(method: []const u8) Color {
+    return Color.lerp(app_theme.colors.surface_variant, methodColor(method), chip_tint);
+}
+
 // The colour of a method label. An unknown verb is not an error, it is just quiet.
 pub fn methodColor(method: []const u8) Color {
     for (postman.methods) |known| {
