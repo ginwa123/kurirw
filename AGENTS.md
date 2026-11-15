@@ -68,6 +68,13 @@ src/e2e_test.zig                   the acceptance path, headless
 - **Element ids must be unique per frame.** `frame.elementId(prefix, i)` for anything per-row.
   A duplicate id is invisible in review and shows up as a Clay `duplicate_id` log line, which fails
   every test that reaches it.
+- **A box read mid-declare does not exist yet.** An element's `bounding_box` is only real once the layout
+  closes, so a component that needs its own geometry asks for it: `scroll.revealAfterLayout(id, target)`
+  queues the reveal and `Host` applies it right after `endLayout`. Reading `frame.bounds` inside the
+  declare of the same frame returns null or a zero box.
+- **A caret is a floating bar, which a scroll's clip cannot cut.** A multiline field draws its caret only
+  while the caret's line is inside the viewport (`input.caretLineOnScreen`), or the bar paints over the
+  pane below.
 - **The panes' sizes are the widgets'.** `components.sidebar` owns the sidebar's width and
   `components.split` owns the response's height; both mutate during the declare, so `uiState()` refreshes
   `sidebar_width` / `response_h` after the frame instead of `snapshot()` before it. Read them during the

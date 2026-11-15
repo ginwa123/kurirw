@@ -168,6 +168,10 @@ The rules the code keeps:
   whatever is left. Dragging the line up grows the response; `min`/`max` keep both panes usable, with the
   ceiling derived from the window's height each frame (`setViewport`), so resizing the window never
   squeezes the editor out.
+- **The body editor follows its own caret**: the field's `scroll_id` names the container, and the engine
+  scrolls the least amount that keeps the caret's line on screen — so typing past the bottom edge moves
+  the view instead of hiding what you type. A caret whose line is scrolled away is not drawn at all
+  (it is a floating bar, which a clip cannot cut).
 - **The body editor is the toolkit's field**, not a hand-rolled one: `components.input.Field` with
   `.multiline = true` types a line on Enter, keeps the caret on the line it belongs to (through
   glinlandui's per-line caret ids), and raises `on_submit` on Ctrl/Cmd+Enter, which is what sends.
