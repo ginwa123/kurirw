@@ -195,7 +195,7 @@ reason, time, size, pretty-printed body, response headers, import, export, and a
 
 | limit | value | why |
 |---|---|---|
-| response shown | no cap | the body is kept whole; the pane declares only the lines the viewport shows |
+| response shown | no cap | the body is kept whole (kabelweb's 10 MiB buffer default is asked to be unbounded); the pane declares only the lines the viewport shows |
 | one drawn line | 1024 chars | a single text run, not a paragraph — the body keeps every byte |
 | request body | 64 kB | one field buffer |
 | headers per request | 32 | one field pair each |

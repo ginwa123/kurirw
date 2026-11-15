@@ -39,7 +39,7 @@ pub const Job = struct {
 
     fn work(job: *Job, transport: http.Transport) http.Result {
         const result = transport.perform(job.request);
-        if (!result.failed) job.shown = body_mod.format(job.arena(), result.body);
+        if (!result.failed) job.shown = body_mod.format(job.arena_state.child_allocator, job.arena(), result.body);
         job.result = result;
         job.finished.store(true, .release);
         return result;

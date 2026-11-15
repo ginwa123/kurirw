@@ -11,15 +11,18 @@ pub const Shown = struct {
     lines: []const usize = &.{},
 };
 
-pub fn format(arena: Allocator, body: []const u8) Shown {
-    const text = pretty(arena, body);
+pub fn format(gpa: Allocator, arena: Allocator, body: []const u8) Shown {
+    const text = pretty(gpa, arena, body);
     return .{ .text = text, .lines = lineStarts(arena, text) };
 }
 
 // A JSON body reads as a document, anything else is shown as it arrived, and nothing is capped.
-pub fn pretty(arena: Allocator, body: []const u8) []const u8 {
+pub fn pretty(gpa: Allocator, arena: Allocator, body: []const u8) []const u8 {
     if (body.len == 0) return "";
-    const parsed = std.json.parseFromSliceLeaky(postman.Value, arena, body, .{}) catch
+    // The tree gets its own arena: a body that does not parse must not cost a tree in the arena that outlives it.
+    var tree = std.heap.ArenaAllocator.init(gpa);
+    defer tree.deinit();
+    const parsed = std.json.parseFromSliceLeaky(postman.Value, tree.allocator(), body, .{}) catch
         return sanitize(arena, body);
     const text = postman.write(arena, parsed, true) catch return sanitize(arena, body);
     return sanitize(arena, text);
@@ -68,11 +71,11 @@ test "a JSON body is re-indented, and anything else is shown as it arrived" {
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    const shown = format(arena, "{\"a\":1}");
+    const shown = format(testing.allocator, arena, "{\"a\":1}");
     try testing.expect(std.mem.indexOfScalar(u8, shown.text, '\n') != null);
     try testing.expectEqual(@as(usize, 4), shown.lines.len);
 
-    const plain = format(arena, "hello");
+    const plain = format(testing.allocator, arena, "hello");
     try testing.expectEqualStrings("hello", plain.text);
     try testing.expectEqual(@as(usize, 2), plain.lines.len);
 }
@@ -112,7 +115,7 @@ test "a body far larger than a frame budget keeps every byte" {
     }
     try body.appendSlice(testing.allocator, "]\n");
 
-    const shown = format(arena, body.items);
+    const shown = format(testing.allocator, arena, body.items);
     try testing.expect(shown.text.len > body.items.len - 16);
     try testing.expect(shown.lines.len > 10_000);
 }

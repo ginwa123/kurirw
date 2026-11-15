@@ -128,6 +128,8 @@ pub const Real = struct {
             .connect_timeout_ms = req.timeout_ms,
             .follow_redirects = true,
             .user_agent = "kurir/0.1",
+            // The client's default is a 10 MiB buffer; Kurir asks for the whole answer instead.
+            .max_body_bytes = null,
         }) catch |err| return failFor(arena, err, req, url);
         defer response.deinit(self.allocator);
 
@@ -168,8 +170,8 @@ pub const Real = struct {
             out.error_title = "Invalid URL";
             out.error_message = print(arena, "\"{s}\" is not a URL Kurir can send. It needs http or https and a host, for example https://api.example.com/v1.", .{url});
         } else if (std.mem.eql(u8, name, "OutOfMemory")) {
-            out.error_title = "Response too large";
-            out.error_message = print(arena, "The response passed the 10 MiB buffer in model/http.zig. Stream it, or ask for less.", .{});
+            out.error_title = "Out of memory";
+            out.error_message = print(arena, "Kurir could not buffer this response: the machine ran out of memory while the body was arriving.", .{});
         } else if (std.mem.eql(u8, name, "RecvError") or std.mem.eql(u8, name, "SendError") or std.mem.eql(u8, name, "PartialFile")) {
             out.error_title = "Connection dropped";
             out.error_message = print(arena, "The server closed the connection during {s} {s}. Send again, and check the server log.", .{ req.method, url });
