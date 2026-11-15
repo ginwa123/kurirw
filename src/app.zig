@@ -4,7 +4,7 @@ const glinlandui = @import("glinlandui");
 const frame = glinlandui.frame;
 
 const view = @import("view.zig");
-const view_model = @import("view_model.zig");
+const view_model = @import("ui/shell/view_model.zig");
 const theme_mod = @import("ui/theme/theme.zig");
 const store_mod = @import("data/local/workspace_store.zig");
 

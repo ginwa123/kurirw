@@ -1,7 +1,7 @@
 //! Kurir as a MODULE: `@import("kurirw")` is the whole app — its state, its intents, its view, and its window.
 pub const app = @import("app.zig");
 pub const view = @import("view.zig");
-pub const view_model = @import("view_model.zig");
+pub const view_model = @import("ui/shell/view_model.zig");
 pub const state = @import("state.zig");
 pub const theme = @import("ui/theme/theme.zig");
 pub const postman = @import("data/model/postman.zig");
@@ -15,7 +15,15 @@ comptime {
     _ = @import("data/model/postman.zig");
     _ = @import("data/local/workspace_store.zig");
     _ = @import("data/remote/http_client.zig");
-    _ = @import("view_model.zig");
+    _ = @import("ui/shell/view_model.zig");
     _ = @import("view.zig");
     _ = @import("app.zig");
+    _ = @import("ui/shell/session.zig");
+    _ = @import("ui/sidebar/view_model.zig");
+    _ = @import("ui/editor/view_model.zig");
+    _ = @import("ui/response/view_model.zig");
+    _ = @import("data/local/file_picker.zig");
+    _ = @import("domain/usecase/send_request.zig");
+    _ = @import("domain/usecase/import_collection.zig");
+    _ = @import("domain/usecase/export_collection.zig");
 }

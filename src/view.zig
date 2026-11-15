@@ -15,7 +15,7 @@ const props = glinlandui.props;
 const postman = @import("data/model/postman.zig");
 const state_mod = @import("state.zig");
 const theme_mod = @import("ui/theme/theme.zig");
-const view_model = @import("view_model.zig");
+const view_model = @import("ui/shell/view_model.zig");
 
 const UiState = state_mod.UiState;
 const KurirViewModel = view_model.KurirViewModel;
@@ -48,7 +48,7 @@ pub fn KurirScreen(scope: *Scope) void {
 
 fn rootChildren(scope: *Scope) void {
     // The panel and its grab line are the toolkit's; what goes inside is Kurir's.
-    var panel = scope.vm.sidebarProps();
+    var panel = scope.vm.sidebar.props();
     panel.src = @src();
     sidebar_mod.sidebar(panel, scope, sidebarChildren);
     mainArea(scope);
@@ -58,7 +58,7 @@ fn rootChildren(scope: *Scope) void {
 
 fn sidebarChildren(scope: *Scope) void {
     // Pinned to the panel's own width: text metrics must never widen the panel past the line the pointer holds.
-    const w = sidebar_mod.width(scope.vm.sidebarProps());
+    const w = sidebar_mod.width(scope.vm.sidebar.props());
     box_mod.box(.{
         .src = @src(),
         .id = .{ .text = "kurir.sidebar.content" },
@@ -98,7 +98,7 @@ fn workspaceStripChildren(scope: *Scope) void {
 
     text_mod.label(.{ .label = .{ .text = scope.state.workspace_label, .size = t.type_scale.caption, .color = t.colors.text_dim } });
 
-    const field = &scope.vm.workspace_field;
+    const field = &scope.vm.sidebar.workspace_field;
     field.value = scope.state.workspace_name;
     field.w = .grow;
     input_mod.textField(field);
@@ -304,7 +304,7 @@ fn nameRow(scope: *Scope) void {
 
 fn nameRowChildren(scope: *Scope) void {
     const t = scope.theme;
-    const field = &scope.vm.name_field;
+    const field = &scope.vm.sidebar.name_field;
     field.value = scope.state.node_name;
     field.disabled = !scope.state.has_selection;
     field.w = .{ .clamp = .{ .min = 160, .max = 360, .grow = true } };
@@ -356,11 +356,11 @@ fn methodRowChildren(scope: *Scope) void {
             .w = .{ .fixed = 56 },
             .pad = props.Pad.axes(4, 6),
             .radius = props.Radius.all(4),
-            .on_click = .{ .f = onMethod, .ctx = &scope.vm.method_ctxs[i] },
+            .on_click = .{ .f = onMethod, .ctx = &scope.vm.editor.method_ctxs[i] },
         });
     }
 
-    const field = &scope.vm.url_field;
+    const field = &scope.vm.editor.url_field;
     field.value = scope.state.url;
     field.disabled = !enabled;
     field.w = .grow;
@@ -494,16 +494,16 @@ fn headerRowChildren(hs: *const HeaderScope) void {
         .w = .{ .fixed = 34 },
         .pad = props.Pad.axes(3, 4),
         .radius = props.Radius.all(4),
-        .on_click = .{ .f = onToggleHeader, .ctx = &scope.vm.header_ctxs[index * 2] },
+        .on_click = .{ .f = onToggleHeader, .ctx = &scope.vm.editor.header_ctxs[index * 2] },
     });
 
-    const key_field = &scope.vm.header_fields[index * 2];
+    const key_field = &scope.vm.editor.header_fields[index * 2];
     key_field.value = row.name;
     key_field.h = .{ .fixed = 26 };
     key_field.w = .{ .clamp = .{ .min = 90, .max = 220, .grow = true } };
     input_mod.textField(key_field);
 
-    const value_field = &scope.vm.header_fields[index * 2 + 1];
+    const value_field = &scope.vm.editor.header_fields[index * 2 + 1];
     value_field.value = row.value;
     value_field.h = .{ .fixed = 26 };
     value_field.w = .grow;
@@ -516,7 +516,7 @@ fn headerRowChildren(hs: *const HeaderScope) void {
         .hover_bg = t.colors.hover,
         .pad = props.Pad.axes(3, 8),
         .radius = props.Radius.all(4),
-        .on_click = .{ .f = onRemoveHeader, .ctx = &scope.vm.header_ctxs[index * 2] },
+        .on_click = .{ .f = onRemoveHeader, .ctx = &scope.vm.editor.header_ctxs[index * 2] },
     });
 }
 
@@ -540,7 +540,7 @@ fn bodyEditor(scope: *Scope) void {
 
 // The body is the toolkit's multiline field: it draws its own lines, its own caret, and takes its own clicks.
 fn bodyField(scope: *Scope) void {
-    const field = &scope.vm.body_field;
+    const field = &scope.vm.editor.body_field;
     const lines: f32 = @floatFromInt(@max(field.editor.lineCount(), 1));
     field.value = scope.state.body;
     field.w = .grow;
@@ -733,7 +733,7 @@ fn onRow(ctx: ?*anyopaque, index: usize) void {
 
 fn onMethod(ctx: ?*anyopaque) void {
     const method_ctx: *KurirViewModel.MethodCtx = @ptrCast(@alignCast(ctx.?));
-    method_ctx.vm.setMethod(method_ctx.method);
+    method_ctx.editor.setMethod(method_ctx.method);
 }
 
 fn onSend(ctx: ?*anyopaque) void {
@@ -793,12 +793,12 @@ fn onAddHeader(ctx: ?*anyopaque) void {
 
 fn onRemoveHeader(ctx: ?*anyopaque) void {
     const header_ctx: *KurirViewModel.HeaderCtx = @ptrCast(@alignCast(ctx.?));
-    header_ctx.vm.removeHeader(header_ctx.index);
+    header_ctx.editor.removeHeader(header_ctx.index);
 }
 
 fn onToggleHeader(ctx: ?*anyopaque) void {
     const header_ctx: *KurirViewModel.HeaderCtx = @ptrCast(@alignCast(ctx.?));
-    header_ctx.vm.toggleHeader(header_ctx.index);
+    header_ctx.editor.toggleHeader(header_ctx.index);
 }
 
 fn onHeadersTab(ctx: ?*anyopaque) void {

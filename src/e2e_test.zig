@@ -254,7 +254,7 @@ test "paste goes through the field's clipboard and lands in the model, newlines 
     try h.driver.click(view_model.body_id);
 
     // A scripted pasteboard: the real one belongs to the machine running the test.
-    h.app.vm().body_field.clipboard = .{ .read_fn = clipRead, .write_fn = clipWrite };
+    h.app.vm().editor.body_field.clipboard = .{ .read_fn = clipRead, .write_fn = clipWrite };
     clipSet("{\n  \"a\": 1\n}");
 
     _ = h.driver.host.onKeyEvent(29, true);
@@ -263,7 +263,7 @@ test "paste goes through the field's clipboard and lands in the model, newlines 
 
     try testing.expectEqualStrings("{\n  \"a\": 1\n}", h.app.vm().uiState().body);
     // And the draft the field shows is the same text.
-    try testing.expectEqualStrings("{\n  \"a\": 1\n}", h.app.vm().body_field.text());
+    try testing.expectEqualStrings("{\n  \"a\": 1\n}", h.app.vm().editor.body_field.text());
 }
 
 var clip_buf: [512]u8 = undefined;
@@ -379,7 +379,7 @@ test "export writes a Postman v2.1 collection, and import reads it back into the
     };
     try h.driver.click("kurir.import");
     try testing.expectEqual(@as(usize, 1), import_dialogs.opens);
-    try testing.expectEqual(@as(usize, 1), store_mod.collectionCount(h.app.vm().doc, 0) - 1);
+    try testing.expectEqual(@as(usize, 1), store_mod.collectionCount(h.app.vm().session.doc, 0) - 1);
     try h.driver.expectText("Payments");
 }
 
