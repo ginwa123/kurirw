@@ -2,7 +2,6 @@
 const std = @import("std");
 const glinlandui = @import("glinlandui");
 const input_mod = glinlandui.components.input;
-const editor_mod = glinlandui.text_editor;
 const frame = glinlandui.frame;
 
 const postman = @import("model/postman.zig");
@@ -95,7 +94,8 @@ pub const KurirViewModel = struct {
     header_ctxs: [state_mod.max_headers * 2]HeaderCtx = undefined,
 
     body_buf: []u8 = &.{},
-    editor: editor_mod.Editor = .{ .buf = &.{} },
+    // The body is the toolkit's multiline field: Enter types a line, Ctrl/Cmd+Enter sends.
+    body_field: input_mod.Field = .{ .id = .{ .text = body_id } },
     focus: state_mod.Focus = .none,
     editor_tab: state_mod.Tab = .headers,
     response_tab: state_mod.Tab = .body,
@@ -143,19 +143,23 @@ pub const KurirViewModel = struct {
 
         self.url_buf = gpa.alloc(u8, state_mod.max_url) catch gpa.alloc(u8, 1) catch return;
         self.body_buf = gpa.alloc(u8, state_mod.max_body) catch gpa.alloc(u8, 1) catch return;
-        self.editor = editor_mod.Editor.init(self.body_buf);
 
-        self.url_field = self.fieldStyle(.{ .text = url_field_id });
+        self.url_field = self.fieldStyle(.{ .text = url_field_id }, @src());
         self.url_field.bindTo(self.url_buf);
-        self.name_field = self.fieldStyle(.{ .text = name_field_id });
+        self.name_field = self.fieldStyle(.{ .text = name_field_id }, @src());
         self.name_field.bind();
-        self.workspace_field = self.fieldStyle(.{ .text = workspace_field_id });
+        self.workspace_field = self.fieldStyle(.{ .text = workspace_field_id }, @src());
         self.workspace_field.bind();
+        // The body is one multiline field bound to the big buffer; the toolkit draws its own lines and caret.
+        self.body_field = self.fieldStyle(.{ .text = body_id }, @src());
+        self.body_field.multiline = true;
+        self.body_field.pad = glinlandui.props.Pad.all(10);
+        self.body_field.bindTo(self.body_buf);
         var i: usize = 0;
         while (i < state_mod.max_headers) : (i += 1) {
-            self.header_fields[i * 2] = self.fieldStyle(.at(header_key_prefix, i));
+            self.header_fields[i * 2] = self.fieldStyle(.at(header_key_prefix, i), @src());
             self.header_fields[i * 2].bind();
-            self.header_fields[i * 2 + 1] = self.fieldStyle(.at(header_value_prefix, i));
+            self.header_fields[i * 2 + 1] = self.fieldStyle(.at(header_value_prefix, i), @src());
             self.header_fields[i * 2 + 1].bind();
             self.header_ctxs[i * 2] = .{ .vm = self, .index = i, .value_side = false };
             self.header_ctxs[i * 2 + 1] = .{ .vm = self, .index = i, .value_side = true };
@@ -170,6 +174,9 @@ pub const KurirViewModel = struct {
         self.name_field.on_focus = .{ .f = onNameFocused, .ctx = self };
         self.workspace_field.on_change = .{ .f = onWorkspaceTyped, .ctx = self };
         self.workspace_field.on_focus = .{ .f = onWorkspaceFocused, .ctx = self };
+        self.body_field.on_change = .{ .f = onBodyTyped, .ctx = self };
+        self.body_field.on_submit = .{ .f = onBodySubmit, .ctx = self };
+        self.body_field.on_focus = .{ .f = onBodyFocused, .ctx = self };
         for (postman.methods, 0..) |method, index| {
             self.method_ctxs[index] = .{ .vm = self, .method = method };
         }
@@ -213,6 +220,25 @@ pub const KurirViewModel = struct {
         self.workspace_field.editor.selectAll();
     }
 
+    fn onBodyTyped(raw: ?*anyopaque, text: []const u8) void {
+        const self: *KurirViewModel = @ptrCast(@alignCast(raw.?));
+        self.focus = .body;
+        self.setBody(text);
+    }
+
+    // Ctrl/Cmd+Enter: the field asks whether the intent took the draft. It did not, so the body stays where it is.
+    fn onBodySubmit(raw: ?*anyopaque, text: []const u8) bool {
+        const self: *KurirViewModel = @ptrCast(@alignCast(raw.?));
+        _ = text;
+        self.send();
+        return false;
+    }
+
+    fn onBodyFocused(raw: ?*anyopaque) void {
+        const self: *KurirViewModel = @ptrCast(@alignCast(raw.?));
+        self.focus = .body;
+    }
+
     fn onHeaderTyped(raw: ?*anyopaque, text: []const u8) void {
         const ctx: *HeaderCtx = @ptrCast(@alignCast(raw.?));
         ctx.vm.focus = if (ctx.value_side) .header_value else .header_key;
@@ -223,9 +249,11 @@ pub const KurirViewModel = struct {
         }
     }
 
-    fn fieldStyle(self: *KurirViewModel, id: glinlandui.props.Id) input_mod.Field {
+    fn fieldStyle(self: *KurirViewModel, id: glinlandui.props.Id, src: std.builtin.SourceLocation) input_mod.Field {
         const t = self.theme;
         return .{
+            // The devtool shows where the app declared this field, not only where the component lives.
+            .src = src,
             .id = id,
             .font_size = t.type_scale.body,
             .bg = t.colors.surface,
@@ -496,9 +524,8 @@ pub const KurirViewModel = struct {
         self.view = view;
     }
 
-    // `uiState`: the value the view draws. Ticking the caret here keeps the editor's clock in one place.
+    // `uiState`: the value the view draws.
     pub fn uiState(self: *KurirViewModel) UiState {
-        self.editor.tickBlink(frame.delta_s);
         return self.view;
     }
 
@@ -528,7 +555,7 @@ pub const KurirViewModel = struct {
     fn loadSelection(self: *KurirViewModel) void {
         self.url_field.setText("");
         self.name_field.setText("");
-        self.editor.setText("");
+        self.body_field.setText("");
         self.workspace_field.setText(store.workspaceName(self.doc, self.workspace));
 
         const node = if (self.selection) |path| self.nodeValue(path) else null;
@@ -538,7 +565,7 @@ pub const KurirViewModel = struct {
                 const request = postman.requestView(self.gpa, item.*) catch postman.RequestView{};
                 defer self.gpa.free(request.headers);
                 self.url_field.setText(request.url);
-                self.editor.setText(request.body);
+                self.body_field.setText(request.body);
             }
         }
     }
@@ -774,22 +801,12 @@ pub const KurirViewModel = struct {
         self.rebuild();
     }
 
-    // The body editor is hand-rolled, so every edit is committed to the model here.
-    fn commitBody(self: *KurirViewModel) void {
+    // Every edit of the body field lands in the model, which is what the next reload reads.
+    pub fn setBody(self: *KurirViewModel, text: []const u8) void {
         const node = self.selectedRequest() orelse return;
-        postman.setBodyRaw(self.doc_arena.allocator(), node, self.editor.text()) catch return;
+        postman.setBodyRaw(self.doc_arena.allocator(), node, text) catch return;
         self.persist();
         self.rebuild();
-    }
-
-    pub fn onBodyClick(self: *KurirViewModel) void {
-        self.focus = .body;
-        frame.setFocus(body_id);
-    }
-
-    pub fn focusBody(self: *KurirViewModel) void {
-        self.focus = .body;
-        frame.setFocus(body_id);
     }
 
     // Any click on a text field claims the keyboard; a click on the body gives it back to the editor.
@@ -967,38 +984,6 @@ pub const KurirViewModel = struct {
             return self.fail("Could not write {s} ({s}).", .{ target, @errorName(err) });
         self.setStatus(false, "Exported {s} to {s}. Postman imports that file as it is.", .{ name, target });
         self.rebuild();
-    }
-
-    // ---- keys --------------------------------------------------------------------------------------------
-
-    // Composed text: only the body editor takes it, and only while it owns the keyboard.
-    pub fn onText(self: *KurirViewModel, text: []const u8) bool {
-        if (self.focus != .body) return false;
-        const action = editor_mod.handleText(&self.editor, text);
-        if (action == .edited) self.commitBody();
-        return action != .ignored;
-    }
-
-    // Raw keys: the body editor's own editing, plus Cmd/Ctrl+Enter to send from anywhere.
-    pub fn onKey(self: *KurirViewModel, mods: input_mod.Mods, keycode: u32) bool {
-        if (self.focus != .body) {
-            if (keycode == editor_mod.KEY_ENTER and mods.shortcut()) {
-                self.send();
-                return true;
-            }
-            return false;
-        }
-        switch (editor_mod.handleKey(&self.editor, keycode, mods.shift, mods.shortcut())) {
-            .run_requested => {
-                self.send();
-                return true;
-            },
-            .edited => {
-                self.commitBody();
-                return true;
-            },
-            .ignored => return false,
-        }
     }
 
     // The name of a header field, so a click and a test can address one column of one row.
@@ -1247,13 +1232,12 @@ test "headers can be added, typed, disabled and removed" {
     try testing.expectEqual(@as(usize, 0), h.state().headers.len);
 }
 
-test "the hand-rolled body editor commits what it types into the model" {
+test "the body field commits what it types into the model" {
     var h = try Harness.boot();
     defer h.stop();
 
     _ = h.firstRequest();
-    h.vm.focusBody();
-    try testing.expect(h.vm.onText("{\"amount\": 100}"));
+    h.vm.setBody("{\"amount\": 100}");
     try testing.expectEqualStrings("{\"amount\": 100}", h.state().body);
 
     // The same text goes into the document, which is what a reload reads.

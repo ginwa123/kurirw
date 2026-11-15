@@ -31,7 +31,7 @@ zig fmt --check build.zig src
 ```
 src/model/        postman.zig, store.zig, http.zig — pure data, pure Zig
 src/state.zig     the state as a value + label helpers
-src/view_model.zig  the only writer: intents, the arenas, the fields, the editor
+src/view_model.zig  the only writer: intents, the arenas, the input fields
 src/view.zig      declaration only
 src/app.zig       store + theme + start() + content()
 src/main.zig      window + Host + key chain

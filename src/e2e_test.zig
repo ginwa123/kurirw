@@ -120,6 +120,20 @@ test "the acceptance path: a workspace, a collection, a folder, a request, send,
     try testing.expectEqual(kurirw.state.ResponseKind.ok, h.app.vm().uiState().response.kind);
 }
 
+test "the empty state itself is a button: clicking it creates the first collection" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try h.driver.expectText("No collections yet.");
+    try h.driver.click("kurir.tree.empty");
+    try testing.expectEqual(@as(usize, 1), h.app.vm().uiState().rows.len);
+    try h.driver.expectText("Collection 1");
+}
+
 test "a refused connection says so on screen, and never leaves the pane blank" {
     const gpa = std.heap.page_allocator;
     var scratch = try Scratch.make(gpa);
@@ -159,6 +173,49 @@ test "a request with no URL explains itself instead of sending an empty one" {
     const state = h.app.vm().uiState();
     try testing.expect(state.status_is_error);
     try testing.expect(std.mem.indexOf(u8, state.status, "no URL") != null);
+}
+
+test "the body is a multiline field: Enter types a line with the caret on it, Ctrl+Enter sends" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try h.driver.click("kurir.add.collection");
+    try h.driver.click("kurir.add.request");
+    try h.driver.click(view_model.url_field_id);
+    try h.driver.typeText("https://api.example.com/v1/charges");
+
+    // The body tab, then the field itself: a click places the caret and takes the keyboard.
+    try h.driver.click("kurir.tab.body");
+    try h.driver.click(view_model.body_id);
+    try h.driver.typeText("ab");
+    try testing.expectEqualStrings("ab", h.app.vm().uiState().body);
+
+    // Enter types a line rather than submitting, and the caret is drawn on the line it created.
+    _ = try h.driver.key(28);
+    try testing.expectEqualStrings("ab\n", h.app.vm().uiState().body);
+    try testing.expect(caretOnLine(&h.driver, 1));
+    try testing.expect(!caretOnLine(&h.driver, 0));
+
+    // Ctrl+Enter is the send gesture, and it keeps the draft where it was.
+    _ = h.driver.host.onKeyEvent(29, true);
+    _ = try h.driver.key(28);
+    _ = h.driver.host.onKeyEvent(29, false);
+    try testing.expectEqual(@as(usize, 1), h.fake.sends);
+    try testing.expectEqualStrings("ab\n", h.app.vm().uiState().body);
+    try h.driver.expectText("200 OK");
+}
+
+// The caret bar a multiline field draws on one of its lines.
+fn caretOnLine(driver: *Driver, line: usize) bool {
+    const caret = glinlandui.components.input.lineCaretId(view_model.body_id, line);
+    for (driver.commands()) |cmd| {
+        if (cmd.command_type == .rectangle and cmd.id == caret.id) return true;
+    }
+    return false;
 }
 
 test "a reload restores the tree and the request the user was editing" {

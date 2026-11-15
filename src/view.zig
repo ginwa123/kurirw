@@ -4,15 +4,12 @@ const glinlandui = @import("glinlandui");
 
 const box_mod = glinlandui.components.box;
 const button_mod = glinlandui.components.button;
-const caret_mod = glinlandui.components.caret;
-const click_registry = glinlandui.components.click_registry;
 const input_mod = glinlandui.components.input;
 const list_mod = glinlandui.components.list;
 const scroll_mod = glinlandui.components.scroll;
 const text_mod = glinlandui.components.text;
 const frame = glinlandui.frame;
 const props = glinlandui.props;
-const editor_mod = glinlandui.text_editor;
 
 const postman = @import("model/postman.zig");
 const state_mod = @import("state.zig");
@@ -27,6 +24,7 @@ const sidebar_w: u32 = 300;
 const editor_h: u32 = 320;
 const row_h: u32 = 26;
 const indent: u16 = 14;
+const body_min_h: f32 = 170;
 const max_body_lines: usize = 4000;
 
 // What a composable reads: the theme, the model, and this frame's snapshot of its state.
@@ -39,6 +37,7 @@ pub const Scope = struct {
 // `@Composable fun KurirScreen()` — the window's root function.
 pub fn KurirScreen(scope: *Scope) void {
     box_mod.box(.{
+        .src = @src(),
         .id = .{ .text = "kurir.root" },
         .direction = .row,
         .w = .grow,
@@ -56,6 +55,7 @@ fn rootChildren(scope: *Scope) void {
 
 fn sidebar(scope: *Scope) void {
     box_mod.box(.{
+        .src = @src(),
         .id = .{ .text = "kurir.sidebar" },
         .direction = .column,
         .w = .{ .fixed = @floatFromInt(sidebar_w) },
@@ -73,6 +73,7 @@ fn sidebarChildren(scope: *Scope) void {
 
 fn workspaceStrip(scope: *Scope) void {
     box_mod.box(.{
+        .src = @src(),
         .id = .{ .text = "kurir.ws" },
         .direction = .column,
         .w = .grow,
@@ -84,6 +85,7 @@ fn workspaceStrip(scope: *Scope) void {
 fn workspaceStripChildren(scope: *Scope) void {
     const t = scope.theme;
     box_mod.box(.{
+        .src = @src(),
         .id = .{ .text = "kurir.ws.head" },
         .direction = .row,
         .w = .grow,
@@ -110,6 +112,7 @@ fn wsHead(scope: *Scope) void {
 
 fn toolbar(scope: *Scope) void {
     box_mod.box(.{
+        .src = @src(),
         .id = .{ .text = "kurir.tools" },
         .direction = .column,
         .w = .grow,
@@ -121,6 +124,7 @@ fn toolbar(scope: *Scope) void {
 fn toolbarChildren(scope: *Scope) void {
     const t = scope.theme;
     box_mod.box(.{
+        .src = @src(),
         .id = .{ .text = "kurir.tools.row1" },
         .direction = .row,
         .w = .grow,
@@ -129,6 +133,7 @@ fn toolbarChildren(scope: *Scope) void {
     }, scope, toolsRowOne);
 
     box_mod.box(.{
+        .src = @src(),
         .id = .{ .text = "kurir.tools.row2" },
         .direction = .row,
         .w = .grow,
@@ -154,11 +159,15 @@ fn tree(scope: *Scope) void {
     const t = scope.theme;
     if (scope.state.rows.len == 0) {
         box_mod.box(.{
+            .src = @src(),
             .id = .{ .text = "kurir.tree.empty" },
             .direction = .column,
             .w = .grow,
             .pad = props.Pad.all(16),
             .gap = 8,
+            .hover_bg = scope.theme.colors.hover,
+            // The empty state is the first button a new user presses, so it is one.
+            .on_click = .{ .f = onAddCollection, .ctx = scope.vm },
         }, scope, emptyTree);
         return;
     }
@@ -176,7 +185,7 @@ fn tree(scope: *Scope) void {
 fn emptyTree(scope: *Scope) void {
     const t = scope.theme;
     text_mod.label(.{ .label = .{ .text = "No collections yet.", .size = t.type_scale.body, .color = t.colors.text_dim } });
-    text_mod.label(.{ .label = .{ .text = "Press + Collection to start, then + Request inside it.", .size = t.type_scale.caption, .color = t.colors.text_done }, .wrap = true });
+    text_mod.label(.{ .label = .{ .text = "Click here, or press + Collection, to make one.", .size = t.type_scale.caption, .color = t.colors.text_done }, .wrap = true });
 }
 
 fn treeChildren(scope: *Scope) void {
@@ -203,6 +212,7 @@ const RowScope = struct {
 
 fn renderRow(scope: *Scope, row: state_mod.TreeRow, index: usize) void {
     box_mod.box(.{
+        .src = @src(),
         .id = .{ .text = frame.elementId("kurir.tree.row", index) },
         .direction = .row,
         .w = .grow,
@@ -243,6 +253,7 @@ fn rowChildren(rs: *const RowScope) void {
 
 fn mainArea(scope: *Scope) void {
     box_mod.box(.{
+        .src = @src(),
         .id = .{ .text = "kurir.main" },
         .direction = .column,
         .w = .grow,
@@ -258,6 +269,7 @@ fn mainChildren(scope: *Scope) void {
 
 fn requestEditor(scope: *Scope) void {
     box_mod.box(.{
+        .src = @src(),
         .id = .{ .text = "kurir.editor" },
         .direction = .column,
         .w = .grow,
@@ -278,6 +290,7 @@ fn editorChildren(scope: *Scope) void {
 
 fn nameRow(scope: *Scope) void {
     box_mod.box(.{
+        .src = @src(),
         .id = .{ .text = "kurir.name.row" },
         .direction = .row,
         .w = .grow,
@@ -316,6 +329,7 @@ fn nameRowChildren(scope: *Scope) void {
 
 fn methodRow(scope: *Scope) void {
     box_mod.box(.{
+        .src = @src(),
         .id = .{ .text = "kurir.method.row" },
         .direction = .row,
         .w = .grow,
@@ -363,6 +377,7 @@ fn methodRowChildren(scope: *Scope) void {
 
 fn editorTabs(scope: *Scope) void {
     box_mod.box(.{
+        .src = @src(),
         .id = .{ .text = "kurir.editor.tabs" },
         .direction = .row,
         .w = .grow,
@@ -385,6 +400,7 @@ fn editorTabsChildren(scope: *Scope) void {
 fn editorBody(scope: *Scope) void {
     if (scope.state.node_kind != .request) {
         box_mod.box(.{
+            .src = @src(),
             .id = .{ .text = "kurir.editor.empty" },
             .w = .grow,
             .h = .grow,
@@ -410,6 +426,7 @@ fn headersTable(scope: *Scope) void {
     const t = scope.theme;
     if (scope.state.header_count == 0) {
         box_mod.box(.{
+            .src = @src(),
             .id = .{ .text = "kurir.headers.empty" },
             .w = .grow,
             .h = .grow,
@@ -448,6 +465,7 @@ const HeaderScope = struct {
 
 fn headerRow(scope: *Scope, index: usize) void {
     box_mod.box(.{
+        .src = @src(),
         .id = .{ .text = frame.elementId("kurir.header.row", index) },
         .direction = .row,
         .w = .grow,
@@ -514,75 +532,25 @@ fn bodyEditor(scope: *Scope) void {
         .radius = 6,
         .thumb_bg = t.colors.surface_variant,
         .thumb_hover_bg = t.colors.primary,
-    }, scope, bodyBox);
+    }, scope, bodyField);
 }
 
-fn bodyBox(scope: *Scope) void {
-    box_mod.box(.{
-        .id = .{ .text = view_model.body_id },
-        .direction = .column,
-        .w = .grow,
-        .h = .grow,
-        .pad = props.Pad.all(@intFromFloat(view_model.body_pad)),
-    }, scope, bodyLines);
-    click_registry.registerClickCursor(frame.clayId(view_model.body_id), onBodyClick, scope.vm, .text);
-}
-
-fn bodyLines(scope: *Scope) void {
-    const vm = scope.vm;
-    const t = scope.theme;
-    const ed = &vm.editor;
-    const line_count = @min(ed.lineCount(), max_body_lines);
-    const caret_line = if (ed.len > 0) ed.lineNumber(ed.caret.offset) else 0;
-    const caret_shown = scope.state.focus == .body and editor_mod.caretVisible(ed);
-
-    var i: usize = 0;
-    while (i < line_count) : (i += 1) {
-        const start = ed.lineStartAt(i);
-        var end = start;
-        while (end < ed.len and ed.buf[end] != '\n') end += 1;
-        box_mod.box(.{
-            .id = .{ .text = frame.elementId("kurir.body.line", i) },
-            .direction = .row,
-            .w = .grow,
-            .h = .{ .fixed = view_model.line_height },
-            .child_align = .{ .y = .center },
-        }, &LineScope{
-            .theme = t,
-            .line = ed.buf[start..end],
-            .line_index = i,
-            .caret_at = if (caret_shown and i == caret_line) ed.caret.offset - start else null,
-        }, lineChildren);
-    }
-}
-
-const LineScope = struct {
-    theme: Theme,
-    line: []const u8,
-    line_index: usize,
-    // Where the caret sits in this line, or null when it is not on this line.
-    caret_at: ?usize,
-};
-
-fn lineChildren(ls: *const LineScope) void {
-    const t = ls.theme;
-    text_mod.label(.{ .label = .{ .text = if (ls.line.len == 0) " " else ls.line, .size = t.type_scale.body, .color = t.colors.text } });
-    if (ls.caret_at) |at| {
-        const prefix = ls.line[0..@min(at, ls.line.len)];
-        caret_mod.declare(.{
-            .id = .IDI("kurir.body.caret", @intCast(ls.line_index)),
-            .x = glinlandui.text.runWidth(prefix, t.type_scale.body),
-            .height = @floatFromInt(t.type_scale.body + 4),
-            .color = t.colors.primary,
-            .anchor = .center,
-        });
-    }
+// The body is the toolkit's multiline field: it draws its own lines, its own caret, and takes its own clicks.
+fn bodyField(scope: *Scope) void {
+    const field = &scope.vm.body_field;
+    const lines: f32 = @floatFromInt(@max(field.editor.lineCount(), 1));
+    field.value = scope.state.body;
+    field.w = .grow;
+    // Tall enough for the text, and never shorter than the pane, so a long body scrolls instead of clipping.
+    field.h = .{ .fixed = @max(body_min_h, lines * field.lineHeight() + 12) };
+    input_mod.textField(field);
 }
 
 // ---- the response pane ---------------------------------------------------------------------------------------
 
 fn responsePane(scope: *Scope) void {
     box_mod.box(.{
+        .src = @src(),
         .id = .{ .text = "kurir.response" },
         .direction = .column,
         .w = .grow,
@@ -600,6 +568,7 @@ fn responseChildren(scope: *Scope) void {
 
 fn responseHeader(scope: *Scope) void {
     box_mod.box(.{
+        .src = @src(),
         .id = .{ .text = "kurir.response.head" },
         .direction = .row,
         .w = .grow,
@@ -635,6 +604,7 @@ fn responseBody(scope: *Scope) void {
 fn errorBanner(scope: *Scope) void {
     const t = scope.theme;
     box_mod.box(.{
+        .src = @src(),
         .id = .{ .text = "kurir.response.error" },
         .direction = .column,
         .w = .grow,
@@ -683,6 +653,7 @@ fn okResponse(scope: *Scope) void {
 fn responseHeaderRows(scope: *Scope) void {
     for (scope.state.response.headers, 0..) |header, i| {
         box_mod.box(.{
+            .src = @src(),
             .id = .{ .text = frame.elementId("kurir.response.header", i) },
             .direction = .row,
             .w = .grow,
@@ -825,11 +796,6 @@ fn onRemoveHeader(ctx: ?*anyopaque) void {
 fn onToggleHeader(ctx: ?*anyopaque) void {
     const header_ctx: *KurirViewModel.HeaderCtx = @ptrCast(@alignCast(ctx.?));
     header_ctx.vm.toggleHeader(header_ctx.index);
-}
-
-fn onBodyClick(ctx: ?*anyopaque) void {
-    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
-    vm.onBodyClick();
 }
 
 fn onHeadersTab(ctx: ?*anyopaque) void {

@@ -12,8 +12,6 @@ pub fn main(init: std.process.Init) !void {
 
     var host = try glinlandui.host.Host.init(gpa, &app, kurirw.app.App.content);
     defer host.deinit();
-    host.keys.register(kurirw.app.App.keyHandler, &app);
-    host.keys.registerText(kurirw.app.App.textHandler, &app);
 
     var window = glinlandui.Window.init(gpa, .{
         .app_id = "kurirw",

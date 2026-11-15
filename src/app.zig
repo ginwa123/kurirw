@@ -2,7 +2,6 @@
 const std = @import("std");
 const glinlandui = @import("glinlandui");
 const frame = glinlandui.frame;
-const input_mod = glinlandui.components.input;
 
 const view = @import("view.zig");
 const view_model = @import("view_model.zig");
@@ -53,16 +52,5 @@ pub const App = struct {
             .state = model.uiState(),
         };
         view.KurirScreen(&scope);
-    }
-
-    // Keys reach the ViewModel only so the hand-rolled body editor can edit; everything else the engine types.
-    pub fn keyHandler(ctx: ?*anyopaque, mods: input_mod.Mods, keycode: u32) bool {
-        const self: *App = @ptrCast(@alignCast(ctx.?));
-        return self.vm().onKey(mods, keycode);
-    }
-
-    pub fn textHandler(ctx: ?*anyopaque, text: []const u8) bool {
-        const self: *App = @ptrCast(@alignCast(ctx.?));
-        return self.vm().onText(text);
     }
 };

@@ -34,7 +34,7 @@ git clone https://github.com/ginwa123/kabelweb.git   kabelweb
 cd kurirw
 
 zig build run          # the window
-zig build test         # unit + headless E2E (45 tests)
+zig build test         # unit + headless E2E (47 tests)
 ```
 
 `kabelweb`'s client is libcurl-backed, so the build wants a system `libcurl` + OpenSSL (Homebrew's
@@ -89,7 +89,7 @@ src/
 │   └── http.zig      one injectable Transport: a real kabelweb client, a fake for tests
 ├── state.zig         the state as a VALUE: Path, TreeRow, ResponseView, UiState, label helpers
 ├── view_model.zig    the ONLY writer. Every public fn is an intent; owns the fields and the arenas
-├── view.zig          declaration only — boxes, buttons, fields, the tree, the body editor
+├── view.zig          declaration only — boxes, buttons, fields, the tree, the response pane
 ├── app.zig           the Activity: the store, the theme, the composition. No widget code
 ├── main.zig          the only `pub fn main`: window, Host, key chain
 ├── root.zig          the module surface (`@import("kurirw")` is the whole app)
@@ -111,10 +111,10 @@ The rules the code keeps:
 
 - **The collection tree** is a `list` with a custom row: an expand caret, the method as a coloured
   label, then the name, indented by depth.
-- **The body editor** is hand-rolled, because `components.input` is single-line by design. It is a
-  `text_editor.Editor` (multiline model, Ctrl/Cmd+Enter = send) drawn one `cl.text` per line with
-  `components.caret` floated over the caret line. Keys reach it through the `Host` key chain;
-  everything else is typed by the engine into an `input.Field`.
+- **The body editor is the toolkit's field**, not a hand-rolled one: `components.input.Field` with
+  `.multiline = true` types a line on Enter, keeps the caret on the line it belongs to (through
+  glinlandui's per-line caret ids), and raises `on_submit` on Ctrl/Cmd+Enter, which is what sends.
+  Kurir routes no key at all — the engine types into the focused field.
 - **The method bar** is seven fixed-width buttons, one tone each, not a dropdown: a method is one
   click, and the colour is the thing you scan for.
 
@@ -151,7 +151,7 @@ reason, time, size, pretty-printed body, response headers, import, export, and a
 | limit | value | why |
 |---|---|---|
 | response shown | 256 kB | the body is text runs, not a download |
-| request body | 64 kB | one editor buffer |
+| request body | 64 kB | one field buffer |
 | headers per request | 32 | one field pair each |
 | tree rows | 512 | a flat array per frame |
 | nesting | 8 levels | `state.Path` is a fixed-depth address |
