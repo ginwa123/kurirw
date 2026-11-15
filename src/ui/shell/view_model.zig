@@ -14,8 +14,10 @@ const session_mod = @import("session.zig");
 const sidebar_mod = @import("../sidebar/view_model.zig");
 const editor_mod = @import("../editor/view_model.zig");
 const response_mod = @import("../response/view_model.zig");
+const pump_mod = @import("pump.zig");
 
 const file_picker = @import("../../data/local/file_picker.zig");
+const request_job = @import("../../data/remote/request_job.zig");
 const domain = @import("../../domain/repository/workspace.zig");
 const send_request = @import("../../domain/usecase/send_request.zig");
 const import_collection = @import("../../domain/usecase/import_collection.zig");
@@ -55,6 +57,7 @@ pub const Deps = struct {
     workspace: domain.Workspace,
     remote: *http_mod.Real,
     dialogs: *file_picker.Dialogs,
+    pump: *pump_mod.Pump,
 };
 
 pub const KurirViewModel = struct {
@@ -76,6 +79,17 @@ pub const KurirViewModel = struct {
     // A test installs a scripted transport, so no suite opens a socket.
     transport_override: ?http_mod.Transport = null,
 
+    // The window's frame pump, borrowed from the Activity: on while a request is in flight.
+    pump: *pump_mod.Pump = undefined,
+    // One request at a time, on its own task. The frame loop collects it the moment it lands.
+    job: ?Pending = null,
+
+    const Pending = struct {
+        job: *request_job.Job,
+        // The endpoint it belongs to, keyed when the send started.
+        key: response_mod.Key,
+    };
+
     pub fn init() KurirViewModel {
         // Everything is defaulted: the session's arenas wait for `start`, and so does the wiring.
         return .{};
@@ -85,6 +99,7 @@ pub const KurirViewModel = struct {
         // The panels hold `*Session`, so the session is wired FIRST and nothing may move afterwards.
         self.dialogs = deps.dialogs;
         self.real = deps.remote;
+        self.pump = deps.pump;
         self.session.start(deps.gpa, deps.io, deps.theme, deps.path, deps.workspace);
         self.sidebar.start(&self.session);
         self.editor.start(&self.session);
@@ -101,6 +116,11 @@ pub const KurirViewModel = struct {
     }
 
     pub fn deinit(self: *KurirViewModel) void {
+        // Quitting waits for a finished request and abandons a running one: joining would hold the window.
+        if (self.job) |pending| {
+            if (pending.job.poll()) pending.job.destroy(self.session.gpa) else pending.job.abandon();
+        }
+        self.job = null;
         self.response.deinit();
         self.editor.deinit();
         self.sidebar.deinit();
@@ -117,6 +137,8 @@ pub const KurirViewModel = struct {
 
     // `uiState`: what the view draws. A panel resizes while the frame is declared, so its numbers refresh here.
     pub fn uiState(self: *KurirViewModel) UiState {
+        // A request on its own task is collected here, so a frame never waits for the network.
+        self.collect();
         // The method menu has no scrim: the panel closes it when the pointer leaves it, read from the last frame.
         self.editor.closeIfPointerAway();
         if (self.session.dirty) self.refresh();
@@ -136,6 +158,7 @@ pub const KurirViewModel = struct {
         view.status_is_error = self.session.status_is_error;
         view.focus = self.session.focus;
         view.dialog_available = self.dialogs.available;
+        view.sending = self.job != null;
         // An empty workspace offers nothing to delete or to put a request into.
         if (!view.has_collection and !view.has_selection) view.can_add_request = false;
         self.view = view;
@@ -278,18 +301,42 @@ pub const KurirViewModel = struct {
     }
 
     pub fn send(self: *KurirViewModel) void {
+        if (self.job != null) return self.session.failNow("A request is already in flight. Wait for it to answer.");
         const node = self.session.selectedRequest() orelse
             return self.session.failNow("Select a request to send. The tree on the left holds them.");
         // The result belongs to the endpoint that is selected now, so it is keyed before the request runs.
-        const slot = self.response.begin() orelse
+        const key = self.response.begin() orelse
             return self.session.failNow("Select a request to send. The tree on the left holds them.");
-        const wire = send_request.build(slot.arena, node.*) catch |err| switch (err) {
-            error.NotARequest => return self.session.failNow("Could not read that request."),
-            error.NoUrl => return self.session.failNow("This request has no URL. Paste one in the URL field, then send."),
+
+        const gpa = self.session.gpa;
+        const job = request_job.Job.create(gpa, self.session.io) catch
+            return self.session.failNow("Could not start the request.");
+        const wire = send_request.build(job.arena(), node.*) catch |err| {
+            job.destroy(gpa);
+            return switch (err) {
+                error.NotARequest => self.session.failNow("Could not read that request."),
+                error.NoUrl => self.session.failNow("This request has no URL. Paste one in the URL field, then send."),
+            };
         };
-        const result = send_request.send(slot.arena, self.transport(slot.arena), wire);
-        self.response.store(slot, result);
-        self.session.commit();
+        job.request = .{ .method = wire.method, .url = wire.url, .headers = wire.headers, .body = wire.body };
+        // The transport writes into the job's arena, on the job's thread: the frame never waits for it.
+        job.start(self.transport(job.arena()));
+
+        self.job = .{ .job = job, .key = key };
+        self.pump.set(true);
+        self.session.setStatus(false, "Sending {s}...", .{wire.method});
+        self.session.touch();
+    }
+
+    // Called once per frame: an acquire load while the request runs, a collect once it has answered.
+    fn collect(self: *KurirViewModel) void {
+        const pending = self.job orelse return;
+        if (!pending.job.poll()) return;
+        const result = pending.job.take();
+        pending.job.destroy(self.session.gpa);
+        self.job = null;
+        self.pump.set(false);
+        self.response.store(pending.key, result);
     }
 
     // ---- import and export ------------------------------------------------------------------------------
@@ -386,6 +433,7 @@ const Harness = struct {
     dialogs: *file_picker.Dialogs,
     file: *file_store.FileStore,
     remote: *http_mod.Real,
+    pump: *pump_mod.Pump,
 
     fn boot() !Harness {
         var tmp = testing.tmpDir(.{});
@@ -399,6 +447,8 @@ const Harness = struct {
         remote.* = http_mod.Real.init(testing.allocator);
         const dialogs = try testing.allocator.create(file_picker.Dialogs);
         dialogs.* = .{};
+        const pump = try testing.allocator.create(pump_mod.Pump);
+        pump.* = .{};
         const deps = try testing.allocator.create(Deps);
         deps.* = .{
             .gpa = testing.allocator,
@@ -408,12 +458,13 @@ const Harness = struct {
             .workspace = file.workspace(),
             .remote = remote,
             .dialogs = dialogs,
+            .pump = pump,
         };
 
         const vm = try testing.allocator.create(KurirViewModel);
         vm.* = KurirViewModel.init();
         vm.start(deps.*);
-        return .{ .tmp = tmp, .path = path, .vm = vm, .deps = deps, .dialogs = dialogs, .file = file, .remote = remote };
+        return .{ .tmp = tmp, .path = path, .vm = vm, .deps = deps, .dialogs = dialogs, .file = file, .remote = remote, .pump = pump };
     }
 
     fn stop(self: *Harness) void {
@@ -422,10 +473,21 @@ const Harness = struct {
         self.remote.deinit();
         testing.allocator.destroy(self.remote);
         testing.allocator.destroy(self.dialogs);
+        testing.allocator.destroy(self.pump);
         testing.allocator.destroy(self.deps);
         testing.allocator.destroy(self.file);
         testing.allocator.free(self.path);
         self.tmp.cleanup();
+    }
+
+    // A send runs on its own task, so a test pumps the frame the way the app does until it answers.
+    fn settle(self: *Harness) void {
+        var spins: usize = 0;
+        while (self.vm.uiState().sending) : (spins += 1) {
+            if (spins > 5_000) return;
+            std.Io.sleep(testing.io, .fromMilliseconds(2), .awake) catch {};
+        }
+        _ = self.vm.uiState();
     }
 
     // A second ViewModel over the same file: the reload the PRD asks for.
@@ -559,6 +621,7 @@ test "send answers through the fake transport, and the response is pretty-printe
     h.vm.transport_override = fake.transport();
 
     h.vm.send();
+    h.settle();
     const state = h.state();
     try testing.expectEqual(state_mod.ResponseKind.ok, state.response.kind);
     try testing.expectEqual(@as(u16, 201), state.response.status);
@@ -584,6 +647,7 @@ test "a refused connection becomes a sentence, never a blank pane" {
     h.vm.transport_override = fake.transport();
 
     h.vm.send();
+    h.settle();
     const state = h.state();
     try testing.expectEqual(state_mod.ResponseKind.failed, state.response.kind);
     try testing.expectEqualStrings("ConnectionRefused", state.response.error_title);
@@ -602,6 +666,7 @@ test "a request with no URL explains itself instead of sending" {
     h.vm.transport_override = fake.transport();
 
     h.vm.send();
+    h.settle();
     try testing.expectEqual(@as(usize, 0), fake.sends);
     try testing.expect(h.vm.uiState().status_is_error);
     try testing.expect(std.mem.indexOf(u8, h.vm.uiState().status, "no URL") != null);
@@ -722,6 +787,7 @@ test "a collection that was deleted from the document cannot be sent" {
     defer h.stop();
 
     h.vm.send();
+    h.settle();
     try testing.expect(h.state().status_is_error);
     try testing.expect(std.mem.indexOf(u8, h.state().status, "Select a request") != null);
 }

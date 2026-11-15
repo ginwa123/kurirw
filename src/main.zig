@@ -24,6 +24,13 @@ pub fn main(init: std.process.Init) !void {
         .min_width = 900,
         .min_height = 560,
     });
+    // While a request is in flight the window keeps presenting frames, so `uiState()` can collect it.
+    app.pump = .{ .ctx = &window, .set_fn = setAnimating };
     window.delegate = host.delegate();
     try window.run();
+}
+
+fn setAnimating(ctx: ?*anyopaque, on: bool) void {
+    const win: *glinlandui.Window = @ptrCast(@alignCast(ctx.?));
+    win.setAnimating(on);
 }

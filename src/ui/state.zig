@@ -128,6 +128,8 @@ pub const UiState = struct {
     method_open: bool = false,
     response_tab: Tab = .body,
     response: ResponseView = .{},
+    // A request is on its own task right now, so the pane is waiting for it.
+    sending: bool = false,
 
     status: []const u8 = "",
     status_is_error: bool = false,

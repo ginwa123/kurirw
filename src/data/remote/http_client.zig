@@ -196,6 +196,9 @@ pub const Fake = struct {
     time_ms: u64 = 11,
     // "" answers with the recorded response; any other value fails with an error of that name.
     failure_name: []const u8 = "",
+    // A slow server: the fake sleeps this long before answering, so a test can watch the app while it waits.
+    delay_ms: u32 = 0,
+    io: ?std.Io = null,
 
     sends: usize = 0,
     last_method: []const u8 = "",
@@ -224,6 +227,9 @@ pub const Fake = struct {
 
     fn sendFake(ctx: ?*anyopaque, arena: Allocator, req: Request) Result {
         const self: *Fake = @ptrCast(@alignCast(ctx.?));
+        if (self.delay_ms > 0) {
+            if (self.io) |io| std.Io.sleep(io, .fromMilliseconds(self.delay_ms), .awake) catch {};
+        }
         self.sends += 1;
         self.last_method = arena.dupe(u8, req.method) catch "";
         self.last_url = arena.dupe(u8, req.url) catch "";

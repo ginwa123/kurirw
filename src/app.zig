@@ -7,6 +7,7 @@ const view = @import("ui/shell/screen.zig");
 const view_model = @import("ui/shell/view_model.zig");
 const theme_mod = @import("ui/theme/theme.zig");
 const container_mod = @import("di/container.zig");
+const pump_mod = @import("ui/shell/pump.zig");
 
 pub const App = struct {
     // `ViewModelStoreOwner`: one screen, one store, one ViewModel for the life of the window.
@@ -15,6 +16,8 @@ pub const App = struct {
     theme: glinlandui.theme.Theme = theme_mod.app_theme,
     // Every dependency the screen needs is built here, once, and borrowed by the ViewModel.
     container: container_mod.Container = .{},
+    // The window's frame pump: `main` points it at the window it creates, a headless test leaves it a no-op.
+    pump: pump_mod.Pump = .{},
 
     gpa: std.mem.Allocator = undefined,
     io: std.Io = undefined,
@@ -33,6 +36,7 @@ pub const App = struct {
             .workspace = self.container.file.workspace(),
             .remote = &self.container.remote,
             .dialogs = &self.container.dialogs,
+            .pump = &self.pump,
         });
         // The URL field takes the keyboard only when there is a request to type into.
         if (model.uiState().node_kind == .request) frame.setFocus(view_model.url_field_id);

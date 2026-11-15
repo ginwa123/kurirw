@@ -35,12 +35,6 @@ const Entry = struct {
     view: state_mod.ResponseView = .{},
 };
 
-// A send: the endpoint the result belongs to, and the arena it may use.
-pub const Slot = struct {
-    key: Key,
-    arena: Allocator,
-};
-
 pub const Response = struct {
     session: *Session = undefined,
     // One result per endpoint, oldest first, bounded by `max_cached`.
@@ -68,16 +62,17 @@ pub const Response = struct {
     }
 
     // A send begins: the endpoint's arena, reset, plus the key the result will be stored under.
-    pub fn begin(self: *Response) ?Slot {
+    pub fn begin(self: *Response) ?Key {
         const key = self.keyNow() orelse return null;
-        const entry = self.entryFor(key) orelse self.create(key) orelse return null;
-        _ = entry.arena.reset(.retain_capacity);
-        return .{ .key = key, .arena = entry.arena.allocator() };
+        _ = self.entryFor(key) orelse self.create(key) orelse return null;
+        return key;
     }
 
-    pub fn store(self: *Response, slot: Slot, result: http_mod.Result) void {
-        const entry = self.entryFor(slot.key) orelse return;
-        const arena = slot.arena;
+    // The arena is reset HERE: while the request is in flight the pane still shows the previous result.
+    pub fn store(self: *Response, key: Key, result: http_mod.Result) void {
+        const entry = self.entryFor(key) orelse return;
+        _ = entry.arena.reset(.retain_capacity);
+        const arena = entry.arena.allocator();
 
         var response = state_mod.ResponseView{};
         var size_buf: [32]u8 = undefined;

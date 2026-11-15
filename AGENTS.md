@@ -77,6 +77,10 @@ src/e2e_test.zig                   the acceptance path, headless
 - **The font has Latin-1 and arrows, not geometric shapes.** `▾`, `▸` and `▼` render as tofu boxes; the
   tree and the method dropdown use `v` / `>` for exactly this reason. Check a glyph in a screenshot before
   shipping it.
+- **Nothing long runs on the frame thread.** A request goes through `data/remote/request_job.zig`
+  (`std.Io.concurrent` + an atomic `finished`), never a direct `perform` in an intent. A test that sends
+  must `settle()`: the answer arrives on a later frame. The real window's pump is `setAnimating`, wired in
+  `main.zig`; headless, the pump is a no-op and the driver's frames do the polling.
 - **Tests never touch the network.** `http.Fake` answers requests, `Dialogs` answers the file
   panels. `zig build smoke` is the only place a socket is opened.
 - **`build.zig` is linted too.** A comment in it that spells a banned pattern (a bare

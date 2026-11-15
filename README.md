@@ -117,6 +117,10 @@ The rules the code keeps:
   panels share lives in `ui/shell/session.zig`.
 - **The shell composes, it does not compute.** Every intent on `KurirViewModel` is a one-line facade
   over a panel; `uiState()` asks each panel for its snapshot once per frame, and only while stale.
+- **The frame never waits for the network.** `send` builds the request in a `request_job.Job`, hands it
+  to the Io pool (`std.Io.concurrent`) and returns; `uiState()` does an acquire load per frame and collects
+  the answer when it lands. The window's frame pump is turned on while a job is in flight, so a result is
+  drawn the moment it arrives, and a quit during a request joins the task before freeing its arena.
 - **A result belongs to an endpoint.** The response pane is derived from the selection: each request keeps
   its own last status, time, size and body, a request that was never sent shows the empty state, and
   deleting a node drops the cache because a path can then address a different request.

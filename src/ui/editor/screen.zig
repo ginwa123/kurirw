@@ -163,10 +163,10 @@ pub fn methodRowChildren(scope: *Scope) void {
 
     button_mod.button(.{
         .id = .{ .text = "kurir.send" },
-        .label = .{ .text = "Send", .size = t.type_scale.label, .color = t.colors.on_primary },
+        .label = .{ .text = if (scope.state.sending) "Sending..." else "Send", .size = t.type_scale.label, .color = t.colors.on_primary },
         .bg = theme_mod.success,
         .hover_bg = t.colors.primary_hover,
-        .disabled = !enabled,
+        .disabled = !enabled or scope.state.sending,
         .pad = props.Pad.axes(8, 18),
         .radius = props.Radius.all(6),
         .on_click = .{ .f = actions.onSend, .ctx = scope.vm },

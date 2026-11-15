@@ -80,6 +80,17 @@ const Scratch = struct {
     }
 };
 
+// A send answers on its own task: pump frames until it lands, then draw the answer.
+fn settle(h: *Harness) !void {
+    var spins: usize = 0;
+    while (h.app.vm().uiState().sending) : (spins += 1) {
+        if (spins > 5_000) return error.RequestNeverAnswered;
+        std.Io.sleep(testing.io, .fromMilliseconds(2), .awake) catch {};
+        h.driver.frame();
+    }
+    h.driver.frame();
+}
+
 // Open the trigger if needed, then click the verb's row: a list row is a Clay pair id, so it is hit by box.
 fn pickMethod(h: *Harness, index: usize) !void {
     if (!h.app.vm().uiState().method_open) try h.driver.click(view_model.method_trigger_id);
@@ -121,6 +132,7 @@ test "the acceptance path: a workspace, a collection, a folder, a request, send,
     h.fake.status = 201;
     h.fake.body = "{\"id\":7,\"paid\":true}";
     try h.driver.click("kurir.send");
+    try settle(&h);
 
     // What was sent, and what the pane then draws.
     try testing.expectEqualStrings("POST", h.fake.last_method);
@@ -128,6 +140,40 @@ test "the acceptance path: a workspace, a collection, a folder, a request, send,
     try h.driver.expectText("201 Created");
     try h.driver.expectText("  \"id\": 7,");
     try testing.expectEqual(kurirw.state.ResponseKind.ok, h.app.vm().uiState().response.kind);
+}
+
+test "a slow request does not block the frame: the window keeps drawing and the button says so" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try h.driver.click("kurir.add.collection");
+    try h.driver.click("kurir.add.request");
+    try h.driver.click(view_model.url_field_id);
+    try h.driver.typeText("https://api.example.com/slow");
+
+    // A server that takes its time.
+    h.fake.delay_ms = 120;
+    h.fake.io = testing.io;
+    h.fake.body = "{\"slow\":true}";
+
+    try h.driver.click("kurir.send");
+
+    // The click returned with the request still out, and the frame that drew it could read the state.
+    try testing.expect(h.app.vm().uiState().sending);
+    try h.driver.expectText("Sending...");
+
+    // The window is alive while it waits: a pointer move draws another frame, and the request is still out.
+    h.driver.move(640, 420);
+    try testing.expect(h.app.vm().uiState().sending);
+
+    try settle(&h);
+    try testing.expect(!h.app.vm().uiState().sending);
+    try testing.expect(std.mem.indexOf(u8, h.app.vm().uiState().response.body, "slow") != null);
+    try h.driver.expectText("200 OK");
 }
 
 test "each endpoint keeps its own result, so the pane follows the selection" {
@@ -147,6 +193,7 @@ test "each endpoint keeps its own result, so the pane follows the selection" {
     h.fake.status = 200;
     h.fake.body = "{\"which\":\"one\"}";
     try h.driver.click("kurir.send");
+    try settle(&h);
     try testing.expect(std.mem.indexOf(u8, h.app.vm().uiState().response.body, "one") != null);
 
     // Endpoint two was never sent, so it shows the empty pane — not endpoint one's body.
@@ -157,6 +204,7 @@ test "each endpoint keeps its own result, so the pane follows the selection" {
     try h.driver.typeText("https://api.example.com/two");
     h.fake.body = "{\"which\":\"two\"}";
     try h.driver.click("kurir.send");
+    try settle(&h);
     try testing.expect(std.mem.indexOf(u8, h.app.vm().uiState().response.body, "two") != null);
 
     // Back on the first endpoint: its own result is still there.
@@ -259,6 +307,7 @@ test "a refused connection says so on screen, and never leaves the pane blank" {
 
     h.fake.failure_name = "ConnectionRefused";
     try h.driver.click("kurir.send");
+    try settle(&h);
 
     try h.driver.expectText("ConnectionRefused");
     const state = h.app.vm().uiState();
@@ -278,6 +327,7 @@ test "a request with no URL explains itself instead of sending an empty one" {
     try h.driver.click("kurir.add.collection");
     try h.driver.click("kurir.add.request");
     try h.driver.click("kurir.send");
+    try settle(&h);
 
     try testing.expectEqual(@as(usize, 0), h.fake.sends);
     const state = h.app.vm().uiState();
@@ -314,6 +364,7 @@ test "the body is a multiline field: Enter types a line with the caret on it, Ct
     _ = h.driver.host.onKeyEvent(29, true);
     _ = try h.driver.key(28);
     _ = h.driver.host.onKeyEvent(29, false);
+    try settle(&h);
     try testing.expectEqual(@as(usize, 1), h.fake.sends);
     try testing.expectEqualStrings("ab\n", h.app.vm().uiState().body);
     try h.driver.expectText("200 OK");

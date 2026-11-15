@@ -7,6 +7,7 @@ pub const theme = @import("ui/theme/theme.zig");
 pub const postman = @import("data/model/postman.zig");
 pub const store = @import("data/local/workspace_store.zig");
 pub const http = @import("data/remote/http_client.zig");
+pub const request_job = @import("data/remote/request_job.zig");
 pub const workspace = @import("domain/repository/workspace.zig");
 pub const file_store = @import("data/repository/workspace_impl.zig");
 pub const send_request = @import("domain/usecase/send_request.zig");
@@ -21,6 +22,8 @@ comptime {
     _ = @import("data/model/postman.zig");
     _ = @import("data/local/workspace_store.zig");
     _ = @import("data/remote/http_client.zig");
+    _ = @import("data/remote/request_job.zig");
+    _ = @import("ui/shell/pump.zig");
     _ = @import("ui/shell/view_model.zig");
     _ = @import("ui/shell/screen.zig");
     _ = @import("ui/shell/scope.zig");
