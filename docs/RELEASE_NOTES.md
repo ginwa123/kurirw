@@ -1,7 +1,7 @@
-# Kurir 0.1.0
+# Kurir
 
-A lightweight Postman-style API client: workspaces, collections, folders and requests, sent through
-libcurl, stored as Postman Collection v2.1 JSON.
+A small, fast desktop app for sending HTTP requests — the everyday Postman job, without the account,
+the cloud, or the browser tab.
 
 ## Install in one command
 
@@ -18,34 +18,33 @@ Windows (PowerShell, no admin):
 irm https://raw.githubusercontent.com/ginwa123/kurirw/main/install.ps1 | iex
 ```
 
-Or download the archive for your machine from the Assets below and run the binary inside it.
+Or download the archive for your machine from the assets below and run the binary inside it.
 
 ## Assets
 
 | platform | file | notes |
 |---|---|---|
-| Linux x86_64 | `kurirw-linux-x86_64.tar.gz` | needs a Wayland session and the pango/cairo + libcurl runtime libraries |
-| macOS arm64 | `kurirw-macos-arm64.tar.gz` | unsigned; on first launch use right-click → Open, or `xattr -d com.apple.quarantine kurirw` |
+| macOS arm64 | `kurirw-macos-arm64.tar.gz` | self-contained: the archive carries the handful of libraries it needs in `lib/`. Unsigned, so the first launch wants right-click → **Open**, or `xattr -d com.apple.quarantine kurirw` |
+| Linux x86_64 | `kurirw-linux-x86_64.tar.gz` | built on Ubuntu 24.04, so it wants glibc 2.39+; run it in a Wayland session with the pango/cairo and libcurl runtime libraries installed |
 | Windows x86_64 | `kurirw-windows-x86_64.zip` | see the Windows note below |
 
 ## Windows note
 
-The Windows build compiles and links against a **stub libcurl**, because the Windows runner has no
-curl/openssl development files and the repository carries no vendored Windows archive. The app runs,
-edits, imports and exports; **Send does not reach the network in this build** and reports a failed
-request instead. A real Windows transport needs a static libcurl (vcpkg `curl[openssl]:x64-windows-static`)
-and is the next piece of work. Building from source on a machine with vcpkg installed already works:
+This `.exe` was built on a machine with no curl/openssl development files, so it links a **stub**
+libcurl: the app starts, edits, imports and exports, but **Send cannot reach the network** in this
+build and reports a failed request instead. A real Windows transport needs a static libcurl
+(`vcpkg install curl[openssl]:x64-windows`) — building from source on such a machine works today with
 `zig build -Doptimize=ReleaseSafe`.
 
 ## Build from source
 
 ```sh
 git clone https://github.com/ginwa123/kurirw && cd kurirw
-zig build --fetch          # glinlandui + kabelweb, pinned by commit
+zig build --fetch                      # glinlandui + kabelweb, pinned by commit
 zig build -Doptimize=ReleaseSafe
 ./zig-out/bin/kurirw
 ```
 
-Linux needs the Wayland/EGL/GLES3 + pango stack and `wayland-scanner`; macOS needs
-`brew install curl openssl@3`. The full list is in `.github/workflows/ci.yml`, which builds and tests
-all three platforms on every push.
+macOS wants `brew install curl openssl@3`; Linux wants the Wayland/EGL/GLES3 + pango stack plus
+`libcurl4-openssl-dev` and `libssl-dev`. The exact list is in `.github/workflows/ci.yml`, which builds
+and tests all three platforms on every push.

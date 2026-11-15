@@ -56,9 +56,15 @@ curl -fsSL "$url" -o "$tmp/$asset" || die "could not download $url"
 # GNU tar and bsdtar both read .tar.gz; macOS ships bsdtar.
 tar -xzf "$tmp/$asset" -C "$tmp" || die "could not unpack $asset"
 
+# An archive may carry runtime libraries next to the binary (the macOS build bundles curl + openssl),
+# so the whole payload is copied, not just the executable.
 mkdir -p "$dest" || die "could not create $dest"
 cp "$tmp/kurirw" "$dest/kurirw" || die "could not write $dest/kurirw"
 chmod 755 "$dest/kurirw"
+if [ -d "$tmp/lib" ]; then
+    mkdir -p "$dest/lib"
+    cp "$tmp/lib/"* "$dest/lib/" || die "could not write $dest/lib"
+fi
 
 say ""
 say "installed  $dest/kurirw"

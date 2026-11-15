@@ -88,7 +88,7 @@ jobs:
       # vendored curl archive, so the system pair has to be installed.
       - name: Install the macOS curl and openssl kegs
         if: runner.os == 'macOS'
-        run: brew install curl openssl@3
+        run: brew install curl openssl@3 dylibbundler
 
       # No install step on Windows on purpose: kabelweb probes for vcpkg's curl and, finding none,
       # builds its own stub libcurl, so the suite compiles, links and runs here. The build prints which
@@ -118,17 +118,21 @@ jobs:
           mkdir -p dist
           if [ -f zig-out/bin/kurirw.exe ]; then
             cp zig-out/bin/kurirw.exe dist/
+            powershell -NoProfile -Command "Compress-Archive -Path dist/kurirw.exe -DestinationPath '${{ matrix.archive }}' -Force"
+          elif [ "$RUNNER_OS" = "macOS" ]; then
+            # A macOS build links Homebrew's curl + openssl by ABSOLUTE keg path, so a plain copy only
+            # runs on a Mac with the same minor versions. dylibbundler copies the whole dyld graph into
+            # lib/ and rewrites every reference to @loader_path, which is what makes the download work
+            # on someone else's Mac.
+            cp zig-out/bin/kurirw dist/
+            mkdir -p dist/lib
+            dylibbundler -of -b -x dist/kurirw -d dist/lib -p @loader_path/lib
+            echo "bundled: $(ls dist/lib | tr '\n' ' ')"
+            tar -czf "${{ matrix.archive }}" -C dist kurirw lib
           else
             cp zig-out/bin/kurirw dist/kurirw
+            tar -czf "${{ matrix.archive }}" -C dist kurirw
           fi
-          case "$RUNNER_OS" in
-            Windows)
-              powershell -NoProfile -Command "Compress-Archive -Path dist/kurirw.exe -DestinationPath '${{ matrix.archive }}' -Force"
-              ;;
-            *)
-              tar -czf "${{ matrix.archive }}" -C dist kurirw
-              ;;
-          esac
           ls -l "${{ matrix.archive }}"
 
       - uses: actions/upload-artifact@v4
