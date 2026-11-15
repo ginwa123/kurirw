@@ -2,6 +2,7 @@
 const std = @import("std");
 const glinlandui = @import("glinlandui");
 const scroll_mod = glinlandui.components.scroll;
+const input_mod = glinlandui.components.input;
 
 const postman = @import("../../data/model/postman.zig");
 const body_mod = @import("../../data/model/body.zig");
@@ -16,7 +17,7 @@ const Path = state_mod.Path;
 
 // The body scroll container, and the height of one drawn line. The pane declares only the lines inside it.
 pub const body_scroll_id = "kurir.response.body";
-pub const row_h: f32 = 20;
+pub const body_text_id = "kurir.response.body.text";
 
 // The bodies are not capped, so the cache is bounded in BYTES: a few megabyte answers fit, twenty do not.
 pub const max_cached: usize = 24;
@@ -39,20 +40,26 @@ const Entry = struct {
     view: state_mod.ResponseView = .{},
 };
 
-// The lines a frame must declare: the ones inside the viewport, plus a little overscan.
-pub const Visible = struct {
-    first: usize = 0,
-    count: usize = 0,
-};
-
 pub const Response = struct {
     session: *Session = undefined,
     // One result per endpoint, oldest first, bounded by `max_cached` and `max_cached_bytes`.
     entries: std.ArrayList(*Entry) = .empty,
     tab: state_mod.Tab = .body,
+    // The body itself: one read-only multiline field, so a response can be selected and copied like any text.
+    body_field: input_mod.Field = undefined,
 
     pub fn start(self: *Response, session: *Session) void {
         self.session = session;
+        self.body_field = session.fieldStyle(.{ .text = body_text_id }, @src());
+        self.body_field.multiline = true;
+        // Read-only: a response is something you read, select and copy — never something you type into.
+        self.body_field.readonly = true;
+        self.body_field.scroll_id = body_scroll_id;
+        self.body_field.pad = glinlandui.props.Pad.all(10);
+        // The pane already draws the frame around the body: the field itself is seamless, so the text is the content.
+        self.body_field.border = .{};
+        self.body_field.radius = glinlandui.props.Radius.all(0);
+        self.body_field.h = .{ .fixed = 30 };
     }
 
     pub fn deinit(self: *Response) void {
@@ -124,23 +131,6 @@ pub const Response = struct {
         self.session.setStatus(false, "{d} {s} · {s} · {s}", .{ result.status, result.reason, response.time_text, response.size_text });
         self.session.touch();
         self.evictOverBudget(entry);
-    }
-
-    // The line range a frame must declare, from the scroll container's own offset and height.
-    pub fn visibleLines(self: *Response, total: usize) Visible {
-        _ = self;
-        const view = scroll_mod.view(body_scroll_id);
-        return rangeFor(total, view.y, if (view.found and view.height > 0) view.height else 480);
-    }
-
-    // Pure, so the arithmetic is testable without a window: which lines a viewport at `y` covers.
-    pub fn rangeFor(total: usize, y: f32, height: f32) Visible {
-        const overscan: usize = 2;
-        const at: usize = if (y > 0) @intFromFloat(@max(y, 0) / row_h) else 0;
-        const first = if (at > overscan) at - overscan else 0;
-        const per_page: usize = @as(usize, @intFromFloat(@ceil(height / row_h))) + 1 + 2 * overscan;
-        const remaining = if (total > first) total - first else 0;
-        return .{ .first = first, .count = @min(per_page, remaining) };
     }
 
     // A node was deleted, so a path can now address a different endpoint: no result survives that.
@@ -215,20 +205,4 @@ test "a key is the endpoint AND its workspace, so two workspaces never share a r
     try testing.expect(one.eql(same));
     try testing.expect(!one.eql(other_workspace));
     try testing.expect(!one.eql(other_path));
-}
-
-test "a viewport declares its own lines, with a little overscan, never more than there is" {
-    // 480 points of viewport at 20 points a line is 24 lines, plus the overscan.
-    const top = Response.rangeFor(100_000, 0, 480);
-    try testing.expectEqual(@as(usize, 0), top.first);
-    try testing.expect(top.count >= 24 and top.count <= 30);
-
-    // Scrolled down: the range follows the offset, and stops at the end of the body.
-    const down = Response.rangeFor(100_000, 2_000, 480);
-    try testing.expectEqual(@as(usize, 98), down.first);
-
-    const short = Response.rangeFor(3, 0, 480);
-    try testing.expectEqual(@as(usize, 3), short.count);
-
-    try testing.expectEqual(@as(usize, 0), Response.rangeFor(0, 0, 480).count);
 }

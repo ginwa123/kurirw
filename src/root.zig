@@ -3,6 +3,7 @@ pub const app = @import("app.zig");
 pub const view = @import("ui/shell/screen.zig");
 pub const view_model = @import("ui/shell/view_model.zig");
 pub const state = @import("ui/state.zig");
+pub const response_vm = @import("ui/response/view_model.zig");
 pub const theme = @import("ui/theme/theme.zig");
 pub const postman = @import("data/model/postman.zig");
 pub const curl = @import("data/model/curl.zig");

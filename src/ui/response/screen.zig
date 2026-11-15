@@ -3,6 +3,7 @@ const std = @import("std");
 const glinlandui = @import("glinlandui");
 
 const box_mod = glinlandui.components.box;
+const input_mod = glinlandui.components.input;
 const scroll_mod = glinlandui.components.scroll;
 const text_mod = glinlandui.components.text;
 const frame = glinlandui.frame;
@@ -19,9 +20,6 @@ const tabButton = widgets.tabButton;
 
 const Scope = scope_mod.Scope;
 const response_vm = @import("view_model.zig");
-const body_mod = @import("../../data/model/body.zig");
-// One absurd line is drawn cut: a body keeps every byte, a single text run does not.
-const max_line_chars: usize = 1024;
 const Theme = glinlandui.theme.Theme;
 
 // The pane is as tall as the split says: the line above it is what the pointer drags.
@@ -150,64 +148,21 @@ pub fn responseHeaderRowChildren(hs: *const HeaderNameScope) void {
     text_mod.label(.{ .label = .{ .text = hs.value, .size = hs.theme.type_scale.body, .color = hs.theme.colors.text } });
 }
 
+// The body is the toolkit's READ-ONLY multiline field: select a run, Cmd/Ctrl+C, and nothing can edit it.
 pub fn responseBodyLines(scope: *Scope) void {
     const t = scope.theme;
-    const body = scope.state.response.body;
-    const lines = scope.state.response.lines;
-    if (body.len == 0) {
+    if (scope.state.response.body.len == 0) {
         text_mod.label(.{ .label = .{ .text = "(empty body)", .size = t.type_scale.body, .color = t.colors.text_dim } });
         return;
     }
-
-    const total = if (lines.len > 1) lines.len - 1 else 0;
-    const vis = scope.vm.visibleBodyLines(total);
-
-    // Everything above the viewport is ONE rectangle of its exact height: the scrollbar stays honest, cheaply.
-    if (vis.first > 0) {
-        pad(scope, "kurir.response.pad.top", @as(f32, @floatFromInt(vis.first)) * response_vm.row_h);
-    }
-    var i: usize = 0;
-    while (i < vis.count) : (i += 1) lineRow(scope, vis.first + i);
-
-    const after = vis.first + vis.count;
-    if (after < total) {
-        pad(scope, "kurir.response.pad.bottom", @as(f32, @floatFromInt(total - after)) * response_vm.row_h);
-    }
-}
-
-fn pad(scope: *Scope, id: []const u8, h: f32) void {
-    box_mod.box(.{
-        .src = @src(),
-        .id = .{ .text = id },
-        .direction = .column,
-        .w = .grow,
-        .h = .{ .fixed = h },
-    }, scope, noChildren);
-}
-
-fn noChildren(_: *Scope) void {}
-
-const LineCtx = struct {
-    scope: *Scope,
-    index: usize,
-};
-
-fn lineRow(scope: *Scope, index: usize) void {
-    box_mod.box(.{
-        .src = @src(),
-        .id = .{ .text = frame.elementId("kurir.response.line", index) },
-        .direction = .row,
-        .w = .grow,
-        .h = .{ .fixed = response_vm.row_h },
-        .child_align = .{ .x = .left, .y = .center },
-    }, LineCtx{ .scope = scope, .index = index }, lineChildren);
-}
-
-fn lineChildren(ctx: LineCtx) void {
-    const scope = ctx.scope;
-    const t = scope.theme;
-    const body = scope.state.response.body;
-    var line = body_mod.line(body, scope.state.response.lines, ctx.index);
-    if (line.len > max_line_chars) line = line[0..max_line_chars];
-    text_mod.label(.{ .label = .{ .text = if (line.len == 0) " " else line, .size = t.type_scale.body, .color = t.colors.text } });
+    const field = &scope.vm.response.body_field;
+    // The document is the field's buffer, so a megabyte body is drawn, not copied.
+    field.show(scope.state.response.body);
+    // The app already knows where every line starts, and the field's window arithmetic is a read of that index.
+    field.lines = scope.state.response.lines;
+    field.w = .grow;
+    // Full content height: the scrollbar measures the whole body while the field itself only draws the visible window.
+    const total = if (scope.state.response.lines.len > 1) scope.state.response.lines.len - 1 else 0;
+    field.h = .{ .fixed = @as(f32, @floatFromInt(total)) * field.lineHeight() + 2 * field.pad.top.pts() + 4 };
+    input_mod.textField(field);
 }

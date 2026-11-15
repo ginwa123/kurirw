@@ -794,3 +794,44 @@ test "a command that is not curl leaves the tree alone and says why" {
     try testing.expectEqual(rows_before, h.app.vm().uiState().rows.len);
     try testing.expect(std.mem.indexOf(u8, h.app.vm().uiState().status, "not a curl command") != null);
 }
+
+test "the response body is one text surface: select all, copy, and typing cannot change it" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
+    try h.driver.click(view_model.url_field_id);
+    try h.driver.typeText("https://api.example.com/v1/items");
+
+    h.fake.status = 200;
+    h.fake.body = "{\"id\":7,\"name\":\"widget\"}";
+    try h.driver.click("kurir.send");
+    try settle(&h);
+
+    const shown = h.app.vm().uiState().response.body;
+    try testing.expect(shown.len > 0);
+
+    // Click into the body: it is a field, so it takes the caret and the keyboard like any other.
+    try h.driver.click(kurirw.response_vm.body_text_id);
+    h.app.vm().response.body_field.clipboard = .{ .write_fn = clipWrite };
+    clipSet("");
+
+    // Select all, copy: the whole body reaches the pasteboard.
+    _ = h.driver.host.onKeyEvent(29, true);
+    _ = try h.driver.key(30);
+    _ = try h.driver.key(46);
+    _ = h.driver.host.onKeyEvent(29, false);
+    try testing.expectEqualStrings(shown, clip_buf[0..clip_len]);
+
+    // And it is READ ONLY: typing, Enter and Backspace leave both the model and the field alone.
+    _ = try h.driver.key(31);
+    _ = try h.driver.key(28);
+    _ = try h.driver.key(14);
+    try testing.expectEqualStrings(shown, h.app.vm().uiState().response.body);
+    try testing.expectEqualStrings(shown, h.app.vm().response.body_field.text());
+}

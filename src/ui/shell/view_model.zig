@@ -391,11 +391,6 @@ pub const KurirViewModel = struct {
         self.response.setTab(tab);
     }
 
-    // Which body lines a frame must declare. The pane asks the panel, never the geometry itself.
-    pub fn visibleBodyLines(self: *KurirViewModel, total: usize) response_mod.Visible {
-        return self.response.visibleLines(total);
-    }
-
     // ---- sending ----------------------------------------------------------------------------------------
 
     pub fn transport(self: *KurirViewModel, arena: Allocator) http_mod.Transport {
