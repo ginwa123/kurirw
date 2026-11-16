@@ -28,6 +28,26 @@ Or download the archive for your machine from the assets below and run the binar
 | Linux x86_64 | `kurirw-linux-x86_64.tar.gz` | built on Ubuntu 24.04, so it wants glibc 2.39+; run it in a Wayland session with the pango/cairo and libcurl runtime libraries installed |
 | Windows x86_64 | `kurirw-windows-x86_64.zip` | self-contained: `Send` works over http and https, with TLS through Windows' own certificate store |
 
+## New: right-click a text field for Cut, Copy, Paste and Select All
+
+Every input in the app — the URL bar, a header value, the body editor, and the response body itself — now
+raises a card of its own on a right click:
+
+- **Cut, Copy, Paste, Select All**, always, in that order, so the one thing a text control must have never
+  depends on the app remembering to wire it.
+- **A right click takes the caret where it landed** and keeps a selection it landed inside, so you can select
+  a run, right-click it and Copy without losing the highlight first.
+- **The response body keeps all four rows** but Cut and Paste are dimmed: a response is not something you edit.
+
+The component stays app-agnostic: a field's `menu` adds rows after those four, and the app is told which of
+its OWN rows was picked, so Kurir can grow the card without the toolkit knowing what "Format JSON" means.
+
+## Fixed: scrolling away from a selection no longer snaps back
+
+Selecting text in the response body and then scrolling used to fight itself: the pane jumped back to the top
+on the next frame, because a focused editor asked to keep its caret on screen every frame. That reveal now
+runs only when the caret actually moves, so the wheel wins until you type or click again.
+
 ## Fixed: the response body stays in its pane, and scrolls under the trackpad
 
 A big answer used to paint its text over the sidebar and past the window edge, and the pane refused to

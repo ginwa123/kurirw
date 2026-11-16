@@ -1242,3 +1242,109 @@ test "the result body is cut by the pane's clip, not by its own" {
     }
     try testing.expect(body_lines > 0);
 }
+
+// A secondary press at a point, and the frame that draws the card it opened.
+fn rightClickAt(h: *Harness, x: f32, y: f32) void {
+    const right = glinlandui.components.dispatch.BTN_RIGHT;
+    h.driver.host.onPointerEvent(x, y, true, right);
+    h.driver.host.onPointerEvent(x, y, false, right);
+    h.driver.frame();
+}
+
+test "a right click on the URL field offers Cut, Copy, Paste and Select All" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
+    try h.driver.click(view_model.url_field_id);
+    try h.driver.typeText("https://api.example.com/v1/items");
+
+    const bb = h.driver.box(view_model.url_field_id).?;
+    rightClickAt(&h, bb.x + 40, bb.y + bb.height * 0.5);
+    // A field is never a place where a right click does nothing.
+    try h.driver.expectText("Cut");
+    try h.driver.expectText("Copy");
+    try h.driver.expectText("Paste");
+    try h.driver.expectText("Select All");
+
+    // Select All is the card's fourth row: the whole URL is selected, ready to copy.
+    try clickMenuRow(&h, 3);
+    h.driver.frame();
+    const field = &h.app.vm().editor.url_field;
+    const span = field.editor.caret.selection() orelse return error.NoSelection;
+    try testing.expectEqual(@as(usize, 0), span.start);
+    try testing.expectEqual("https://api.example.com/v1/items".len, span.end);
+}
+
+test "the body's card copies a selection, and cannot paste into a response" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
+    try h.driver.click(view_model.url_field_id);
+    try h.driver.typeText("https://api.example.com/v1/items");
+    h.fake.body = "{\"which\":\"one\"}";
+    try h.driver.click("kurir.send");
+    try settle(&h);
+
+    // Select All from the card, then Copy: the body's text is what lands on the clipboard.
+    const bb = h.driver.box(kurirw.response_vm.body_text_id).?;
+    rightClickAt(&h, bb.x + 30, bb.y + 8);
+    for ([_][]const u8{ "Cut", "Copy", "Paste", "Select All" }) |label| try h.driver.expectText(label);
+    try clickMenuRow(&h, 3);
+    h.driver.frame();
+    const body = h.app.vm().uiState().response.body;
+    try testing.expectEqual(body.len, h.app.vm().response.body_field.editor.caret.selection().?.end);
+
+    // Paste is drawn but dimmed: a response is not something you edit, so the row does nothing at all.
+    rightClickAt(&h, bb.x + 30, bb.y + 8);
+    try clickMenuRow(&h, 2);
+    h.driver.frame();
+    try testing.expectEqualStrings(body, h.app.vm().response.body_field.text());
+}
+
+test "a wheel scroll survives a selection in the body" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
+    try h.driver.click(view_model.url_field_id);
+    try h.driver.typeText("https://api.example.com/v1/items");
+    h.fake.body = "[\n" ++ many_lines ++ "]";
+    try h.driver.click("kurir.send");
+    try settle(&h);
+
+    // Select a run of body text: the field takes the keyboard, and its caret stays at the top.
+    const bb = h.driver.box(kurirw.response_vm.body_text_id).?;
+    h.driver.pressAt(bb.x + 40, bb.y + 8);
+    h.driver.frame();
+    h.driver.move(bb.x + 120, bb.y + 40);
+    h.driver.frame();
+    h.driver.releaseAt(bb.x + 120, bb.y + 40);
+    h.driver.frame();
+    try testing.expect(h.app.vm().response.body_field.editor.caret.anchor != null);
+
+    // The hand scrolls away from it: the box must stay where the wheel put it, not snap back to the caret.
+    h.driver.move(bb.x + 60, bb.y + 20);
+    h.driver.scroll(0, 120);
+    const after = glinlandui.components.scroll.view(kurirw.response_vm.body_scroll_id);
+    try testing.expect(after.y > 0);
+    h.driver.frame();
+    h.driver.frame();
+    try testing.expectEqual(after.y, glinlandui.components.scroll.view(kurirw.response_vm.body_scroll_id).y);
+}
