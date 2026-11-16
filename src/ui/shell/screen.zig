@@ -4,19 +4,26 @@ const glinlandui = @import("glinlandui");
 
 const box_mod = glinlandui.components.box;
 const frame = glinlandui.frame;
+const modal_mod = glinlandui.components.modal;
 const props = glinlandui.props;
 const sidebar_mod = glinlandui.components.sidebar;
 const split_mod = glinlandui.components.split;
+const tabs_mod = glinlandui.components.tabs;
 const text_mod = glinlandui.components.text;
 
 const theme_mod = @import("../theme/theme.zig");
 const state_mod = @import("../state.zig");
 const scope_mod = @import("scope.zig");
+const actions = @import("actions.zig");
 const sidebar_screen = @import("../sidebar/screen.zig");
 const editor_screen = @import("../editor/screen.zig");
 const response_screen = @import("../response/screen.zig");
 
 pub const Scope = scope_mod.Scope;
+
+// The tab bar and the question it asks before the window closes: the two ids a test addresses them by.
+pub const tabs_id = "kurir.tabs";
+pub const quit_id = "kurir.quit";
 
 pub fn KurirScreen(scope: *Scope) void {
     box_mod.box(.{
@@ -49,11 +56,64 @@ fn mainArea(scope: *Scope) void {
 }
 
 fn mainChildren(scope: *Scope) void {
+    // The tab bar is the editor's row, not the window's: one tab per open endpoint, above the request.
+    tabBar(scope);
     // The editor takes whatever the response does not; the line between them is what decides that.
     editor_screen.requestEditor(scope);
     splitGrip(scope);
     response_screen.responsePane(scope, scope.vm.responseHeight());
     statusBar(scope);
+    quitPrompt(scope);
+}
+
+// The open endpoints, with a dot on the ones whose edits nobody has saved yet.
+fn tabBar(scope: *Scope) void {
+    if (scope.state.tabs.len == 0) return;
+    const t = scope.theme;
+    tabs_mod.tabs(.{
+        .src = @src(),
+        .id = .{ .text = tabs_id },
+        .tabs = scope.state.tabs,
+        .h = .{ .fixed = 32 },
+        .bg = t.colors.background,
+        .active_bg = t.colors.surface,
+        .fg = t.colors.text_dim,
+        .active_fg = t.colors.text,
+        .close_fg = t.colors.text_done,
+        .on_select = .{ .f = actions.onPickTab, .ctx = scope.vm },
+        .on_close = .{ .f = actions.onCloseTab, .ctx = scope.vm },
+    });
+}
+
+// The question the window asks when it is closed with unsaved edits: a scrim, a sentence and three answers.
+fn quitPrompt(scope: *Scope) void {
+    if (!scope.state.quit_prompt) return;
+    const t = scope.theme;
+    const answers = [_]modal_mod.Action{
+        .{ .label = "Cancel" },
+        .{ .label = "Quit without saving" },
+        .{ .label = "Save and quit", .primary = true },
+    };
+    modal_mod.modal(.{
+        .src = @src(),
+        .id = .{ .text = quit_id },
+        .title = "Unsaved changes",
+        .message = "This endpoint is not saved yet. Save it before the window closes?",
+        .actions = &answers,
+        .on_action = .{ .f = actions.onQuitAction, .ctx = scope.vm },
+        .window_w = scope.vm.viewport_w,
+        .window_h = scope.vm.viewport_h,
+        .bg = t.colors.surface,
+        .border = t.colors.divider,
+        .title_fg = t.colors.text,
+        .fg = t.colors.text_dim,
+        .action_bg = t.colors.surface_variant,
+        .action_hover = t.colors.hover,
+        .action_fg = t.colors.text,
+        .primary = theme_mod.accent,
+        .primary_hover = t.colors.primary_hover,
+        .primary_fg = t.colors.on_primary,
+    });
 }
 
 // Dragging this line up grows the response, the way dragging the sidebar's line widens the panel.

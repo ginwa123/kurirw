@@ -109,6 +109,22 @@ pub const KurirViewModel = struct {
     job: ?Pending = null,
     // One history row's click context: model-owned, so a click dispatched on a later frame still finds its result.
     history_ctxs: [state_mod.max_history]HistoryClick = undefined,
+    // The endpoints open in a tab, in the order they were opened; the selection decides which one is active.
+    tabs: [state_mod.max_tabs]Path = undefined,
+    tab_count: usize = 0,
+    // The window asked to close while edits were unsaved, so the question is on screen.
+    quit_prompt: bool = false,
+    // How the final answer closes the window: `main` wires it to the Host, a test leaves it a no-op.
+    quit: QuitHook = .{},
+
+    pub const QuitHook = struct {
+        ctx: ?*anyopaque = null,
+        f: ?*const fn (?*anyopaque) void = null,
+
+        fn call(self: QuitHook) void {
+            if (self.f) |f| f(self.ctx);
+        }
+    };
 
     const Pending = struct {
         job: *request_job.Job,
@@ -139,6 +155,7 @@ pub const KurirViewModel = struct {
         self.response.start(&self.session);
         // The history's click contexts are built once; a snapshot only fills in which result each row carries.
         for (&self.history_ctxs) |*click| click.* = .{ .vm = self, .serial = 0 };
+        for (&self.tabs) |*open| open.* = Path.empty;
         // The one intent that crosses panels: Ctrl/Cmd+Enter while the body has the keyboard sends.
         self.editor.body_field.on_submit = .{ .f = onBodySubmit, .ctx = self };
 
@@ -193,6 +210,9 @@ pub const KurirViewModel = struct {
         self.response.snapshot(&view, arena);
         // Each row's context names the result behind it, so a click survives the list shifting under it.
         for (view.history, 0..) |row, i| self.history_ctxs[i].serial = row.serial;
+        view.tabs = self.tabRows(arena);
+        view.unsaved = self.session.hasUnsaved();
+        view.quit_prompt = self.quit_prompt;
         view.status = self.session.status();
         view.status_is_error = self.session.status_is_error;
         view.focus = self.session.focus;
@@ -302,6 +322,119 @@ pub const KurirViewModel = struct {
         self.editor.load();
         // A different endpoint means a different result: no history row survives the move.
         self.response.clearPin();
+        self.openTab(path);
+    }
+
+    // ---- the tab bar ------------------------------------------------------------------------------------
+
+    // A request joins the tab bar, or becomes the active tab when it is already open. A container gets none.
+    fn openTab(self: *KurirViewModel, path: Path) void {
+        if (path.depth == 0) return;
+        const node = self.session.nodeAt(path) orelse return;
+        if (!Session.isRequest(node.*)) return;
+        for (self.tabs[0..self.tab_count]) |open| {
+            if (Path.eql(open, path)) return;
+        }
+        if (self.tab_count < state_mod.max_tabs) {
+            self.tabs[self.tab_count] = path;
+            self.tab_count += 1;
+            return;
+        }
+        // The bar is full: the oldest tab makes room for the new one.
+        std.mem.copyForwards(Path, self.tabs[0 .. state_mod.max_tabs - 1], self.tabs[1..state_mod.max_tabs]);
+        self.tabs[state_mod.max_tabs - 1] = path;
+    }
+
+    // Which tab the selection is on, or null when a container is selected instead.
+    fn activeTab(self: *KurirViewModel) ?usize {
+        const path = self.session.selection orelse return null;
+        for (self.tabs[0..self.tab_count], 0..) |open, index| {
+            if (Path.eql(open, path)) return index;
+        }
+        return null;
+    }
+
+    pub fn pickTab(self: *KurirViewModel, index: usize) void {
+        if (index >= self.tab_count) return;
+        self.select(self.tabs[index]);
+    }
+
+    // Closing the tab on screen moves to the one beside it; closing the last one empties the editor.
+    pub fn closeTab(self: *KurirViewModel, index: usize) void {
+        if (index >= self.tab_count) return;
+        const closing_active = self.activeTab() == index;
+        std.mem.copyForwards(Path, self.tabs[index .. self.tab_count - 1], self.tabs[index + 1 .. self.tab_count]);
+        self.tab_count -= 1;
+        self.session.touch();
+        if (!closing_active) return;
+        if (self.tab_count == 0) {
+            self.session.selection = null;
+            self.editor.load();
+            self.response.clearPin();
+            self.session.touch();
+            return;
+        }
+        const next = if (index > 0) index - 1 else 0;
+        self.select(self.tabs[next]);
+    }
+
+    // ---- saving -----------------------------------------------------------------------------------------
+
+    // Ctrl/Cmd+S: the document goes to disk, and every dot goes with it.
+    pub fn save(self: *KurirViewModel) void {
+        self.session.persist();
+        self.session.clearDirty();
+        self.session.setStatus(false, "Saved {s}.", .{self.session.path});
+        self.session.touch();
+    }
+
+    // ---- closing ----------------------------------------------------------------------------------------
+
+    // The window asked to close. True means it was held open: there are edits nobody has saved yet.
+    pub fn requestClose(self: *KurirViewModel) bool {
+        if (!self.session.hasUnsaved()) return false;
+        self.quit_prompt = true;
+        self.session.touch();
+        return true;
+    }
+
+    // The question's rows: Cancel, Quit without saving, Save and quit.
+    pub fn pickQuitAction(self: *KurirViewModel, index: usize) void {
+        switch (index) {
+            2 => {
+                self.save();
+                self.finishQuit();
+            },
+            1 => self.finishQuit(),
+            else => {
+                self.quit_prompt = false;
+                self.session.touch();
+            },
+        }
+    }
+
+    fn finishQuit(self: *KurirViewModel) void {
+        self.quit_prompt = false;
+        self.quit.call();
+    }
+
+    // One row per open tab: its name, whether it is the one on screen, and whether it has unsaved edits.
+    fn tabRows(self: *KurirViewModel, arena: Allocator) []const state_mod.TabRow {
+        if (self.tab_count == 0) return &.{};
+        const rows = arena.alloc(state_mod.TabRow, self.tab_count) catch return &.{};
+        const active = self.activeTab();
+        for (rows, 0..) |*row, index| {
+            const path = self.tabs[index];
+            const node = self.session.nodeAt(path);
+            const name = if (node) |n| Session.name(n.*) else "(gone)";
+            row.* = .{
+                .label = if (name.len == 0) "(unnamed)" else name,
+                .active = active != null and active.? == index,
+                .closable = true,
+                .accent = if (self.session.isDirty(path)) theme_mod.accent else null,
+            };
+        }
+        return rows;
     }
 
     pub fn toggleSelected(self: *KurirViewModel) void {
@@ -311,6 +444,8 @@ pub const KurirViewModel = struct {
     // A structural change: the tree moved, so the editor re-reads whatever is selected now.
     fn sync(self: *KurirViewModel) void {
         self.editor.load();
+        // A new request opens its own tab, exactly as selecting one in the tree does.
+        if (self.session.selection) |path| self.openTab(path);
         self.session.touch();
     }
 
@@ -676,6 +811,10 @@ test "collection, folder and request all land in the tree and on disk" {
     try testing.expectEqual(state_mod.NodeKind.request, state.rows[2].kind);
     try testing.expectEqualStrings(postman.default_method, state.method);
 
+    // Nothing is on disk until the person saves: the rows say so, and Ctrl/Cmd+S is what writes them.
+    try testing.expect(h.state().unsaved);
+    h.vm.save();
+    try testing.expect(!h.state().unsaved);
     const bytes = try std.Io.Dir.cwd().readFileAlloc(testing.io, h.path, testing.allocator, .limited(1 << 20));
     defer testing.allocator.free(bytes);
     try testing.expect(std.mem.indexOf(u8, bytes, "Request 1") != null);
@@ -691,6 +830,7 @@ test "a second boot restores the tree from the file, which is the reload the PRD
     h.vm.addHeader();
     h.vm.onHeaderKeyChange(0, "Content-Type");
     h.vm.onHeaderValueChange(0, "application/json");
+    h.vm.save();
 
     const again = try h.reopen();
     defer {
@@ -836,7 +976,8 @@ test "the body field commits what it types into the model" {
     h.vm.setBody("{\"amount\": 100}");
     try testing.expectEqualStrings("{\"amount\": 100}", h.state().body);
 
-    // The same text goes into the document, which is what a reload reads.
+    // The same text goes into the document, which is what a reload reads once it is saved.
+    h.vm.save();
     const again = try h.reopen();
     defer {
         again.deinit();
@@ -857,7 +998,8 @@ test "prettify lays a compact JSON body out, and refuses a body that is not JSON
     try testing.expect(std.mem.indexOf(u8, pretty, "\n") != null);
     try testing.expect(std.mem.indexOf(u8, pretty, "\"a\": 1") != null);
 
-    // The indented text is the document's, so a reload reads it back indented.
+    // The indented text is the document's, so a reload reads it back indented once it is saved.
+    h.vm.save();
     const again = try h.reopen();
     defer {
         again.deinit();
@@ -875,6 +1017,88 @@ test "prettify lays a compact JSON body out, and refuses a body that is not JSON
     h.vm.setBody("");
     h.vm.editor.prettifyBody();
     try testing.expect(std.mem.indexOf(u8, h.state().status, "empty") != null);
+}
+
+test "an endpoint opens a tab, ten at most, and the selection decides which one is active" {
+    var h = try Harness.boot();
+    defer h.stop();
+
+    h.vm.addCollection();
+    h.vm.addRequest();
+    h.vm.addRequest();
+    const state = h.state();
+    // Two requests, two tabs; a collection is not a tab.
+    try testing.expectEqual(@as(usize, 2), state.tabs.len);
+    try testing.expect(state.tabs[1].active);
+    try testing.expect(!state.tabs[0].active);
+
+    // Pressing the other tab selects its request, and the bar follows.
+    h.vm.pickTab(0);
+    try testing.expect(h.state().tabs[0].active);
+    try testing.expectEqualStrings("Request 1", h.state().node_name);
+
+    // The bar is capped: an eleventh endpoint drops the oldest tab, never the newest.
+    var i: usize = 0;
+    while (i < 10) : (i += 1) h.vm.addRequest();
+    try testing.expectEqual(state_mod.max_tabs, h.state().tabs.len);
+    try testing.expectEqualStrings("Request 12", h.state().tabs[state_mod.max_tabs - 1].label);
+
+    // Closing the tab on screen moves to the one beside it; closing every tab empties the editor.
+    h.vm.closeTab(state_mod.max_tabs - 1);
+    try testing.expectEqual(state_mod.max_tabs - 1, h.state().tabs.len);
+    try testing.expect(h.state().has_selection);
+    while (h.state().tabs.len > 0) h.vm.closeTab(0);
+    try testing.expect(!h.state().has_selection);
+}
+
+const QuitProbe = struct {
+    var calls: usize = 0;
+
+    fn quit(_: ?*anyopaque) void {
+        calls += 1;
+    }
+};
+
+test "closing with unsaved edits asks, and the answer decides whether the file is written" {
+    var h = try Harness.boot();
+    defer h.stop();
+
+    _ = h.firstRequest();
+    h.vm.onUrlChange("https://api.test/one");
+    h.vm.quit = .{ .ctx = null, .f = QuitProbe.quit };
+    QuitProbe.calls = 0;
+
+    // Unsaved: the window is held open and the question goes up.
+    try testing.expect(h.vm.requestClose());
+    try testing.expect(h.state().quit_prompt);
+
+    // Cancel writes nothing and stays open.
+    h.vm.pickQuitAction(0);
+    try testing.expect(!h.state().quit_prompt);
+    try testing.expectEqual(@as(usize, 0), QuitProbe.calls);
+    try testing.expect(h.state().unsaved);
+
+    // Save and quit writes the document, then closes.
+    try testing.expect(h.vm.requestClose());
+    h.vm.pickQuitAction(2);
+    try testing.expectEqual(@as(usize, 1), QuitProbe.calls);
+    try testing.expect(!h.state().unsaved);
+    const saved = try std.Io.Dir.cwd().readFileAlloc(testing.io, h.path, testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(saved);
+    try testing.expect(std.mem.indexOf(u8, saved, "https://api.test/one") != null);
+
+    // Quitting without saving closes and leaves the file as it was; the edits stay unsaved, so closing again asks again.
+    h.vm.onUrlChange("https://api.test/two");
+    try testing.expect(h.vm.requestClose());
+    h.vm.pickQuitAction(1);
+    try testing.expectEqual(@as(usize, 2), QuitProbe.calls);
+    const untouched = try std.Io.Dir.cwd().readFileAlloc(testing.io, h.path, testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(untouched);
+    try testing.expect(std.mem.indexOf(u8, untouched, "https://api.test/two") == null);
+
+    // A document with nothing unsaved closes without asking.
+    h.vm.save();
+    try testing.expect(!h.vm.requestClose());
 }
 
 test "workspaces are separate containers, and switching keeps the collections apart" {

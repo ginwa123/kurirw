@@ -157,6 +157,21 @@ pub fn onAddBodyPart(ctx: ?*anyopaque) void {
     vm.editor.addBodyPart();
 }
 
+pub fn onQuitAction(ctx: ?*anyopaque, index: usize) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.pickQuitAction(index);
+}
+
+pub fn onPickTab(ctx: ?*anyopaque, index: usize) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.pickTab(index);
+}
+
+pub fn onCloseTab(ctx: ?*anyopaque, index: usize) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.closeTab(index);
+}
+
 pub fn onPrettifyBody(ctx: ?*anyopaque) void {
     const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
     vm.editor.prettifyBody();

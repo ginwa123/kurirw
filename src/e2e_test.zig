@@ -641,6 +641,10 @@ test "a reload restores the tree and the request the user was editing" {
         try h.driver.typeText("https://api.example.com/v1/charges");
         try pickMethod(&h, 2);
         try testing.expectEqualStrings("PUT", h.app.vm().uiState().method);
+        // Nothing is on disk until the person asks: Ctrl/Cmd+S is what a reload reads.
+        try testing.expect(h.app.vm().uiState().unsaved);
+        h.app.vm().save();
+        try testing.expect(!h.app.vm().uiState().unsaved);
     }
 
     // A fresh process: same HOME, so the same file.
@@ -1576,4 +1580,53 @@ test "prettify re-indents the body in place, and says so when the body is not JS
     try h.driver.click("kurir.body.prettify");
     try testing.expectEqualStrings("{oops", h.app.vm().uiState().body);
     try testing.expect(h.app.vm().uiState().status_is_error);
+}
+
+test "endpoints open as tabs, an edit marks its row, and Cmd/Ctrl+S is what clears the dot" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try newMenu(&h, 0);
+    try newMenu(&h, 1); // Request 1, selected
+    try newMenu(&h, 1); // Request 2, selected
+
+    const state = h.app.vm().uiState();
+    try testing.expectEqual(@as(usize, 2), state.tabs.len);
+    try testing.expect(state.tabs[1].active);
+    // A new request has never been written, so its row (and its tab) carry the dot.
+    try testing.expect(state.rows[1].dirty);
+    try testing.expect(state.rows[2].dirty);
+    try testing.expect(state.tabs[1].accent != null);
+    try h.driver.expectText("Request 1");
+    try h.driver.expectText("Request 2");
+
+    // Pressing the first tab selects its request, and the editor follows it.
+    const tab = glinlandui.frame.bounds(glinlandui.frame.itemId(kurirw.view.tabs_id, 1)) orelse return error.TabMissing;
+    h.driver.clickAt(tab.x + tab.width * 0.5, tab.y + tab.height * 0.5);
+    try testing.expect(h.app.vm().uiState().tabs[0].active);
+    try testing.expectEqualStrings("Request 1", h.app.vm().uiState().node_name);
+
+    // Ctrl/Cmd+S writes the document; every dot goes with it.
+    try testing.expect(h.app.vm().uiState().unsaved);
+    h.app.vm().save();
+    try testing.expect(!h.app.vm().uiState().unsaved);
+    try testing.expect(!h.app.vm().uiState().rows[1].dirty);
+    try testing.expect(h.app.vm().uiState().tabs[0].accent == null);
+
+    // Closing with nothing unsaved just closes; with an edit the window asks first.
+    try testing.expect(!h.app.vm().requestClose());
+    h.app.vm().onUrlChange("https://api.example.com/changed");
+    try testing.expect(h.app.vm().requestClose());
+    h.driver.frame();
+    try h.driver.expectText("Unsaved changes");
+
+    // Cancel is the first row of the question: the window stays open and the edit stays unsaved.
+    const cancel = glinlandui.frame.bounds(glinlandui.components.modal.actionId(0)) orelse return error.NoCancel;
+    h.driver.clickAt(cancel.x + cancel.width * 0.5, cancel.y + cancel.height * 0.5);
+    try testing.expect(!h.app.vm().uiState().quit_prompt);
+    try testing.expect(h.app.vm().uiState().unsaved);
 }

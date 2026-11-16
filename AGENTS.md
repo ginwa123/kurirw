@@ -48,6 +48,9 @@ src/e2e_test.zig                   the acceptance path, headless
   `new*` constructors copy every string they are given (`own`). Skipping that copy leaks a dangling
   slice into the document, and `persist()` then serializes freed memory — which `std.json` reports
   as an array of bytes, not as a crash.
+- **A write is `Session.persist`, not `Session.commit`.** `commit()` marks the selected path unsaved and
+  rebuilds the snapshot; only `vm.save()` (Ctrl/Cmd+S, or "Save and quit") writes the file. A test that
+  reloads the document must call `vm.save()` first, and the tree's dot is `TreeRow.dirty`.
 - **`std.json.ObjectMap` is unmanaged.** Every mutation takes an allocator, and it must be the
   document arena, never `gpa`. Mutating a *copy* of the map drops the size/len bookkeeping.
 - **The ViewModel must not move after `start()`.** Each panel holds `*Session`, and each field's

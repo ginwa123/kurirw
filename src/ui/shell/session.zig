@@ -40,6 +40,12 @@ pub const Session = struct {
     status_len: usize = 0,
     status_is_error: bool = false,
 
+    // The paths whose edits are not on disk yet. A list, not a flag: the tree marks the endpoint, not the file.
+    dirty_paths: [state_mod.max_dirty]Path = undefined,
+    dirty_count: usize = 0,
+    // More edits than the list holds: the document is unsaved even though no row can be marked.
+    dirty_overflow: bool = false,
+
     // Set by every intent; the shell rebuilds its snapshot once per frame while it is on.
     dirty: bool = true,
 
@@ -89,9 +95,46 @@ pub const Session = struct {
         return .{ .from_disk = loaded.from_disk, .error_name = loaded.error_name };
     }
 
-    // The document changed under everyone: write it, and let the shell rebuild its snapshot.
+    // The document changed: write it, and let the shell rebuild its snapshot.
     pub fn commit(self: *Session) void {
-        self.persist();
+        // Nothing is written here: an edit is unsaved until the person asks for it (Ctrl/Cmd+S).
+        self.markDirty(self.selection);
+    }
+
+    // An edit landed: this path is not on disk until `persist`. A null path marks the document unsaved, no row.
+    pub fn markDirty(self: *Session, path: ?Path) void {
+        self.dirty = true;
+        const target = path orelse {
+            self.dirty_overflow = true;
+            return;
+        };
+        for (self.dirty_paths[0..self.dirty_count]) |known| {
+            if (Path.eql(known, target)) return;
+        }
+        if (self.dirty_count >= state_mod.max_dirty) {
+            self.dirty_overflow = true;
+            return;
+        }
+        self.dirty_paths[self.dirty_count] = target;
+        self.dirty_count += 1;
+    }
+
+    pub fn isDirty(self: *const Session, path: Path) bool {
+        for (self.dirty_paths[0..self.dirty_count]) |known| {
+            if (Path.eql(known, path)) return true;
+        }
+        return false;
+    }
+
+    // True while any edit is not on disk, which is what asks the window a question before it closes.
+    pub fn hasUnsaved(self: *const Session) bool {
+        return self.dirty_count > 0 or self.dirty_overflow;
+    }
+
+    // The document is on disk: every dot goes with it.
+    pub fn clearDirty(self: *Session) void {
+        self.dirty_count = 0;
+        self.dirty_overflow = false;
         self.dirty = true;
     }
 

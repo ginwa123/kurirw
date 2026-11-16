@@ -259,6 +259,8 @@ pub const Sidebar = struct {
             .has_children = kind != .request,
             .expanded = self.isExpanded(path),
             .selected = selected,
+            // Only an endpoint carries edits of its own; a container is not saved anywhere either way.
+            .dirty = kind == .request and self.session.isDirty(path),
         }) catch {};
         self.row_ctx_count = self.rows.items.len;
     }

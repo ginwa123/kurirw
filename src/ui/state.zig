@@ -4,7 +4,11 @@ const glinlandui = @import("glinlandui");
 const postman = @import("../data/model/postman.zig");
 
 const tree_mod = glinlandui.components.tree;
+const tabs_mod = glinlandui.components.tabs;
 const props = glinlandui.props;
+
+// One tab: the toolkit's own row, because the tab bar draws it.
+pub const TabRow = tabs_mod.Tab;
 
 // The two panes share the window between them: the response may not grow past the editor's floor, and vice versa.
 pub const editor_min_h: f32 = 260;
@@ -19,6 +23,9 @@ pub const max_url: usize = 2048;
 pub const max_name: usize = 128;
 // How many results a session keeps: the newest this many sends are the whole history.
 pub const max_history: usize = 20;
+// How many endpoints can be open at once, and how many edited-but-unsaved paths fit in the dirty list.
+pub const max_tabs: usize = 10;
+pub const max_dirty: usize = 64;
 
 pub const NodeKind = enum {
     collection,
@@ -123,6 +130,8 @@ pub const TreeRow = struct {
     has_children: bool = false,
     expanded: bool = false,
     selected: bool = false,
+    // Edits to this endpoint are not on disk yet: the row carries a dot until Ctrl/Cmd+S.
+    dirty: bool = false,
 };
 
 pub const HeaderRow = struct {
@@ -164,6 +173,11 @@ pub const UiState = struct {
     workspace_index: usize = 0,
     workspace_count: usize = 0,
     workspace_label: []const u8 = "",
+    // The endpoints open in a tab, in the order they were opened, and whether any edit is unsaved.
+    tabs: []const TabRow = &.{},
+    unsaved: bool = false,
+    // The window is asking whether to save before it closes.
+    quit_prompt: bool = false,
 
     node_kind: ?NodeKind = null,
     node_name: []const u8 = "",

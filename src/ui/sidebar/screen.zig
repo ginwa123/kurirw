@@ -13,6 +13,7 @@ const frame = glinlandui.frame;
 const props = glinlandui.props;
 
 const theme_mod = @import("../theme/theme.zig");
+const state_mod = @import("../state.zig");
 const scope_mod = @import("../shell/scope.zig");
 const sidebar_vm = @import("view_model.zig");
 const actions = @import("../shell/actions.zig");
@@ -244,7 +245,7 @@ pub fn treeChildren(scope: *Scope) void {
         .reorder = .{ .on_drop = onTreeDrop, .ctx = &scope.vm.sidebar },
         .row_extra = .{ .f = chipExtra, .ctx = scope },
         // The chip's own width, so the engine can cut a label that would not fit beside it.
-        .extra_width = .{ .px = 46 },
+        .extra_width = .{ .px = 56 },
     });
 }
 
@@ -262,14 +263,48 @@ fn chipExtra(ctx: ?*anyopaque, index: usize) void {
     if (r.kind != .request) return folderIcon(scope, index);
     box_mod.box(.{
         .src = @src(),
-        .id = .{ .text = frame.elementId("kurir.tree.chip", index) },
+        .id = .{ .text = frame.elementId("kurir.tree.extra", index) },
+        .direction = .row,
+        .w = .{ .fixed = 56 },
+        .h = .{ .fixed = 18 },
+        .gap = .{ .px = 4 },
+        .child_align = .{ .x = .right, .y = .center },
+    }, &ExtraScope{ .scope = scope, .row = r, .index = index }, extraChildren);
+}
+
+// The dot says what the chip cannot: this endpoint has edits nobody has saved yet.
+const ExtraScope = struct {
+    scope: *Scope,
+    row: state_mod.TreeRow,
+    index: usize,
+};
+
+fn extraChildren(ctx: *const ExtraScope) void {
+    if (ctx.row.dirty) {
+        box_mod.box(.{
+            .src = @src(),
+            .id = .{ .text = frame.elementId("kurir.tree.dirty", ctx.index) },
+            .direction = .row,
+            .w = .{ .fixed = 6 },
+            .h = .{ .fixed = 6 },
+            .bg = theme_mod.accent,
+            .radius = props.Radius.all(3),
+        }, ctx, extraNoChildren);
+    }
+    box_mod.box(.{
+        .src = @src(),
+        .id = .{ .text = frame.elementId("kurir.tree.chip", ctx.index) },
         .direction = .row,
         .w = .{ .fixed = 46 },
         .h = .{ .fixed = 18 },
-        .bg = theme_mod.chipBg(r.method),
+        .bg = theme_mod.chipBg(ctx.row.method),
         .radius = props.Radius.all(4),
         .child_align = .{ .x = .center, .y = .center },
-    }, &r.method, chipLabel);
+    }, &ctx.row.method, chipLabel);
+}
+
+fn extraNoChildren(ctx: *const ExtraScope) void {
+    _ = ctx;
 }
 
 // A container's icon, drawn rather than typed: the font has no folder glyph, and a box would read as one missing.
