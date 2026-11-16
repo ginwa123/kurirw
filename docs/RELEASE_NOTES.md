@@ -42,6 +42,13 @@ raises a card of its own on a right click:
 The component stays app-agnostic: a field's `menu` adds rows after those four, and the app is told which of
 its OWN rows was picked, so Kurir can grow the card without the toolkit knowing what "Format JSON" means.
 
+## Fixed: the body no longer goes blank when you scroll away from the caret
+
+Click in the body (which puts the caret on that line) and then scroll: the pane used to keep drawing the lines
+around the CARET instead of the lines around the VIEWPORT, so a 5 MB answer looked empty with a few stray lines
+at the top edge. The editor now draws the lines you are looking at, and only pulls the caret's own line in on
+the frame that has to scroll it into view.
+
 ## Fixed: scrolling away from a selection no longer snaps back
 
 Selecting text in the response body and then scrolling used to fight itself: the pane jumped back to the top

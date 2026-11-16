@@ -1348,3 +1348,37 @@ test "a wheel scroll survives a selection in the body" {
     h.driver.frame();
     try testing.expectEqual(after.y, glinlandui.components.scroll.view(kurirw.response_vm.body_scroll_id).y);
 }
+
+test "a caret in the body does not empty the pane once you scroll away from it" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
+    try h.driver.click(view_model.url_field_id);
+    try h.driver.typeText("https://api.example.com/v1/items");
+    h.fake.body = "[\n" ++ many_lines ++ "]";
+    try h.driver.click("kurir.send");
+    try settle(&h);
+
+    // The caret lands on the first line, then the hand scrolls to the bottom: the rows around the VIEWPORT must stay drawn.
+    const bb = h.driver.box(kurirw.response_vm.body_text_id).?;
+    h.driver.clickAt(bb.x + 40, bb.y + 8);
+    h.driver.move(bb.x + 60, bb.y + 20);
+    h.driver.scroll(0, 400);
+    const after = glinlandui.components.scroll.view(kurirw.response_vm.body_scroll_id);
+    try testing.expect(after.y > 100);
+
+    const box = h.driver.box(kurirw.response_vm.body_scroll_id).?;
+    var drawn_inside: usize = 0;
+    for (h.driver.commands()) |cmd| {
+        if (cmd.command_type != .text) continue;
+        const b = cmd.bounding_box;
+        if (b.y + b.height > box.y and b.y < box.y + box.height) drawn_inside += 1;
+    }
+    try testing.expect(drawn_inside > 0);
+}
