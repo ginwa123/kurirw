@@ -170,6 +170,8 @@ pub const KurirViewModel = struct {
             self.sidebar.select(active);
             self.response.clearPin();
         }
+        // Whatever the window opens on gets a tab, so the bar is never empty while a request is on screen.
+        if (self.session.selection) |selected| self.openTab(selected);
         self.editor.load();
         self.session.touch();
         // A first run leaves the file behind, so the next start has something to load.
@@ -1116,6 +1118,25 @@ test "closing with unsaved edits asks, and the answer decides whether the file i
     // A document with nothing unsaved closes without asking.
     h.vm.save();
     try testing.expect(!h.vm.requestClose());
+}
+
+test "a boot with a saved document opens the request it starts on in a tab" {
+    var h = try Harness.boot();
+    defer h.stop();
+
+    _ = h.firstRequest();
+    h.vm.save();
+
+    // The next window starts on that request, so the bar already has its tab.
+    const again = try h.reopen();
+    defer {
+        again.deinit();
+        testing.allocator.destroy(again);
+    }
+    const state = again.uiState();
+    try testing.expectEqual(state_mod.NodeKind.request, state.node_kind.?);
+    try testing.expectEqual(@as(usize, 1), state.tabs.len);
+    try testing.expect(state.tabs[0].active);
 }
 
 test "workspaces are separate containers, and switching keeps the collections apart" {
