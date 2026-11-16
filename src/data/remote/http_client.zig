@@ -1,7 +1,10 @@
 //! The HTTP layer: one injectable transport, a real kabelweb client, and a fake so tests never touch the network.
 const std = @import("std");
+const glinlandui = @import("glinlandui");
 const kabelweb = @import("kabelweb");
 const postman = @import("../model/postman.zig");
+
+const Ctx = glinlandui.Ctx;
 
 pub const Allocator = std.mem.Allocator;
 pub const client = kabelweb.client;
@@ -41,9 +44,9 @@ pub const Result = struct {
 
 // The one seam a test replaces. `arena` owns everything the Result points at.
 pub const Transport = struct {
-    ctx: ?*anyopaque = null,
+    ctx: Ctx = Ctx.none,
     arena: Allocator,
-    send_fn: *const fn (?*anyopaque, Allocator, Request) Result,
+    send_fn: *const fn (Ctx, Allocator, Request) Result,
 
     pub fn perform(self: Transport, req: Request) Result {
         return self.send_fn(self.ctx, self.arena, req);
@@ -98,11 +101,11 @@ pub const Real = struct {
     }
 
     pub fn transport(self: *Real, arena: Allocator) Transport {
-        return .{ .ctx = self, .arena = arena, .send_fn = sendReal };
+        return .{ .ctx = Ctx.from(self), .arena = arena, .send_fn = sendReal };
     }
 
-    fn sendReal(ctx: ?*anyopaque, arena: Allocator, req: Request) Result {
-        const self: *Real = @ptrCast(@alignCast(ctx.?));
+    fn sendReal(ctx: Ctx, arena: Allocator, req: Request) Result {
+        const self = ctx.get(Real);
 
         var url_buffer: [max_url]u8 = undefined;
         const url = postman.effectiveUrl(&url_buffer, req.url);
@@ -214,7 +217,7 @@ pub const Fake = struct {
     }
 
     pub fn transport(self: *Fake) Transport {
-        return .{ .ctx = self, .arena = self.arena, .send_fn = sendFake };
+        return .{ .ctx = Ctx.from(self), .arena = self.arena, .send_fn = sendFake };
     }
 
     // What the last request looked like, once the fake has answered it.
@@ -227,8 +230,8 @@ pub const Fake = struct {
         self.last_timeout_ms = 0;
     }
 
-    fn sendFake(ctx: ?*anyopaque, arena: Allocator, req: Request) Result {
-        const self: *Fake = @ptrCast(@alignCast(ctx.?));
+    fn sendFake(ctx: Ctx, arena: Allocator, req: Request) Result {
+        const self = ctx.get(Fake);
         if (self.delay_ms > 0) {
             if (self.io) |io| std.Io.sleep(io, .fromMilliseconds(self.delay_ms), .awake) catch {};
         }
@@ -257,7 +260,7 @@ pub const Fake = struct {
 };
 
 // The transport used when nothing else is installed: it answers instead of reaching the network.
-pub fn sendOffline(_: ?*anyopaque, arena: Allocator, req: Request) Result {
+pub fn sendOffline(_: Ctx, arena: Allocator, req: Request) Result {
     _ = req;
     return .{
         .failed = true,

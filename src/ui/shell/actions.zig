@@ -1,131 +1,105 @@
 //! Every click that reaches a ViewModel, in one place: the view declares, these raise the intent.
-const glinlandui = @import("glinlandui");
 
 const view_model = @import("../shell/view_model.zig");
 const KurirViewModel = view_model.KurirViewModel;
 
-pub fn onRow(ctx: ?*anyopaque, index: usize) void {
-    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+pub fn onRow(vm: *KurirViewModel, index: usize) void {
     vm.onRowSelect(index);
 }
 
-pub fn onNewToggle(ctx: ?*anyopaque) void {
-    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+pub fn onNewToggle(vm: *KurirViewModel) void {
     vm.toggleNewMenu();
 }
 
-pub fn onNewPick(ctx: ?*anyopaque, index: usize) void {
-    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+pub fn onNewPick(vm: *KurirViewModel, index: usize) void {
     vm.pickNewMenu(index);
 }
 
-pub fn onWsToggle(ctx: ?*anyopaque) void {
-    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+pub fn onWsToggle(vm: *KurirViewModel) void {
     vm.toggleWorkspaceMenu();
 }
 
-pub fn onWsPick(ctx: ?*anyopaque, index: usize) void {
-    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+pub fn onWsPick(vm: *KurirViewModel, index: usize) void {
     vm.pickWorkspaceMenu(index);
 }
 
-pub fn onMethodToggle(ctx: ?*anyopaque) void {
-    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+pub fn onMethodToggle(vm: *KurirViewModel) void {
     vm.toggleMethods();
 }
 
 // The dropdown hands back the row's index; the facade turns it into the verb.
-pub fn onMethodPick(ctx: ?*anyopaque, index: usize) void {
-    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+pub fn onMethodPick(vm: *KurirViewModel, index: usize) void {
     vm.pickMethod(index);
 }
 
-pub fn onCopyCurl(ctx: ?*anyopaque) void {
-    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+pub fn onCopyCurl(vm: *KurirViewModel) void {
     vm.copyAsCurl();
 }
 
-pub fn onSend(ctx: ?*anyopaque) void {
-    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+pub fn onSend(vm: *KurirViewModel) void {
     vm.send();
 }
 
-pub fn onAddCollection(ctx: ?*anyopaque) void {
-    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+pub fn onAddCollection(vm: *KurirViewModel) void {
     vm.addCollection();
 }
 
-pub fn onAddFolder(ctx: ?*anyopaque) void {
-    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+pub fn onAddFolder(vm: *KurirViewModel) void {
     vm.addFolder();
 }
 
-pub fn onAddRequest(ctx: ?*anyopaque) void {
-    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+pub fn onAddRequest(vm: *KurirViewModel) void {
     vm.addRequest();
 }
 
-pub fn onDelete(ctx: ?*anyopaque) void {
-    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+pub fn onDelete(vm: *KurirViewModel) void {
     vm.deleteSelected();
 }
 
-pub fn onAddWorkspace(ctx: ?*anyopaque) void {
-    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+pub fn onAddWorkspace(vm: *KurirViewModel) void {
     vm.addWorkspace();
 }
 
-pub fn onNextWorkspace(ctx: ?*anyopaque) void {
-    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+pub fn onNextWorkspace(vm: *KurirViewModel) void {
     vm.nextWorkspace();
 }
 
-pub fn onDeleteWorkspace(ctx: ?*anyopaque) void {
-    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+pub fn onDeleteWorkspace(vm: *KurirViewModel) void {
     vm.deleteWorkspace();
 }
 
-pub fn onImport(ctx: ?*anyopaque) void {
-    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+pub fn onImport(vm: *KurirViewModel) void {
     vm.importCollection();
 }
 
-pub fn onExport(ctx: ?*anyopaque) void {
-    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+pub fn onExport(vm: *KurirViewModel) void {
     vm.exportSelected();
 }
 
-pub fn onAddHeader(ctx: ?*anyopaque) void {
-    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+pub fn onAddHeader(vm: *KurirViewModel) void {
     vm.addHeader();
 }
 
-pub fn onRemoveHeader(ctx: ?*anyopaque) void {
-    const header_ctx: *KurirViewModel.HeaderCtx = @ptrCast(@alignCast(ctx.?));
+pub fn onRemoveHeader(header_ctx: *KurirViewModel.HeaderCtx) void {
     header_ctx.editor.removeHeader(header_ctx.index);
 }
 
-pub fn onToggleHeader(ctx: ?*anyopaque) void {
-    const header_ctx: *KurirViewModel.HeaderCtx = @ptrCast(@alignCast(ctx.?));
+pub fn onToggleHeader(header_ctx: *KurirViewModel.HeaderCtx) void {
     header_ctx.editor.toggleHeader(header_ctx.index);
 }
 
-pub fn onHeadersTab(ctx: ?*anyopaque) void {
-    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+pub fn onHeadersTab(vm: *KurirViewModel) void {
     vm.setEditorTab(.headers);
 }
 
-pub fn onBodyTab(ctx: ?*anyopaque) void {
-    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+pub fn onBodyTab(vm: *KurirViewModel) void {
     vm.setEditorTab(.body);
 }
 
-pub fn onResponseBodyTab(ctx: ?*anyopaque) void {
-    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+pub fn onResponseBodyTab(vm: *KurirViewModel) void {
     vm.setResponseTab(.body);
 }
 
-pub fn onResponseHeadersTab(ctx: ?*anyopaque) void {
-    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+pub fn onResponseHeadersTab(vm: *KurirViewModel) void {
     vm.setResponseTab(.headers);
 }

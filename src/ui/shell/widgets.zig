@@ -7,7 +7,11 @@ const props = glinlandui.props;
 const scope_mod = @import("scope.zig");
 const Scope = scope_mod.Scope;
 
-const HandlerFn = *const fn (?*anyopaque) void;
+const view_model = @import("view_model.zig");
+const KurirViewModel = view_model.KurirViewModel;
+
+// A handler of this shape, so a props constructor can name the model its target already carries.
+const HandlerFn = fn (*KurirViewModel) void;
 
 pub fn smallButton(scope: *Scope, id: []const u8, label: []const u8, width: u32, comptime handler: HandlerFn) void {
     const t = scope.theme;
@@ -19,7 +23,7 @@ pub fn smallButton(scope: *Scope, id: []const u8, label: []const u8, width: u32,
         .w = .{ .fixed = @floatFromInt(width) },
         .pad = props.Pad.axes(4, 8),
         .radius = props.Radius.all(4),
-        .on_click = .{ .f = handler, .ctx = scope.vm },
+        .on_click = props.Click.on(scope.vm, handler),
     });
 }
 
@@ -32,6 +36,6 @@ pub fn tabButton(scope: *Scope, id: []const u8, label: []const u8, active: bool,
         .hover_bg = t.colors.hover,
         .pad = props.Pad.axes(4, 10),
         .radius = props.Radius.all(4),
-        .on_click = .{ .f = handler, .ctx = scope.vm },
+        .on_click = props.Click.on(scope.vm, handler),
     });
 }

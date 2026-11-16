@@ -1,8 +1,11 @@
 //! One request, off the frame loop: the Io pool runs it, and the app collects the answer when it lands.
 const std = @import("std");
+const glinlandui = @import("glinlandui");
 
 const http = @import("http_client.zig");
 const body_mod = @import("../model/body.zig");
+
+const Ctx = glinlandui.Ctx;
 
 pub const Allocator = std.mem.Allocator;
 
@@ -78,7 +81,7 @@ const Slow = struct {
         var calls: usize = 0;
     };
 
-    fn send(_: ?*anyopaque, arena: Allocator, req: http.Request) http.Result {
+    fn send(_: Ctx, arena: Allocator, req: http.Request) http.Result {
         _ = req;
         std.Io.sleep(testing.io, .fromMilliseconds(30), .awake) catch {};
         state.calls += 1;

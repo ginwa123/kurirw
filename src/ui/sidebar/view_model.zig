@@ -112,8 +112,7 @@ fn matchesQuery(node: Value, query: []const u8) bool {
 }
 
 // The menu names the row it was raised from, and the panel turns that row into its path.
-pub fn onRowMenu(raw: ?*anyopaque, action: usize) void {
-    const rc: *const Sidebar.RowCtx = @ptrCast(@alignCast(raw.?));
+pub fn onRowMenu(rc: *Sidebar.RowCtx, action: usize) void {
     rc.sidebar.pickRowMenu(rc.index, action);
 }
 
@@ -145,26 +144,22 @@ pub const Sidebar = struct {
         index: usize,
     };
 
-    pub fn onNameTyped(raw: ?*anyopaque, text: []const u8) void {
-        const self: *Sidebar = @ptrCast(@alignCast(raw.?));
+    pub fn onNameTyped(self: *Sidebar, text: []const u8) void {
         self.session.focus = .name;
         self.onNameChange(text);
     }
 
-    pub fn onNameFocused(raw: ?*anyopaque) void {
-        const self: *Sidebar = @ptrCast(@alignCast(raw.?));
+    pub fn onNameFocused(self: *Sidebar) void {
         self.session.focus = .name;
         self.name_field.editor.selectAll();
     }
 
-    pub fn onWorkspaceTyped(raw: ?*anyopaque, text: []const u8) void {
-        const self: *Sidebar = @ptrCast(@alignCast(raw.?));
+    pub fn onWorkspaceTyped(self: *Sidebar, text: []const u8) void {
         self.session.focus = .workspace;
         self.onWorkspaceNameChange(text);
     }
 
-    pub fn onWorkspaceFocused(raw: ?*anyopaque) void {
-        const self: *Sidebar = @ptrCast(@alignCast(raw.?));
+    pub fn onWorkspaceFocused(self: *Sidebar) void {
         self.session.focus = .workspace;
         self.workspace_field.editor.selectAll();
     }
@@ -269,14 +264,12 @@ pub const Sidebar = struct {
         return self.filter_buf[0..self.filter_len];
     }
 
-    pub fn onFilterTyped(raw: ?*anyopaque, text: []const u8) void {
-        const self: *Sidebar = @ptrCast(@alignCast(raw.?));
+    pub fn onFilterTyped(self: *Sidebar, text: []const u8) void {
         self.session.focus = .filter;
         self.setFilter(text);
     }
 
-    pub fn onFilterFocused(raw: ?*anyopaque) void {
-        const self: *Sidebar = @ptrCast(@alignCast(raw.?));
+    pub fn onFilterFocused(self: *Sidebar) void {
         self.session.focus = .filter;
     }
 
@@ -703,12 +696,12 @@ pub const Sidebar = struct {
         // A click context per row: one fixed array, so a registered click never points at freed memory.
         for (&self.row_ctxs, 0..) |*ctx, i| ctx.* = .{ .sidebar = self, .index = i };
         // The intents are set ONCE: a frame only hands each field the model's value.
-        self.name_field.on_change = .{ .f = onNameTyped, .ctx = self };
-        self.name_field.on_focus = .{ .f = onNameFocused, .ctx = self };
-        self.workspace_field.on_change = .{ .f = onWorkspaceTyped, .ctx = self };
-        self.workspace_field.on_focus = .{ .f = onWorkspaceFocused, .ctx = self };
-        self.filter_field.on_change = .{ .f = onFilterTyped, .ctx = self };
-        self.filter_field.on_focus = .{ .f = onFilterFocused, .ctx = self };
+        self.name_field.on_change = prop.Change.on(self, onNameTyped);
+        self.name_field.on_focus = prop.Click.on(self, onNameFocused);
+        self.workspace_field.on_change = prop.Change.on(self, onWorkspaceTyped);
+        self.workspace_field.on_focus = prop.Click.on(self, onWorkspaceFocused);
+        self.filter_field.on_change = prop.Change.on(self, onFilterTyped);
+        self.filter_field.on_focus = prop.Click.on(self, onFilterFocused);
     }
 
     pub fn deinit(self: *Sidebar) void {
@@ -793,7 +786,7 @@ pub const Sidebar = struct {
         for (self.rows.items, out, 0..) |r, *menu, i| {
             menu.* = if (r.kind != .request) .{} else .{
                 .items = &row_menu_items,
-                .on_select = .{ .f = onRowMenu, .ctx = &self.row_ctxs[i] },
+                .on_select = prop.Select.on(&self.row_ctxs[i], onRowMenu),
                 .bg = t.colors.surface,
                 .fg = t.colors.text,
                 .hover_bg = t.colors.hover,

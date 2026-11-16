@@ -3,6 +3,7 @@ const std = @import("std");
 const glinlandui = @import("glinlandui");
 const input_mod = glinlandui.components.input;
 const frame = glinlandui.frame;
+const prop = glinlandui.props;
 
 const postman = @import("../../data/model/postman.zig");
 const curl_transfer = @import("../../domain/usecase/curl_transfer.zig");
@@ -65,30 +66,25 @@ pub const Editor = struct {
         self.session.touch();
     }
 
-    pub fn onUrlTyped(raw: ?*anyopaque, text: []const u8) void {
-        const self: *Editor = @ptrCast(@alignCast(raw.?));
+    pub fn onUrlTyped(self: *Editor, text: []const u8) void {
         self.session.focus = .url;
         self.onUrlChange(text);
     }
 
-    pub fn onUrlFocused(raw: ?*anyopaque) void {
-        const self: *Editor = @ptrCast(@alignCast(raw.?));
+    pub fn onUrlFocused(self: *Editor) void {
         self.session.focus = .url;
     }
 
-    pub fn onBodyTyped(raw: ?*anyopaque, text: []const u8) void {
-        const self: *Editor = @ptrCast(@alignCast(raw.?));
+    pub fn onBodyTyped(self: *Editor, text: []const u8) void {
         self.session.focus = .body;
         self.setBody(text);
     }
 
-    pub fn onBodyFocused(raw: ?*anyopaque) void {
-        const self: *Editor = @ptrCast(@alignCast(raw.?));
+    pub fn onBodyFocused(self: *Editor) void {
         self.session.focus = .body;
     }
 
-    pub fn onHeaderTyped(raw: ?*anyopaque, text: []const u8) void {
-        const ctx: *HeaderCtx = @ptrCast(@alignCast(raw.?));
+    pub fn onHeaderTyped(ctx: *HeaderCtx, text: []const u8) void {
         ctx.editor.session.focus = if (ctx.value_side) .header_value else .header_key;
         if (ctx.value_side) {
             ctx.editor.onHeaderValueChange(ctx.index, text);
@@ -122,15 +118,15 @@ pub const Editor = struct {
             self.header_fields[i * 2 + 1].bind();
             self.header_ctxs[i * 2] = .{ .editor = self, .index = i, .value_side = false };
             self.header_ctxs[i * 2 + 1] = .{ .editor = self, .index = i, .value_side = true };
-            self.header_fields[i * 2].on_change = .{ .f = onHeaderTyped, .ctx = &self.header_ctxs[i * 2] };
-            self.header_fields[i * 2 + 1].on_change = .{ .f = onHeaderTyped, .ctx = &self.header_ctxs[i * 2 + 1] };
+            self.header_fields[i * 2].on_change = prop.Change.on(&self.header_ctxs[i * 2], onHeaderTyped);
+            self.header_fields[i * 2 + 1].on_change = prop.Change.on(&self.header_ctxs[i * 2 + 1], onHeaderTyped);
         }
 
         // The intents are set ONCE: a frame only hands each field the model's value.
-        self.url_field.on_change = .{ .f = onUrlTyped, .ctx = self };
-        self.url_field.on_focus = .{ .f = onUrlFocused, .ctx = self };
-        self.body_field.on_change = .{ .f = onBodyTyped, .ctx = self };
-        self.body_field.on_focus = .{ .f = onBodyFocused, .ctx = self };
+        self.url_field.on_change = prop.Change.on(self, onUrlTyped);
+        self.url_field.on_focus = prop.Click.on(self, onUrlFocused);
+        self.body_field.on_change = prop.Change.on(self, onBodyTyped);
+        self.body_field.on_focus = prop.Click.on(self, onBodyFocused);
     }
 
     pub fn deinit(self: *Editor) void {

@@ -93,7 +93,7 @@ pub fn nameRowChildren(scope: *Scope) void {
         .disabled = !scope.state.can_delete,
         .pad = props.Pad.axes(4, 10),
         .radius = props.Radius.all(4),
-        .on_click = .{ .f = actions.onDelete, .ctx = scope.vm },
+        .on_click = props.Click.on(scope.vm, actions.onDelete),
     });
 }
 
@@ -138,7 +138,7 @@ pub fn methodRowChildren(scope: *Scope) void {
         .w = .{ .fixed = 96 },
         .pad = props.Pad.axes(4, 6),
         .radius = props.Radius.all(4),
-        .on_click = .{ .f = actions.onMethodToggle, .ctx = scope.vm },
+        .on_click = props.Click.on(scope.vm, actions.onMethodToggle),
     });
 
     if (scope.state.method_open) {
@@ -156,7 +156,7 @@ pub fn methodRowChildren(scope: *Scope) void {
             .radius = .{ .px = 0 },
             .gap = .{ .px = 0 },
             .font_size = t.type_scale.caption,
-            .on_select = .{ .f = actions.onMethodPick, .ctx = scope.vm },
+            .on_select = props.Select.on(scope.vm, actions.onMethodPick),
             .overlay = true,
             .anchor_text = editor_vm.method_trigger_id,
             .overlay_id = editor_vm.method_menu_id,
@@ -182,7 +182,7 @@ pub fn methodRowChildren(scope: *Scope) void {
         .disabled = !enabled or scope.state.sending,
         .pad = props.Pad.axes(8, 18),
         .radius = props.Radius.all(6),
-        .on_click = .{ .f = actions.onSend, .ctx = scope.vm },
+        .on_click = props.Click.on(scope.vm, actions.onSend),
     });
 
     // The other half of "paste a curl command": this one writes the request back out as one.
@@ -319,7 +319,7 @@ pub fn headerRowChildren(hs: *const HeaderScope) void {
         .w = .{ .fixed = 34 },
         .pad = props.Pad.axes(3, 4),
         .radius = props.Radius.all(4),
-        .on_click = .{ .f = actions.onToggleHeader, .ctx = &scope.vm.editor.header_ctxs[index * 2] },
+        .on_click = props.Click.on(&scope.vm.editor.header_ctxs[index * 2], actions.onToggleHeader),
     });
 
     const key_field = &scope.vm.editor.header_fields[index * 2];
@@ -341,7 +341,7 @@ pub fn headerRowChildren(hs: *const HeaderScope) void {
         .hover_bg = t.colors.hover,
         .pad = props.Pad.axes(3, 8),
         .radius = props.Radius.all(4),
-        .on_click = .{ .f = actions.onRemoveHeader, .ctx = &scope.vm.editor.header_ctxs[index * 2] },
+        .on_click = props.Click.on(&scope.vm.editor.header_ctxs[index * 2], actions.onRemoveHeader),
     });
 }
 

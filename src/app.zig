@@ -9,6 +9,8 @@ const theme_mod = @import("ui/theme/theme.zig");
 const container_mod = @import("di/container.zig");
 const pump_mod = @import("ui/shell/pump.zig");
 
+const Ctx = glinlandui.Ctx;
+
 pub const App = struct {
     // `ViewModelStoreOwner`: one screen, one store, one ViewModel for the life of the window.
     store: glinlandui.view_model.Store(view_model.KurirViewModel) = .{},
@@ -53,8 +55,8 @@ pub const App = struct {
     }
 
     // `setContent { MaterialTheme { KurirScreen() } }`, as the Host's root function.
-    pub fn content(ctx: ?*anyopaque, w: u32, h: u32) void {
-        const self: *App = @ptrCast(@alignCast(ctx.?));
+    pub fn content(ctx: Ctx, w: u32, h: u32) void {
+        const self = ctx.get(App);
         const model = self.vm();
         // The split's ceiling follows the window's height and a field's cap follows its width, so a resized window cannot squeeze the editor out.
         model.setViewport(w, h);

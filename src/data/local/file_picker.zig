@@ -3,12 +3,13 @@ const std = @import("std");
 const glinlandui = @import("glinlandui");
 
 const Allocator = std.mem.Allocator;
+const Ctx = glinlandui.Ctx;
 
 // The file panels import and export open.
 pub const Dialogs = struct {
-    ctx: ?*anyopaque = null,
-    open_fn: *const fn (?*anyopaque, Allocator, []const u8) ?[]const u8 = openReal,
-    save_fn: *const fn (?*anyopaque, Allocator, []const u8, []const u8) ?[]const u8 = saveReal,
+    ctx: Ctx = Ctx.none,
+    open_fn: *const fn (Ctx, Allocator, []const u8) ?[]const u8 = openReal,
+    save_fn: *const fn (Ctx, Allocator, []const u8, []const u8) ?[]const u8 = saveReal,
     available: bool = true,
 };
 
@@ -17,7 +18,7 @@ const json_filters = [_]glinlandui.file_dialog.Filter{
     .{ .name = "All files", .rules = &.{.{ .pattern = "*" }} },
 };
 
-fn openReal(_: ?*anyopaque, gpa: Allocator, title: []const u8) ?[]const u8 {
+fn openReal(_: Ctx, gpa: Allocator, title: []const u8) ?[]const u8 {
     const selection = glinlandui.file_dialog.openFile(gpa, .{
         .title = title,
         .filters = &json_filters,
@@ -28,7 +29,7 @@ fn openReal(_: ?*anyopaque, gpa: Allocator, title: []const u8) ?[]const u8 {
     return gpa.dupe(u8, picked) catch null;
 }
 
-fn saveReal(_: ?*anyopaque, gpa: Allocator, title: []const u8, suggested: []const u8) ?[]const u8 {
+fn saveReal(_: Ctx, gpa: Allocator, title: []const u8, suggested: []const u8) ?[]const u8 {
     const selection = glinlandui.file_dialog.saveFile(gpa, .{
         .title = title,
         .filters = &json_filters,
