@@ -136,7 +136,7 @@ pub fn searchRowChildren(scope: *Scope) void {
     input_mod.textField(field);
 
     // A menu button: one button whose card lists what can be created, so the row stays one line.
-    button_mod.button(.{
+    button_mod.click(.{
         .src = @src(),
         .id = .{ .text = sidebar_vm.new_trigger_id },
         .label = .{ .text = "+ New  v", .size = t.type_scale.caption, .color = t.colors.on_primary },
@@ -146,8 +146,7 @@ pub fn searchRowChildren(scope: *Scope) void {
         .h = .{ .fixed = 28 },
         .pad = props.Pad.axes(0, 8),
         .radius = props.Radius.all(6),
-        .on_click = props.Click.on(scope.vm, actions.onNewToggle),
-    });
+    }, scope.vm, actions.onNewToggle);
 }
 
 pub fn sectionLabel(scope: *Scope) void {
@@ -384,7 +383,7 @@ fn plainRow(t: glinlandui.theme.Theme, item: []const u8, index: usize) void {
 // A square button with no fill of its own: it is a mark, not a block.
 fn iconButton(scope: *Scope, id: []const u8, label: []const u8, width: u32, comptime handler: fn (*shell_vm.KurirViewModel) void) void {
     const t = scope.theme;
-    button_mod.button(.{
+    button_mod.click(.{
         .src = @src(),
         .id = .{ .text = id },
         .label = .{ .text = label, .size = t.type_scale.caption, .color = t.colors.text_dim },
@@ -394,6 +393,5 @@ fn iconButton(scope: *Scope, id: []const u8, label: []const u8, width: u32, comp
         .h = .{ .fixed = 26 },
         .pad = props.Pad.all(0),
         .radius = props.Radius.all(6),
-        .on_click = props.Click.on(scope.vm, handler),
-    });
+    }, scope.vm, handler);
 }

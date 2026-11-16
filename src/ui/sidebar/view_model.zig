@@ -696,12 +696,12 @@ pub const Sidebar = struct {
         // A click context per row: one fixed array, so a registered click never points at freed memory.
         for (&self.row_ctxs, 0..) |*ctx, i| ctx.* = .{ .sidebar = self, .index = i };
         // The intents are set ONCE: a frame only hands each field the model's value.
-        self.name_field.on_change = prop.Change.on(self, onNameTyped);
-        self.name_field.on_focus = prop.Click.on(self, onNameFocused);
-        self.workspace_field.on_change = prop.Change.on(self, onWorkspaceTyped);
-        self.workspace_field.on_focus = prop.Click.on(self, onWorkspaceFocused);
-        self.filter_field.on_change = prop.Change.on(self, onFilterTyped);
-        self.filter_field.on_focus = prop.Click.on(self, onFilterFocused);
+        self.name_field.onChange(self, onNameTyped);
+        self.name_field.onFocus(self, onNameFocused);
+        self.workspace_field.onChange(self, onWorkspaceTyped);
+        self.workspace_field.onFocus(self, onWorkspaceFocused);
+        self.filter_field.onChange(self, onFilterTyped);
+        self.filter_field.onFocus(self, onFilterFocused);
     }
 
     pub fn deinit(self: *Sidebar) void {

@@ -15,7 +15,7 @@ const HandlerFn = fn (*KurirViewModel) void;
 
 pub fn smallButton(scope: *Scope, id: []const u8, label: []const u8, width: u32, comptime handler: HandlerFn) void {
     const t = scope.theme;
-    button_mod.button(.{
+    button_mod.click(.{
         .id = .{ .text = id },
         .label = .{ .text = label, .size = t.type_scale.caption, .color = t.colors.text },
         .bg = t.colors.surface_variant,
@@ -23,19 +23,17 @@ pub fn smallButton(scope: *Scope, id: []const u8, label: []const u8, width: u32,
         .w = .{ .fixed = @floatFromInt(width) },
         .pad = props.Pad.axes(4, 8),
         .radius = props.Radius.all(4),
-        .on_click = props.Click.on(scope.vm, handler),
-    });
+    }, scope.vm, handler);
 }
 
 pub fn tabButton(scope: *Scope, id: []const u8, label: []const u8, active: bool, comptime handler: HandlerFn) void {
     const t = scope.theme;
-    button_mod.button(.{
+    button_mod.click(.{
         .id = .{ .text = id },
         .label = .{ .text = label, .size = t.type_scale.caption, .color = if (active) t.colors.text else t.colors.text_dim },
         .bg = if (active) t.colors.surface_variant else t.colors.surface,
         .hover_bg = t.colors.hover,
         .pad = props.Pad.axes(4, 10),
         .radius = props.Radius.all(4),
-        .on_click = props.Click.on(scope.vm, handler),
-    });
+    }, scope.vm, handler);
 }

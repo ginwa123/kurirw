@@ -118,15 +118,15 @@ pub const Editor = struct {
             self.header_fields[i * 2 + 1].bind();
             self.header_ctxs[i * 2] = .{ .editor = self, .index = i, .value_side = false };
             self.header_ctxs[i * 2 + 1] = .{ .editor = self, .index = i, .value_side = true };
-            self.header_fields[i * 2].on_change = prop.Change.on(&self.header_ctxs[i * 2], onHeaderTyped);
-            self.header_fields[i * 2 + 1].on_change = prop.Change.on(&self.header_ctxs[i * 2 + 1], onHeaderTyped);
+            self.header_fields[i * 2].onChange(&self.header_ctxs[i * 2], onHeaderTyped);
+            self.header_fields[i * 2 + 1].onChange(&self.header_ctxs[i * 2 + 1], onHeaderTyped);
         }
 
         // The intents are set ONCE: a frame only hands each field the model's value.
-        self.url_field.on_change = prop.Change.on(self, onUrlTyped);
-        self.url_field.on_focus = prop.Click.on(self, onUrlFocused);
-        self.body_field.on_change = prop.Change.on(self, onBodyTyped);
-        self.body_field.on_focus = prop.Click.on(self, onBodyFocused);
+        self.url_field.onChange(self, onUrlTyped);
+        self.url_field.onFocus(self, onUrlFocused);
+        self.body_field.onChange(self, onBodyTyped);
+        self.body_field.onFocus(self, onBodyFocused);
     }
 
     pub fn deinit(self: *Editor) void {

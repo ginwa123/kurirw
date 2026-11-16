@@ -120,7 +120,7 @@ pub const KurirViewModel = struct {
         self.editor.start(&self.session);
         self.response.start(&self.session);
         // The one intent that crosses panels: Ctrl/Cmd+Enter while the body has the keyboard sends.
-        self.editor.body_field.on_submit = prop.Submit.on(self, onBodySubmit);
+        self.editor.body_field.onSubmit(self, onBodySubmit);
 
         const loaded = self.session.load();
         self.sidebar.restore();
