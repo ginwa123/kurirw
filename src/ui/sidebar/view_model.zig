@@ -64,28 +64,6 @@ pub fn clip(text: []const u8, buffer: []u8) []const u8 {
     return buffer[0 .. head + 2];
 }
 
-// The tree's indent per level, matching the panel's declaration: a label's budget has to subtract exactly what the row spends on it.
-const tree_indent: f32 = 12;
-
-// A row label is one line: when the measured run does not fit its budget it is cut and ended with "...", never wrapped.
-fn ellipsize(arena: Allocator, text: []const u8, budget: f32, size: f32) []const u8 {
-    if (budget <= 0 or text.len == 0) return text;
-    const fs: u16 = @intFromFloat(@max(size, 1));
-    // The ESTIMATOR, not runWidth: a snapshot can be built before the host has a font, and asking the face for a width then latches it fontless for the whole process.
-    const dots_w = glinlandui.text.estimatorExtent("...", fs).w;
-    const advance = @max(glinlandui.text.estimatorExtent("M", fs).w, 1);
-    if (glinlandui.text.estimatorExtent(text, fs).w <= budget) return text;
-    const keep: usize = @intFromFloat(@max(budget - dots_w, 0) / advance);
-    var end: usize = 0;
-    var n: usize = 0;
-    while (end < text.len and n < keep) : (n += 1) {
-        end += 1;
-        while (end < text.len and (text[end] & 0xC0) == 0x80) end += 1;
-    }
-    if (end == 0) return "";
-    return std.fmt.allocPrint(arena, "{s}...", .{text[0..end]}) catch text;
-}
-
 // A path's address after the child at `removed` left `parent`: every slot past it shifts down one.
 fn shiftDown(path: Path, parent_depth: usize, removed: u16) Path {
     var next = path;
@@ -794,18 +772,9 @@ pub const Sidebar = struct {
     // The tree component's own row shape: a label, a depth, its caret state, and its count as the meta.
     fn treeRows(self: *Sidebar, arena: Allocator) []const tree_mod.Row {
         const out = arena.alloc(tree_mod.Row, self.rows.items.len) catch return &.{};
-        // A row is one line: past the panel a name is cut and ended with dots, so it never wraps into the row below.
-        const panel_w = self.width();
-        const body_size = self.session.theme.type_scale.body.pts();
         for (self.rows.items, out) |r, *row| {
-            const kind_w: f32 = if (r.kind == .request) 46 else 12;
-            const meta_w: f32 = if (r.count > 0) 26 else 0;
-            const indent_w = @as(f32, @floatFromInt(r.depth)) * tree_indent;
-            // pad_lr twice, the caret, the chip or folder, the gaps, the count, the scroll gutter and a 6 pt margin so a cut label is strictly narrower than its box.
-            const budget = panel_w - 20 - indent_w - kind_w - meta_w - 47;
-            const size = if (r.kind == .request) body_size else body_size + 1;
             row.* = .{
-                .label = ellipsize(arena, r.label, budget, size),
+                .label = r.label,
                 .depth = r.depth,
                 .has_children = r.has_children,
                 .expanded = r.expanded,

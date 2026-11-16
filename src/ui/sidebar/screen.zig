@@ -31,8 +31,7 @@ pub fn sidebarChildren(scope: *Scope) void {
         .id = .{ .text = "kurir.sidebar.content" },
         .direction = .column,
         .w = .{ .fixed = w },
-        // Capped at the window: the panel clips, and a clipping parent never compresses its children, so an uncapped grow box here would be as tall as the tree and the scroll inside it would have nothing left to overflow.
-        .h = .{ .clamp = .{ .max = scope.vm.viewport_h, .grow = true } },
+        .h = .grow,
         .bg = scope.theme.colors.surface,
     }, scope, sidebarContent);
 }
@@ -244,6 +243,8 @@ pub fn treeChildren(scope: *Scope) void {
         .context_menus = scope.state.tree_menus,
         .reorder = .{ .on_drop = onTreeDrop, .ctx = &scope.vm.sidebar },
         .row_extra = .{ .f = chipExtra, .ctx = scope },
+        // The chip's own width, so the engine can cut a label that would not fit beside it.
+        .extra_width = .{ .px = 46 },
     });
 }
 
