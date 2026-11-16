@@ -83,6 +83,8 @@ pub const KurirViewModel = struct {
     split: split_mod.State = .{ .size = 320 },
     // The window's height, so the split knows how much room there is; `App.content` hands it over every frame.
     viewport_h: f32 = 840,
+    // The window's width, so a panel can cap a field to the room its row really has.
+    viewport_w: f32 = 1280,
 
     // Borrowed, not owned: the container built them and outlives the view.
     dialogs: *Dialogs = undefined,
@@ -181,7 +183,8 @@ pub const KurirViewModel = struct {
     // ---- the facade: one line per intent, so the view and the tests never reach into a panel -------
 
     // The window changed size: the split's ceiling follows it, so a smaller window cannot squeeze the editor out.
-    pub fn setViewport(self: *KurirViewModel, h: u32) void {
+    pub fn setViewport(self: *KurirViewModel, w: u32, h: u32) void {
+        self.viewport_w = @floatFromInt(w);
         self.viewport_h = @floatFromInt(h);
     }
 

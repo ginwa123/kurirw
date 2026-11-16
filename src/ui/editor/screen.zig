@@ -97,6 +97,17 @@ pub fn nameRowChildren(scope: *Scope) void {
     });
 }
 
+// What the URL field may take: a text field is never narrower than its own value, so an uncapped one widens the row and pushes Send past the window's edge.
+fn urlWidth(scope: *Scope) props.Size {
+    const send_w: f32 = if (frame.bounds((props.Id{ .text = "kurir.send" }).clay())) |b| b.width else 70;
+    const curl_w: f32 = if (frame.bounds((props.Id{ .text = editor_vm.curl_copy_id }).clay())) |b| b.width else 0;
+    // Everything the row spends before the field: the method button, its 4 pt gaps, the panel's grip and the editor's own padding.
+    const fixed: f32 = 96 + send_w + curl_w + (if (curl_w > 0) @as(f32, 12) else 8) + 7 + 24;
+    const avail = scope.vm.viewport_w - scope.state.sidebar_width - fixed;
+    if (avail < 160) return .grow;
+    return .{ .clamp = .{ .min = 160, .max = avail, .grow = true } };
+}
+
 pub fn methodRow(scope: *Scope) void {
     box_mod.box(.{
         .src = @src(),
@@ -157,7 +168,7 @@ pub fn methodRowChildren(scope: *Scope) void {
     const field = &scope.vm.editor.url_field;
     field.value = scope.state.url;
     field.disabled = !enabled;
-    field.w = .grow;
+    field.w = urlWidth(scope);
     input_mod.textField(field);
 
     button_mod.button(.{

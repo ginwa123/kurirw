@@ -31,7 +31,8 @@ pub fn sidebarChildren(scope: *Scope) void {
         .id = .{ .text = "kurir.sidebar.content" },
         .direction = .column,
         .w = .{ .fixed = w },
-        .h = .grow,
+        // Capped at the window: the panel clips, and a clipping parent never compresses its children, so an uncapped grow box here would be as tall as the tree and the scroll inside it would have nothing left to overflow.
+        .h = .{ .clamp = .{ .max = scope.vm.viewport_h, .grow = true } },
         .bg = scope.theme.colors.surface,
     }, scope, sidebarContent);
 }
@@ -85,7 +86,9 @@ pub fn workspaceHead(scope: *Scope) void {
 
     const field = &scope.vm.sidebar.workspace_field;
     field.value = scope.state.workspace_name;
-    field.w = .grow;
+    // The name may not eat the row either: a field is never narrower than its value, so it is capped to what the header has left.
+    const panel_w = sidebar_mod.width(scope.vm.sidebar.props());
+    field.w = .{ .clamp = .{ .min = 80, .max = @max(80, panel_w - 170), .grow = true } };
     field.h = .{ .fixed = 26 };
     field.bg = t.colors.surface;
     field.fg = t.colors.text;
