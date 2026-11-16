@@ -5,6 +5,7 @@ const input_mod = glinlandui.components.input;
 
 const postman = @import("../../data/model/postman.zig");
 const store = @import("../../data/local/workspace_store.zig");
+const session_store = @import("../../data/local/session_store.zig");
 const domain = @import("../../domain/repository/workspace.zig");
 const state_mod = @import("../../ui/state.zig");
 const theme_mod = @import("../theme/theme.zig");
@@ -13,6 +14,19 @@ pub const Allocator = std.mem.Allocator;
 pub const Value = postman.Value;
 pub const Path = state_mod.Path;
 pub const Focus = state_mod.Focus;
+
+// A path as the session file spells it: "0.2.1", the same index chain the tree addresses a row by.
+fn parsePath(text: []const u8) ?Path {
+    if (text.len == 0) return null;
+    var path = Path.empty;
+    var segments = std.mem.splitScalar(u8, text, '.');
+    while (segments.next()) |segment| {
+        const index = std.fmt.parseInt(u16, segment, 10) catch return null;
+        path = path.child(index);
+    }
+    if (path.depth == 0) return null;
+    return path;
+}
 
 // What a first `load` found, so the shell can persist a document that did not exist yet.
 pub const Loaded = domain.Loaded;
@@ -31,6 +45,12 @@ pub const Session = struct {
     repo: domain.Workspace = undefined,
     doc: Value = .{ .null = {} },
     path: []const u8 = "",
+    // The working session beside the document: the tabs that were open, and edits nobody has saved.
+    session_path: []const u8 = "",
+    // What the previous run left open, so the first frame can put it back.
+    restored_tabs: [state_mod.max_tabs]Path = undefined,
+    restored_tab_count: usize = 0,
+    restored_active: ?Path = null,
     workspace: usize = 0,
     selection: ?Path = null,
     // Which field holds the keyboard. Both panels set it, the shell draws it.
@@ -49,11 +69,12 @@ pub const Session = struct {
     // Set by every intent; the shell rebuilds its snapshot once per frame while it is on.
     dirty: bool = true,
 
-    pub fn start(self: *Session, gpa: Allocator, io: std.Io, theme: glinlandui.theme.Theme, path: []const u8, repo: domain.Workspace) void {
+    pub fn start(self: *Session, gpa: Allocator, io: std.Io, theme: glinlandui.theme.Theme, path: []const u8, session_path: []const u8, repo: domain.Workspace) void {
         self.gpa = gpa;
         self.io = io;
         self.theme = theme;
         self.path = path;
+        self.session_path = session_path;
         self.repo = repo;
         self.doc_arena = std.heap.ArenaAllocator.init(gpa);
         self.view_arena = std.heap.ArenaAllocator.init(gpa);
@@ -92,7 +113,61 @@ pub const Session = struct {
         } else {
             self.setStatus(false, "New here? Create a collection, then a request inside it.", .{});
         }
+        // The working session beside the document wins: it is what was on screen when the window closed.
+        self.restoreSession(arena);
         return .{ .from_disk = loaded.from_disk, .error_name = loaded.error_name };
+    }
+
+    // Read the session file beside the document: the document it showed, the tabs, and the dots.
+    fn restoreSession(self: *Session, arena: Allocator) void {
+        if (self.session_path.len == 0) return;
+        const restored = session_store.load(arena, self.io, self.session_path) orelse return;
+        const doc = restored.doc orelse return;
+        self.doc = doc;
+        const workspaces = store.workspaceCount(doc);
+        self.workspace = if (workspaces == 0) 0 else @min(restored.workspace, workspaces - 1);
+
+        self.restored_tab_count = 0;
+        for (restored.tabs) |text| {
+            if (self.restored_tab_count >= state_mod.max_tabs) break;
+            const path = parsePath(text) orelse continue;
+            if (self.nodeAt(path) == null) continue;
+            self.restored_tabs[self.restored_tab_count] = path;
+            self.restored_tab_count += 1;
+        }
+        self.restored_active = if (parsePath(restored.active)) |active| (if (self.nodeAt(active) != null) active else null) else null;
+
+        self.dirty_count = 0;
+        self.dirty_overflow = false;
+        for (restored.dirty) |text| {
+            const path = parsePath(text) orelse continue;
+            self.markDirty(path);
+        }
+        self.setStatus(false, "Restored what was open last time.", .{});
+    }
+
+    // Write the working session: the document as it stands, the tabs, and which of them are not on disk.
+    pub fn persistSession(self: *Session, tabs: []const Path, active: ?Path) void {
+        if (self.session_path.len == 0) return;
+        var arena_state = std.heap.ArenaAllocator.init(self.gpa);
+        defer arena_state.deinit();
+        const arena = arena_state.allocator();
+
+        var tab_text: std.ArrayList([]const u8) = .empty;
+        for (tabs) |open| {
+            var buffer: [64]u8 = undefined;
+            tab_text.append(arena, arena.dupe(u8, open.format(&buffer)) catch break) catch break;
+        }
+        var dirty_text: std.ArrayList([]const u8) = .empty;
+        for (self.dirty_paths[0..self.dirty_count]) |path| {
+            var buffer: [64]u8 = undefined;
+            dirty_text.append(arena, arena.dupe(u8, path.format(&buffer)) catch break) catch break;
+        }
+        var active_buffer: [64]u8 = undefined;
+        const active_text = if (active) |path| path.format(&active_buffer) else "";
+        session_store.save(arena, self.io, self.session_path, self.doc, self.workspace, active_text, tab_text.items, dirty_text.items) catch {
+            self.setStatus(true, "Could not keep the session beside the document.", .{});
+        };
     }
 
     // The document changed: write it, and let the shell rebuild its snapshot.

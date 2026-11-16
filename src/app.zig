@@ -33,6 +33,7 @@ pub const App = struct {
             .io = io,
             .theme = self.theme,
             .path = self.container.path,
+            .session_path = self.container.session_path,
             .workspace = self.container.file.workspace(),
             .remote = &self.container.remote,
             .dialogs = &self.container.dialogs,

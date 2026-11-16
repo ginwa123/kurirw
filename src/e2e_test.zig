@@ -1630,3 +1630,33 @@ test "endpoints open as tabs, an edit marks its row, and Cmd/Ctrl+S is what clea
     try testing.expect(!h.app.vm().uiState().quit_prompt);
     try testing.expect(h.app.vm().uiState().unsaved);
 }
+
+test "a quit keeps the tabs and the unsaved edits, and the next start opens them" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    {
+        var h = try Harness.boot(gpa, scratch.home);
+        defer h.stop(gpa);
+
+        try newMenu(&h, 0);
+        try newMenu(&h, 1);
+        try newMenu(&h, 1);
+        try h.driver.click(view_model.url_field_id);
+        try h.driver.typeText("https://api.example.com/unsaved");
+        try testing.expect(h.app.vm().uiState().unsaved);
+        // No Ctrl/Cmd+S: the window closes with work nobody saved, which the session file keeps.
+    }
+
+    var again = try Harness.boot(gpa, scratch.home);
+    defer again.stop(gpa);
+
+    const state = again.app.vm().uiState();
+    // Both tabs are back, on the same one, and the edits are still unsaved (so the dot is still there).
+    try testing.expectEqual(@as(usize, 2), state.tabs.len);
+    try testing.expect(state.tabs[1].active);
+    try testing.expectEqualStrings("https://api.example.com/unsaved", state.url);
+    try testing.expect(state.unsaved);
+    try testing.expect(state.rows[2].dirty);
+}

@@ -83,15 +83,18 @@ also download the archive yourself and run the binary inside it.
 
 ## Where your work is kept
 
-One JSON file, written on every change:
+Two plain JSON files in the same folder:
 
 | | |
 |---|---|
-| default | `~/.kurir/workspaces.json` |
-| if `KURIR_HOME` is set | `$KURIR_HOME/workspaces.json` |
+| `workspaces.json` | the document — written when you press **Ctrl/Cmd+S** (or "Save and quit") |
+| `session.json` | what was on screen — the tabs you had open, and the edits nobody saved yet, written when the window closes |
 
-Back it up, `git init` it, or copy it to another machine — it is a plain file, and the collections
-inside it are ordinary Postman v2.1 documents.
+Both live in `~/.kurir/` by default, or in `$KURIR_HOME/` when that is set.
+
+Back them up, `git init` them, or copy them to another machine — they are plain files, and the
+collections inside them are ordinary Postman v2.1 documents. Delete `session.json` to start with an
+empty window; the document is untouched.
 
 ## Build it yourself
 

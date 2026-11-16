@@ -6,6 +6,7 @@ const split_mod = glinlandui.components.split;
 
 const postman = @import("../../data/model/postman.zig");
 const store = @import("../../data/local/workspace_store.zig");
+const local_session = @import("../../data/local/session_store.zig");
 const http_mod = @import("../../data/remote/http_client.zig");
 const state_mod = @import("../state.zig");
 const theme_mod = @import("../theme/theme.zig");
@@ -68,6 +69,8 @@ pub const Deps = struct {
     io: std.Io,
     theme: glinlandui.theme.Theme,
     path: []const u8,
+    // The working session beside the document: the tabs, and the edits nobody has saved.
+    session_path: []const u8 = "",
     workspace: domain.Workspace,
     remote: *http_mod.Real,
     dialogs: *file_picker.Dialogs,
@@ -149,7 +152,7 @@ pub const KurirViewModel = struct {
         self.dialogs = deps.dialogs;
         self.real = deps.remote;
         self.pump = deps.pump;
-        self.session.start(deps.gpa, deps.io, deps.theme, deps.path, deps.workspace);
+        self.session.start(deps.gpa, deps.io, deps.theme, deps.path, deps.session_path, deps.workspace);
         self.sidebar.start(&self.session);
         self.editor.start(&self.session);
         self.response.start(&self.session);
@@ -161,6 +164,12 @@ pub const KurirViewModel = struct {
 
         const loaded = self.session.load();
         self.sidebar.restore();
+        // The tabs the last run had open, and the one it was looking at: the window looks the same.
+        for (self.session.restored_tabs[0..self.session.restored_tab_count]) |path| self.openTab(path);
+        if (self.session.restored_active) |active| {
+            self.sidebar.select(active);
+            self.response.clearPin();
+        }
         self.editor.load();
         self.session.touch();
         // A first run leaves the file behind, so the next start has something to load.
@@ -173,6 +182,8 @@ pub const KurirViewModel = struct {
             if (pending.job.poll()) pending.job.destroy(self.session.gpa) else pending.job.abandon();
         }
         self.job = null;
+        // The working session is written on the way out: the tabs, and the edits nobody has saved yet.
+        self.session.persistSession(self.tabs[0..self.tab_count], self.session.selection);
         self.response.deinit();
         self.editor.deinit();
         self.sidebar.deinit();
@@ -384,6 +395,8 @@ pub const KurirViewModel = struct {
     pub fn save(self: *KurirViewModel) void {
         self.session.persist();
         self.session.clearDirty();
+        // The session keeps the same tabs on the next start, now with nothing to ask about.
+        self.session.persistSession(self.tabs[0..self.tab_count], self.session.selection);
         self.session.setStatus(false, "Saved {s}.", .{self.session.path});
         self.session.touch();
     }
@@ -698,6 +711,7 @@ fn fakeSave(ctx: ?*anyopaque, gpa: Allocator, title: []const u8, suggested: []co
 const Harness = struct {
     tmp: testing.TmpDir,
     path: []u8,
+    session_path: []u8,
     // On the heap: the panels hold `*Session`, so a by-value copy would leave them pointing at a dead frame.
     vm: *KurirViewModel,
     deps: *Deps,
@@ -711,6 +725,7 @@ const Harness = struct {
         var buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
         const len = try tmp.dir.realPath(testing.io, &buf);
         const path = try std.fs.path.join(testing.allocator, &.{ buf[0..len], "kurir", store.file_name });
+        const session_path = try local_session.pathFor(testing.allocator, path);
 
         const file = try testing.allocator.create(file_store.FileStore);
         file.* = file_store.FileStore.init(testing.io, path);
@@ -726,6 +741,7 @@ const Harness = struct {
             .io = testing.io,
             .theme = theme_mod.app_theme,
             .path = path,
+            .session_path = session_path,
             .workspace = file.workspace(),
             .remote = remote,
             .dialogs = dialogs,
@@ -735,7 +751,7 @@ const Harness = struct {
         const vm = try testing.allocator.create(KurirViewModel);
         vm.* = KurirViewModel.init();
         vm.start(deps.*);
-        return .{ .tmp = tmp, .path = path, .vm = vm, .deps = deps, .dialogs = dialogs, .file = file, .remote = remote, .pump = pump };
+        return .{ .tmp = tmp, .path = path, .session_path = session_path, .vm = vm, .deps = deps, .dialogs = dialogs, .file = file, .remote = remote, .pump = pump };
     }
 
     fn stop(self: *Harness) void {
@@ -748,6 +764,7 @@ const Harness = struct {
         testing.allocator.destroy(self.deps);
         testing.allocator.destroy(self.file);
         testing.allocator.free(self.path);
+        testing.allocator.free(self.session_path);
         self.tmp.cleanup();
     }
 
