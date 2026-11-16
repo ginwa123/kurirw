@@ -1382,3 +1382,45 @@ test "a caret in the body does not empty the pane once you scroll away from it" 
     }
     try testing.expect(drawn_inside > 0);
 }
+
+test "dragging the split resizes the pane and never scrolls the result body" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
+    try h.driver.click(view_model.url_field_id);
+    try h.driver.typeText("https://api.example.com/v1/items");
+    h.fake.body = "[\n" ++ many_lines ++ "]";
+    try h.driver.click("kurir.send");
+    try settle(&h);
+
+    // The body is scrolled away from the top first, so a drag-scroll would show up as a changed offset.
+    const body = h.driver.box(kurirw.response_vm.body_text_id).?;
+    h.driver.move(body.x + 60, body.y + 20);
+    h.driver.scroll(0, 120);
+    const before = glinlandui.components.scroll.view(kurirw.response_vm.body_scroll_id);
+    try testing.expect(before.y > 0);
+
+    // Grab the divider and drag it up: the response pane grows.
+    const grip = h.driver.box("kurir.split").?;
+    const x = grip.x + grip.width * 0.5;
+    const y = grip.y + grip.height * 0.5;
+    const pane_before = h.driver.box("kurir.response").?.height;
+    h.driver.pressAt(x, y);
+    h.driver.frame();
+    h.driver.move(x, y - 40);
+    h.driver.frame();
+    h.driver.move(x, y - 80);
+    h.driver.frame();
+    h.driver.releaseAt(x, y - 80);
+    h.driver.frame();
+
+    try testing.expect(h.driver.box("kurir.response").?.height > pane_before);
+    // A divider owns the pointer: the body under it must not have moved with it.
+    try testing.expectEqual(before.y, glinlandui.components.scroll.view(kurirw.response_vm.body_scroll_id).y);
+}

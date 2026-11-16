@@ -42,6 +42,14 @@ raises a card of its own on a right click:
 The component stays app-agnostic: a field's `menu` adds rows after those four, and the app is told which of
 its OWN rows was picked, so Kurir can grow the card without the toolkit knowing what "Format JSON" means.
 
+## Fixed: dragging the divider no longer scrolls the result body
+
+The 6 pt line between the editor and the response resized the panes — and also scrolled the body under it, in
+steps, so the answer appeared to jump. A body field is as tall as its whole content, so its box reaches above
+the scroll viewport, and a press on the line looked like a press on its text: the caret followed the pointer and
+the pane chased the caret. A press now only counts where the text actually shows, a drag belongs to whatever
+grabbed it, and a reveal only follows a caret moved while no button is held.
+
 ## Fixed: the body no longer goes blank when you scroll away from the caret
 
 Click in the body (which puts the caret on that line) and then scroll: the pane used to keep drawing the lines
