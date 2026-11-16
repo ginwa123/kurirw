@@ -104,6 +104,9 @@ fn urlWidth(scope: *Scope) props.Size {
     // Everything the row spends before the field: the method button, its 4 pt gaps, the panel's grip and the editor's own padding.
     const fixed: f32 = 96 + send_w + curl_w + (if (curl_w > 0) @as(f32, 12) else 8) + 7 + 24;
     const avail = scope.vm.viewport_w - scope.state.sidebar_width - fixed;
+    if (std.c.getenv("KURIR_DEBUG_WIDTH") != null) {
+        std.debug.print("urlwd win={d:.1} sidebar={d:.1} send={d:.1} curl={d:.1} fixed={d:.1} avail={d:.1}\n", .{ scope.vm.viewport_w, scope.state.sidebar_width, send_w, curl_w, fixed, avail });
+    }
     if (avail < 160) return .grow;
     return .{ .clamp = .{ .min = 160, .max = avail, .grow = true } };
 }
