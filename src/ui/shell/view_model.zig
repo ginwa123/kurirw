@@ -52,7 +52,15 @@ pub const ws_list_id = sidebar_mod.ws_list_id;
 pub const method_trigger_id = editor_mod.method_trigger_id;
 pub const method_list_id = editor_mod.method_list_id;
 pub const method_menu_id = editor_mod.method_menu_id;
+pub const body_mode_prefix = editor_mod.mode_prefix;
+pub const body_language_prefix = editor_mod.language_prefix;
+pub const body_part_key_prefix = editor_mod.part_key_prefix;
+pub const body_part_value_prefix = editor_mod.part_value_prefix;
+pub const history_row_prefix = response_mod.history_row_prefix;
 pub const HeaderCtx = Editor.HeaderCtx;
+pub const BodyPartCtx = Editor.PartCtx;
+pub const BodyModeCtx = Editor.ModeCtx;
+pub const BodyLanguageCtx = Editor.LanguageCtx;
 
 // Everything the screen needs from outside, built once by `di/container.zig`.
 pub const Deps = struct {
@@ -69,6 +77,9 @@ pub const Deps = struct {
 pub const KurirViewModel = struct {
     // The view addresses a header toggle by the context the editor creates.
     pub const HeaderCtx = Editor.HeaderCtx;
+    pub const BodyPartCtx = Editor.PartCtx;
+    pub const BodyModeCtx = Editor.ModeCtx;
+    pub const BodyLanguageCtx = Editor.LanguageCtx;
 
     // The three panels plus the document they share.
     session: Session = .{},
@@ -96,11 +107,20 @@ pub const KurirViewModel = struct {
     pump: *pump_mod.Pump = undefined,
     // One request at a time, on its own task. The frame loop collects it the moment it lands.
     job: ?Pending = null,
+    // One history row's click context: model-owned, so a click dispatched on a later frame still finds its result.
+    history_ctxs: [state_mod.max_history]HistoryClick = undefined,
 
     const Pending = struct {
         job: *request_job.Job,
         // The endpoint it belongs to, keyed when the send started.
         key: response_mod.Key,
+        // What the send was, so its history row can name it after the job that fetched it is gone.
+        meta: response_mod.Meta,
+    };
+
+    pub const HistoryClick = struct {
+        vm: *KurirViewModel,
+        serial: u64,
     };
 
     pub fn init() KurirViewModel {
@@ -117,6 +137,8 @@ pub const KurirViewModel = struct {
         self.sidebar.start(&self.session);
         self.editor.start(&self.session);
         self.response.start(&self.session);
+        // The history's click contexts are built once; a snapshot only fills in which result each row carries.
+        for (&self.history_ctxs) |*click| click.* = .{ .vm = self, .serial = 0 };
         // The one intent that crosses panels: Ctrl/Cmd+Enter while the body has the keyboard sends.
         self.editor.body_field.on_submit = .{ .f = onBodySubmit, .ctx = self };
 
@@ -168,7 +190,9 @@ pub const KurirViewModel = struct {
         var view = UiState{};
         self.sidebar.snapshot(&view, arena);
         self.editor.snapshot(&view, arena);
-        self.response.snapshot(&view);
+        self.response.snapshot(&view, arena);
+        // Each row's context names the result behind it, so a click survives the list shifting under it.
+        for (view.history, 0..) |row, i| self.history_ctxs[i].serial = row.serial;
         view.status = self.session.status();
         view.status_is_error = self.session.status_is_error;
         view.focus = self.session.focus;
@@ -276,6 +300,8 @@ pub const KurirViewModel = struct {
     pub fn select(self: *KurirViewModel, path: Path) void {
         self.sidebar.select(path);
         self.editor.load();
+        // A different endpoint means a different result: no history row survives the move.
+        self.response.clearPin();
     }
 
     pub fn toggleSelected(self: *KurirViewModel) void {
@@ -381,8 +407,17 @@ pub const KurirViewModel = struct {
         self.editor.setTab(tab);
     }
 
-    pub fn setResponseTab(self: *KurirViewModel, tab: state_mod.Tab) void {
+    pub fn setResponseTab(self: *KurirViewModel, tab: state_mod.ResponseTab) void {
         self.response.setTab(tab);
+    }
+
+    // A history row was clicked: select the request it belongs to, then show that result rather than the newest.
+    pub fn pinHistory(self: *KurirViewModel, serial: u64) void {
+        const key = self.response.keyFor(serial) orelse return;
+        if (key.workspace != self.session.workspace) return;
+        self.sidebar.select(key.path);
+        self.editor.load();
+        self.response.pin(serial);
     }
 
     // ---- sending ----------------------------------------------------------------------------------------
@@ -404,7 +439,7 @@ pub const KurirViewModel = struct {
         const gpa = self.session.gpa;
         const job = request_job.Job.create(gpa, self.session.io) catch
             return self.session.failNow("Could not start the request.");
-        const wire = send_request.build(job.arena(), node.*) catch |err| {
+        const wire = send_request.build(job.arena(), node.*, .{ .boundary = self.formBoundary(job.arena()) }) catch |err| {
             job.destroy(gpa);
             return switch (err) {
                 error.NotARequest => self.session.failNow("Could not read that request."),
@@ -415,7 +450,8 @@ pub const KurirViewModel = struct {
         // The transport writes into the job's arena, on the job's thread: the frame never waits for it.
         job.start(self.transport(job.arena()));
 
-        self.job = .{ .job = job, .key = key };
+        // The row this answer will get is named while the request is still the selected one.
+        self.job = .{ .job = job, .key = key, .meta = .{ .method = wire.method, .name = Session.name(node.*), .url = wire.url } };
         self.pump.set(true);
         self.session.setStatus(false, "Sending {s}...", .{wire.method});
         self.session.touch();
@@ -429,7 +465,7 @@ pub const KurirViewModel = struct {
         self.job = null;
         self.pump.set(false);
         // Store FIRST: the result and the formatted body point into the job's arena, and `store` copies them out.
-        self.response.store(pending.key, result, pending.job.shown);
+        self.response.store(pending.key, pending.meta, result, pending.job.shown);
         pending.job.destroy(self.session.gpa);
     }
 
@@ -479,6 +515,12 @@ pub const KurirViewModel = struct {
             return self.session.fail("Could not write {s} ({s}).", .{ target, @errorName(err) });
         self.session.setStatus(false, "Exported {s} to {s}. Postman imports that file as it is.", .{ Session.name(collection), target });
         self.session.touch();
+    }
+
+    // A form-data body delimits its parts with a token nobody else can produce, so it is random per send.
+    fn formBoundary(self: *KurirViewModel, arena: Allocator) []const u8 {
+        const token = self.session.randomId(arena);
+        return std.fmt.allocPrint(arena, "kurir-{s}", .{token}) catch "kurir-boundary";
     }
 
     // Ctrl/Cmd+Enter: the field asks whether the intent took the draft. It did not, so the body stays where it is.
@@ -801,6 +843,38 @@ test "the body field commits what it types into the model" {
         testing.allocator.destroy(again);
     }
     try testing.expectEqualStrings("{\"amount\": 100}", again.uiState().body);
+}
+
+test "prettify lays a compact JSON body out, and refuses a body that is not JSON" {
+    var h = try Harness.boot();
+    defer h.stop();
+
+    _ = h.firstRequest();
+    h.vm.setBody("{\"a\":1,\"b\":[2,3]}");
+    h.vm.editor.prettifyBody();
+
+    const pretty = h.state().body;
+    try testing.expect(std.mem.indexOf(u8, pretty, "\n") != null);
+    try testing.expect(std.mem.indexOf(u8, pretty, "\"a\": 1") != null);
+
+    // The indented text is the document's, so a reload reads it back indented.
+    const again = try h.reopen();
+    defer {
+        again.deinit();
+        testing.allocator.destroy(again);
+    }
+    try testing.expectEqualStrings(pretty, again.uiState().body);
+
+    // A body that does not parse is refused with a sentence, and left exactly as it was.
+    h.vm.setBody("{oops");
+    h.vm.editor.prettifyBody();
+    try testing.expect(h.state().status_is_error);
+    try testing.expectEqualStrings("{oops", h.state().body);
+
+    // Nothing to prettify is its own sentence, not a crash.
+    h.vm.setBody("");
+    h.vm.editor.prettifyBody();
+    try testing.expect(std.mem.indexOf(u8, h.state().status, "empty") != null);
 }
 
 test "workspaces are separate containers, and switching keeps the collections apart" {

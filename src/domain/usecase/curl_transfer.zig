@@ -51,6 +51,9 @@ pub fn command(arena: Allocator, item: postman.Value) Error![]const u8 {
         .url = view.url,
         .headers = headers.items,
         .body = view.body,
+        // A form body is written as one flag per row, which is how curl reproduces those bytes.
+        .body_mode = view.body_mode,
+        .parts = view.parts,
     });
 }
 
@@ -109,4 +112,26 @@ test "a disabled header never reaches the exported command" {
 
     const text = try command(arena, item);
     try testing.expect(std.mem.indexOf(u8, text, "x-off") == null);
+}
+
+test "a form body exports as one flag per row, in the flag its mode uses" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var form = try postman.newRequest(arena, "upload", "POST", "https://api.example.com/upload");
+    try postman.setBodyMode(arena, &form, "formdata");
+    _ = try postman.addBodyPart(arena, &form);
+    try postman.setBodyPartKey(arena, &form, 0, "name");
+    try postman.setBodyPartValue(arena, &form, 0, "widget");
+    const form_text = try command(arena, form);
+    try testing.expect(std.mem.indexOf(u8, form_text, "-F 'name=widget'") != null);
+
+    var encoded = try postman.newRequest(arena, "token", "POST", "https://api.example.com/token");
+    try postman.setBodyMode(arena, &encoded, "urlencoded");
+    _ = try postman.addBodyPart(arena, &encoded);
+    try postman.setBodyPartKey(arena, &encoded, 0, "grant_type");
+    try postman.setBodyPartValue(arena, &encoded, 0, "client_credentials");
+    const encoded_text = try command(arena, encoded);
+    try testing.expect(std.mem.indexOf(u8, encoded_text, "--data-urlencode 'grant_type=client_credentials'") != null);
 }

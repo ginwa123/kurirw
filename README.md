@@ -14,8 +14,16 @@ account, the cloud, or the browser tab.
   Right-click a request for **Rename**, **Duplicate** and **Delete** — up to you whether the menu is
   the keyboard or the mouse.
 - **Send and read.** Pick a method (GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS), paste a URL, add
-  headers and a JSON body, press Send. You get the status, the time, the size, the pretty-printed body
+  headers and a body, press Send. You get the status, the time, the size, the pretty-printed body
   and the response headers — and the last answer for each endpoint is kept while you look elsewhere.
+- **Every send is remembered.** The response pane has a **History** tab: the last **20** results of
+  the session with their method, name, status, time, size and age. Press one to see that answer again;
+  the request it belongs to is selected for you, and sending again goes back to the newest.
+- **A body the way Postman writes one.** The Body tab offers **none**, **form-data**,
+  **x-www-form-urlencoded** and **raw** (JSON, text, XML or HTML). The two form modes edit a
+  key/value table with an on/off per row; sending builds the right bytes and the matching
+  `Content-Type` — a URL-encoded pair list, or a real multipart body with its own boundary.
+  A raw JSON body can be laid out with one press of **Prettify**.
 - **The response is text you can use.** Click into the body, drag to select, Cmd/Ctrl+C to copy — and
   nothing you type can change it. A multi-megabyte answer still scrolls smoothly.
 - **It never freezes.** A request runs on its own thread, so the window keeps drawing while a slow
@@ -59,12 +67,13 @@ also download the archive yourself and run the binary inside it.
 2. Press **+ New → Request**, then paste a URL — try `https://jsonplaceholder.typicode.com/todos/1`.
 3. Press **Send**. The response appears in the pane below; drag the line above it to make the pane
    bigger.
-4. Switch to **Body** to type a JSON payload, or **+ Header** to add a header. Ctrl/Cmd+Enter sends
-   from the body editor.
+4. Switch to **Body** to pick how it sends — raw JSON, a form table, or nothing — or **+ Header** to
+   add a header. Ctrl/Cmd+Enter sends from the body editor.
 5. **+ New → Import** takes a Postman collection file. The `...` next to the workspace name exports one.
 6. **+ New → From cURL** turns a `curl …` command you copied into a request; the **cURL** button beside
    Send copies the request you are looking at back out as a command.
-7. Click into the response body to select a value and copy it — the pane is a read-only text editor,
+7. Press **History** in the response pane to see the last twenty answers; press one to bring it back.
+8. Click into the response body to select a value and copy it — the pane is a read-only text editor,
    so drag-select, double-click-a-word and Cmd/Ctrl+A all work.
 
 ## Where your work is kept

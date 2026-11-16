@@ -207,6 +207,8 @@ pub fn editorTabsChildren(scope: *Scope) void {
     box_mod.spacer(.{ .text = "kurir.tabs.spacer" });
     if (scope.state.node_kind == .request and scope.state.editor_tab == .headers) {
         smallButton(scope, "kurir.header.add", "+ Header", 84, actions.onAddHeader);
+    } else if (scope.state.node_kind == .request and scope.state.body_mode.isTable()) {
+        smallButton(scope, "kurir.body.part.add", "+ Row", 64, actions.onAddBodyPart);
     }
     text_mod.label(.{ .label = .{ .text = "Ctrl/Cmd+Enter sends", .size = t.type_scale.caption, .color = t.colors.text_done } });
 }
@@ -227,8 +229,96 @@ pub fn editorBody(scope: *Scope) void {
     if (scope.state.editor_tab == .headers) {
         headersTable(scope);
     } else {
-        bodyEditor(scope);
+        bodyTab(scope);
     }
+}
+
+// The Body tab: the mode selector above whatever that mode edits.
+pub fn bodyTab(scope: *Scope) void {
+    box_mod.box(.{
+        .src = @src(),
+        .id = .{ .text = "kurir.body.tab" },
+        .direction = .column,
+        .w = .grow,
+        .h = .grow,
+        .gap = .{ .px = 8 },
+    }, scope, bodyTabChildren);
+}
+
+pub fn bodyTabChildren(scope: *Scope) void {
+    bodyModeRow(scope);
+    switch (scope.state.body_mode) {
+        .none => bodyNoneHint(scope),
+        .raw => bodyEditor(scope),
+        .formdata, .urlencoded => bodyPartsTable(scope),
+    }
+}
+
+// Postman's radio row, drawn as the tabs this panel already uses: one button per mode, plus the raw language.
+pub fn bodyModeRow(scope: *Scope) void {
+    box_mod.box(.{
+        .src = @src(),
+        .id = .{ .text = "kurir.body.modes" },
+        .direction = .row,
+        .w = .grow,
+        .gap = .{ .px = 4 },
+        .child_align = .{ .y = .center },
+    }, scope, bodyModeRowChildren);
+}
+
+pub fn bodyModeRowChildren(scope: *Scope) void {
+    for (editor_vm.Editor.modes, 0..) |mode, index| bodyModeButton(scope, mode, index);
+    box_mod.spacer(.{ .text = "kurir.body.modes.spacer" });
+    if (scope.state.body_mode == .raw) {
+        for (state_mod.raw_languages, 0..) |language, index| bodyLanguageButton(scope, language, index);
+        smallButton(scope, "kurir.body.prettify", "Prettify", 76, actions.onPrettifyBody);
+    }
+}
+
+fn bodyModeButton(scope: *Scope, mode: postman.BodyMode, index: usize) void {
+    const t = scope.theme;
+    const active = scope.state.body_mode == mode;
+    button_mod.button(.{
+        .id = .{ .text = frame.elementId(editor_vm.mode_prefix, index) },
+        .label = .{ .text = mode.label(), .size = t.type_scale.caption, .color = if (active) t.colors.text else t.colors.text_dim },
+        .bg = if (active) t.colors.surface_variant else t.colors.surface,
+        .hover_bg = t.colors.hover,
+        .pad = props.Pad.axes(4, 10),
+        .radius = props.Radius.all(4),
+        .on_click = .{ .f = actions.onBodyMode, .ctx = &scope.vm.editor.mode_ctxs[index] },
+    });
+}
+
+fn bodyLanguageButton(scope: *Scope, language: []const u8, index: usize) void {
+    const t = scope.theme;
+    const active = std.mem.eql(u8, scope.state.body_language, language);
+    button_mod.button(.{
+        .id = .{ .text = frame.elementId(editor_vm.language_prefix, index) },
+        .label = .{ .text = language, .size = t.type_scale.caption, .color = if (active) t.colors.text else t.colors.text_done },
+        .bg = if (active) t.colors.surface_variant else t.colors.surface,
+        .hover_bg = t.colors.hover,
+        .pad = props.Pad.axes(3, 7),
+        .radius = props.Radius.all(4),
+        .on_click = .{ .f = actions.onBodyLanguage, .ctx = &scope.vm.editor.language_ctxs[index] },
+    });
+}
+
+fn bodyNoneHint(scope: *Scope) void {
+    box_mod.box(.{
+        .src = @src(),
+        .id = .{ .text = "kurir.body.none" },
+        .direction = .column,
+        .w = .grow,
+        .h = .grow,
+        .pad = props.Pad.all(8),
+        .gap = .{ .px = 6 },
+    }, scope, bodyNoneChildren);
+}
+
+fn bodyNoneChildren(scope: *Scope) void {
+    const t = scope.theme;
+    text_mod.label(.{ .label = .{ .text = "This request sends no body.", .size = t.type_scale.body, .color = t.colors.text_dim } });
+    text_mod.label(.{ .label = .{ .text = "Pick raw, form-data or x-www-form-urlencoded above to give it one.", .size = t.type_scale.caption, .color = t.colors.text_done } });
 }
 
 pub fn editorEmpty(scope: *Scope) void {
@@ -359,6 +449,112 @@ pub fn bodyEditor(scope: *Scope) void {
         .thumb_bg = t.colors.surface_variant,
         .thumb_hover_bg = t.colors.primary,
     }, scope, bodyField);
+}
+
+// The form-data and urlencoded table: one key/value row per part, with the same columns a header row has.
+pub fn bodyPartsTable(scope: *Scope) void {
+    const t = scope.theme;
+    if (scope.state.body_part_count == 0) {
+        box_mod.box(.{
+            .src = @src(),
+            .id = .{ .text = "kurir.body.parts.empty" },
+            .w = .grow,
+            .h = .grow,
+            .pad = props.Pad.all(8),
+            .direction = .column,
+            .gap = .{ .px = 6 },
+        }, scope, bodyPartsEmpty);
+        return;
+    }
+    scroll_mod.scroll(.{
+        .id = .{ .text = "kurir.body.parts" },
+        .direction = .vertical,
+        .w = .grow,
+        .h = .grow,
+        .thumb_bg = t.colors.surface_variant,
+        .thumb_hover_bg = t.colors.primary,
+    }, scope, partRows);
+}
+
+fn bodyPartsEmpty(scope: *Scope) void {
+    const t = scope.theme;
+    text_mod.label(.{ .label = .{ .text = "No rows in this body yet.", .size = t.type_scale.body, .color = t.colors.text_dim } });
+    text_mod.label(.{ .label = .{ .text = "Press + Row to add a key and a value.", .size = t.type_scale.caption, .color = t.colors.text_done } });
+}
+
+pub fn partRows(scope: *Scope) void {
+    const count = @min(scope.state.body_part_count, state_mod.max_body_parts);
+    var i: usize = 0;
+    while (i < count) : (i += 1) partRow(scope, i);
+}
+
+const PartScope = struct {
+    scope: *Scope,
+    index: usize,
+};
+
+pub fn partRow(scope: *Scope, index: usize) void {
+    box_mod.box(.{
+        .src = @src(),
+        .id = .{ .text = frame.elementId("kurir.body.part.row", index) },
+        .direction = .row,
+        .w = .grow,
+        .gap = .{ .px = 6 },
+        .pad = props.Pad.sides(2, 0, 2, 0),
+        .child_align = .{ .y = .center },
+    }, &PartScope{ .scope = scope, .index = index }, partRowChildren);
+}
+
+// A part's value may take what its row has left: the window, minus the panel, the editor, the on button, the key column, the delete button and the gutter.
+fn partValueWidth(scope: *Scope, index: usize) props.Size {
+    const key_w: f32 = if (frame.bounds(glinlandui.props.Id.at(editor_vm.part_key_prefix, index).clay())) |b| b.width else 220;
+    const del_w: f32 = if (frame.bounds((props.Id{ .text = frame.elementId("kurir.body.part.del", index) }).clay())) |b| b.width else 24;
+    const fixed: f32 = 7 + 24 + 34 + key_w + del_w + 18 + 16;
+    const avail = scope.vm.viewport_w - scope.state.sidebar_width - fixed;
+    if (avail < 120) return .grow;
+    return .{ .clamp = .{ .min = 120, .max = avail, .grow = true } };
+}
+
+pub fn partRowChildren(ps: *const PartScope) void {
+    const scope = ps.scope;
+    const t = scope.theme;
+    const index = ps.index;
+    if (index >= scope.state.body_parts.len) return;
+    const row = scope.state.body_parts[index];
+    const enabled = !scope.vm.editor.bodyPartDisabled(index);
+
+    button_mod.button(.{
+        .id = .{ .text = frame.elementId("kurir.body.part.on", index) },
+        .label = .{ .text = if (enabled) "on" else "off", .size = t.type_scale.caption, .color = if (enabled) t.colors.on_primary else t.colors.text_dim },
+        .bg = if (enabled) theme_mod.success else t.colors.surface_variant,
+        .hover_bg = t.colors.primary_hover,
+        .w = .{ .fixed = 34 },
+        .pad = props.Pad.axes(3, 4),
+        .radius = props.Radius.all(4),
+        .on_click = .{ .f = actions.onToggleBodyPart, .ctx = &scope.vm.editor.part_ctxs[index * 2] },
+    });
+
+    const key_field = &scope.vm.editor.part_fields[index * 2];
+    key_field.value = row.key;
+    key_field.h = .{ .fixed = 26 };
+    key_field.w = .{ .clamp = .{ .min = 90, .max = 220, .grow = true } };
+    input_mod.textField(key_field);
+
+    const value_field = &scope.vm.editor.part_fields[index * 2 + 1];
+    value_field.value = row.value;
+    value_field.h = .{ .fixed = 26 };
+    value_field.w = partValueWidth(scope, index);
+    input_mod.textField(value_field);
+
+    button_mod.button(.{
+        .id = .{ .text = frame.elementId("kurir.body.part.del", index) },
+        .label = .{ .text = "x", .size = t.type_scale.caption, .color = t.colors.text_dim },
+        .bg = t.colors.surface,
+        .hover_bg = t.colors.hover,
+        .pad = props.Pad.axes(3, 8),
+        .radius = props.Radius.all(4),
+        .on_click = .{ .f = actions.onRemoveBodyPart, .ctx = &scope.vm.editor.part_ctxs[index * 2] },
+    });
 }
 
 // The body is the toolkit's multiline field: it draws its own lines, its own caret, and takes its own clicks.

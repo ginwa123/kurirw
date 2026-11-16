@@ -21,6 +21,9 @@ pub const Request = struct {
     url: []const u8 = "",
     headers: []const Header = &.{},
     body: []const u8 = "",
+    // The mode the body is in, and the rows the two form modes carry: curl says those as one flag per row.
+    body_mode: []const u8 = "",
+    parts: []const postman.BodyPart = &.{},
 };
 
 // Options that consume the next token and that a request cannot carry: swallowing the value keeps it from being read as the URL.
@@ -343,6 +346,17 @@ pub fn format(arena: Allocator, request: Request) Error![]const u8 {
     }
     try out.appendSlice(arena, " \\\n  ");
     try out.appendSlice(arena, try quote(arena, request.url));
+    // A form body is one flag per row: that is how curl sends the same pairs the app would.
+    const mode = postman.BodyMode.fromPostman(request.body_mode);
+    if (mode.isTable()) {
+        for (request.parts) |part| {
+            if (part.disabled or part.key.len == 0) continue;
+            const pair = try std.fmt.allocPrint(arena, "{s}={s}", .{ part.key, part.value });
+            try out.appendSlice(arena, if (mode == .formdata) " \\\n  -F " else " \\\n  --data-urlencode ");
+            try out.appendSlice(arena, try quote(arena, pair));
+        }
+        return out.items;
+    }
     if (request.body.len > 0) {
         try out.appendSlice(arena, " \\\n  --data-raw ");
         try out.appendSlice(arena, try quote(arena, request.body));

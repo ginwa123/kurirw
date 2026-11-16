@@ -129,3 +129,45 @@ pub fn onResponseHeadersTab(ctx: ?*anyopaque) void {
     const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
     vm.setResponseTab(.headers);
 }
+
+pub fn onResponseHistoryTab(ctx: ?*anyopaque) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.setResponseTab(.history);
+}
+
+// One history row: the context carries the result's serial, so an eviction cannot point it at another one.
+pub fn onHistoryRow(ctx: ?*anyopaque) void {
+    const click: *KurirViewModel.HistoryClick = @ptrCast(@alignCast(ctx.?));
+    click.vm.pinHistory(click.serial);
+}
+
+// The Body tab's mode selector: the context is the button's own, built once on the panel.
+pub fn onBodyMode(ctx: ?*anyopaque) void {
+    const mode_ctx: *KurirViewModel.BodyModeCtx = @ptrCast(@alignCast(ctx.?));
+    mode_ctx.editor.setBodyMode(mode_ctx.mode);
+}
+
+pub fn onBodyLanguage(ctx: ?*anyopaque) void {
+    const language_ctx: *KurirViewModel.BodyLanguageCtx = @ptrCast(@alignCast(ctx.?));
+    language_ctx.editor.setBodyLanguage(language_ctx.language);
+}
+
+pub fn onAddBodyPart(ctx: ?*anyopaque) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.editor.addBodyPart();
+}
+
+pub fn onPrettifyBody(ctx: ?*anyopaque) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.editor.prettifyBody();
+}
+
+pub fn onRemoveBodyPart(ctx: ?*anyopaque) void {
+    const part_ctx: *KurirViewModel.BodyPartCtx = @ptrCast(@alignCast(ctx.?));
+    part_ctx.editor.removeBodyPart(part_ctx.index);
+}
+
+pub fn onToggleBodyPart(ctx: ?*anyopaque) void {
+    const part_ctx: *KurirViewModel.BodyPartCtx = @ptrCast(@alignCast(ctx.?));
+    part_ctx.editor.toggleBodyPart(part_ctx.index);
+}

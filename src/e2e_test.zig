@@ -1424,3 +1424,156 @@ test "dragging the split resizes the pane and never scrolls the result body" {
     // A divider owns the pointer: the body under it must not have moved with it.
     try testing.expectEqual(before.y, glinlandui.components.scroll.view(kurirw.response_vm.body_scroll_id).y);
 }
+
+test "every send lands in the history, which lists twenty and shows a past result on a click" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
+    try h.driver.click(view_model.url_field_id);
+    try h.driver.typeText("https://api.example.com/history");
+
+    // Three sends of the same endpoint: three results, so three history rows.
+    var i: usize = 0;
+    while (i < 3) : (i += 1) {
+        h.fake.body = switch (i) {
+            0 => "{\"which\":\"first\"}",
+            1 => "{\"which\":\"second\"}",
+            else => "{\"which\":\"third\"}",
+        };
+        try h.driver.click("kurir.send");
+        try settle(&h);
+    }
+    const state = h.app.vm().uiState();
+    try testing.expectEqual(@as(usize, 3), state.history.len);
+    // Newest first, and the newest one is what the pane shows.
+    try testing.expect(std.mem.indexOf(u8, state.history[0].status, "200") != null);
+    try testing.expect(std.mem.indexOf(u8, state.response.body, "third") != null);
+
+    // The History tab lists them, and pressing the oldest row brings that result back.
+    try h.driver.click("kurir.resp.tab.history");
+    try testing.expectEqual(kurirw.state.ResponseTab.history, h.app.vm().uiState().response_tab);
+    try h.driver.expectText("History 3");
+    try h.driver.click(glinlandui.frame.elementId(view_model.history_row_prefix, 2));
+    const pinned = h.app.vm().uiState();
+    try testing.expect(pinned.response_pinned);
+    try testing.expectEqual(kurirw.state.ResponseTab.body, pinned.response_tab);
+    try testing.expect(std.mem.indexOf(u8, pinned.response.body, "first") != null);
+    try testing.expect(pinned.history[2].pinned);
+
+    // A send is what moves it back to the newest result.
+    h.fake.body = "{\"which\":\"fourth\"}";
+    try h.driver.click("kurir.send");
+    try settle(&h);
+    const after = h.app.vm().uiState();
+    try testing.expect(!after.response_pinned);
+    try testing.expect(std.mem.indexOf(u8, after.response.body, "fourth") != null);
+    try testing.expectEqual(@as(usize, 4), after.history.len);
+}
+
+test "the body mode decides the bytes and the Content-Type the server receives" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
+    try h.driver.click(view_model.url_field_id);
+    try h.driver.typeText("https://api.example.com/body");
+    try h.driver.click("kurir.tab.body");
+    // A new request starts as a raw JSON body, which is what the old Body tab always wrote.
+    try testing.expectEqual(kurirw.state.BodyMode.raw, h.app.vm().uiState().body_mode);
+
+    try h.driver.click(view_model.body_id);
+    try h.driver.typeText("{\"a\":1}");
+    try h.driver.click("kurir.send");
+    try settle(&h);
+    try testing.expectEqualStrings("{\"a\":1}", h.fake.last_body);
+    // The type is inferred, so the request did not have to spell it out.
+    try testing.expectEqual(@as(usize, 1), h.fake.last_header_count);
+
+    // none: no bytes, and no type inferred for them.
+    try h.driver.click(glinlandui.frame.elementId(view_model.body_mode_prefix, 0));
+    try testing.expectEqual(kurirw.state.BodyMode.none, h.app.vm().uiState().body_mode);
+    try h.driver.click("kurir.send");
+    try settle(&h);
+    try testing.expectEqualStrings("", h.fake.last_body);
+    try testing.expectEqual(@as(usize, 0), h.fake.last_header_count);
+
+    // x-www-form-urlencoded: one row, encoded as a form decoder reads it.
+    try h.driver.click(glinlandui.frame.elementId(view_model.body_mode_prefix, 2));
+    try testing.expectEqual(kurirw.state.BodyMode.urlencoded, h.app.vm().uiState().body_mode);
+    try h.driver.click("kurir.body.part.add");
+    try h.driver.click(glinlandui.frame.elementId(view_model.body_part_key_prefix, 0));
+    try h.driver.typeText("grant_type");
+    try h.driver.click(glinlandui.frame.elementId(view_model.body_part_value_prefix, 0));
+    try h.driver.typeText("client credentials");
+    try h.driver.click("kurir.send");
+    try settle(&h);
+    try testing.expectEqualStrings("grant_type=client+credentials", h.fake.last_body);
+
+    // form-data: a multipart body with its own delimiter, and the type that names it.
+    try h.driver.click(glinlandui.frame.elementId(view_model.body_mode_prefix, 1));
+    try testing.expectEqual(kurirw.state.BodyMode.formdata, h.app.vm().uiState().body_mode);
+    try h.driver.click("kurir.body.part.add");
+    try h.driver.click(glinlandui.frame.elementId(view_model.body_part_key_prefix, 0));
+    try h.driver.typeText("name");
+    try h.driver.click(glinlandui.frame.elementId(view_model.body_part_value_prefix, 0));
+    try h.driver.typeText("widget");
+    try h.driver.click("kurir.send");
+    try settle(&h);
+    try testing.expect(std.mem.startsWith(u8, h.fake.last_body, "--kurir-"));
+    try testing.expect(std.mem.indexOf(u8, h.fake.last_body, "Content-Disposition: form-data; name=\"name\"") != null);
+    try testing.expect(std.mem.indexOf(u8, h.fake.last_body, "widget") != null);
+    try testing.expectEqual(@as(usize, 1), h.fake.last_header_count);
+
+    // Back to raw: the text typed before is still there, and the mode never rewrote it.
+    try h.driver.click(glinlandui.frame.elementId(view_model.body_mode_prefix, 3));
+    try h.driver.click("kurir.send");
+    try settle(&h);
+    try testing.expectEqualStrings("{\"a\":1}", h.fake.last_body);
+}
+
+test "prettify re-indents the body in place, and says so when the body is not JSON" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
+    try h.driver.click(view_model.url_field_id);
+    try h.driver.typeText("https://api.example.com/pretty");
+    try h.driver.click("kurir.tab.body");
+    try h.driver.click(view_model.body_id);
+    try h.driver.typeText("{\"a\":1,\"b\":[2,3]}");
+
+    // The button sits beside the raw languages, and pressing it lays the body out.
+    try h.driver.click("kurir.body.prettify");
+    const pretty = h.app.vm().uiState().body;
+    try testing.expect(std.mem.indexOf(u8, pretty, "\n") != null);
+    try testing.expect(std.mem.indexOf(u8, pretty, "\"a\": 1") != null);
+    // The status line says what happened, in the same words the button reads.
+    try testing.expect(std.mem.indexOf(u8, h.app.vm().uiState().status, "prettified") != null);
+
+    // What is sent is the indented text, not the compact one that was typed.
+    try h.driver.click("kurir.send");
+    try settle(&h);
+    try testing.expect(std.mem.indexOf(u8, h.fake.last_body, "\"a\": 1") != null);
+
+    // A body that is not JSON is left alone and explained.
+    h.app.vm().setBody("{oops");
+    try h.driver.click("kurir.body.prettify");
+    try testing.expectEqualStrings("{oops", h.app.vm().uiState().body);
+    try testing.expect(h.app.vm().uiState().status_is_error);
+}

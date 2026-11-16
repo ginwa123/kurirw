@@ -98,13 +98,125 @@ pub const HeaderView = struct {
     disabled: bool = false,
 };
 
+// What a request sends, in the four modes Postman's Body tab offers. The document's own vocabulary, not the view's.
+pub const BodyMode = enum {
+    none,
+    raw,
+    formdata,
+    urlencoded,
+
+    // The word the Body tab's selector shows, which is also Postman's own spelling of each mode.
+    pub fn label(self: BodyMode) []const u8 {
+        return switch (self) {
+            .none => "none",
+            .raw => "raw",
+            .formdata => "form-data",
+            .urlencoded => "x-www-form-urlencoded",
+        };
+    }
+
+    // `body.mode` as a mode; anything Kurir does not implement (binary, graphql) is `none`, never a guess.
+    pub fn fromPostman(text: []const u8) BodyMode {
+        if (std.mem.eql(u8, text, "raw")) return .raw;
+        if (std.mem.eql(u8, text, "formdata")) return .formdata;
+        if (std.mem.eql(u8, text, "urlencoded")) return .urlencoded;
+        return .none;
+    }
+
+    // The `mode` string the v2.1 document carries: its spelling is not always the label a person reads.
+    pub fn postman(self: BodyMode) []const u8 {
+        return switch (self) {
+            .none => "none",
+            .raw => "raw",
+            .formdata => "formdata",
+            .urlencoded => "urlencoded",
+        };
+    }
+
+    // True for the two modes whose rows are a key/value table rather than one text field.
+    pub fn isTable(self: BodyMode) bool {
+        return self == .formdata or self == .urlencoded;
+    }
+};
+
+// One row of a form-data or urlencoded body. `disabled` is Postman's "keep it, do not send it".
+pub const BodyPart = struct {
+    key: []const u8 = "",
+    value: []const u8 = "",
+    disabled: bool = false,
+};
+
 pub const RequestView = struct {
     method: []const u8 = default_method,
     url: []const u8 = "",
     body: []const u8 = "",
     body_mode: []const u8 = "",
+    // The language a raw body claims; json when the document says nothing.
+    body_language: []const u8 = "json",
+    // The key/value rows of a form-data or urlencoded body, empty for the other modes.
+    parts: []const BodyPart = &.{},
     headers: []const HeaderView = &.{},
 };
+
+// The body object of a request, or null when it has none.
+pub fn bodyOf(item: Value) ?Value {
+    if (item != .object) return null;
+    const request = item.object.get("request") orelse return null;
+    if (request != .object) return null;
+    const body = request.object.get("body") orelse return null;
+    if (body != .object) return null;
+    return body;
+}
+
+// The array a table mode's rows live in: `urlencoded` or `formdata`, and nothing for the other modes.
+fn bodyArrayName(mode: []const u8) ?[]const u8 {
+    if (std.mem.eql(u8, mode, "urlencoded")) return "urlencoded";
+    if (std.mem.eql(u8, mode, "formdata")) return "formdata";
+    return null;
+}
+
+// `body.mode`, as stored. Empty when the request has no body object at all.
+pub fn bodyMode(item: Value) []const u8 {
+    const body = bodyOf(item) orelse return "";
+    return str(body, "mode");
+}
+
+// `body.raw` whatever the mode is: the raw tab keeps the text you wrote even while another mode is selected.
+pub fn bodyRawText(item: Value) []const u8 {
+    const body = bodyOf(item) orelse return "";
+    return str(body, "raw");
+}
+
+// `body.options.raw.language`, defaulted to json: every raw body this app writes is JSON unless told otherwise.
+pub fn bodyLanguage(body: Value) []const u8 {
+    if (body != .object) return "json";
+    const options = body.object.get("options") orelse return "json";
+    if (options != .object) return "json";
+    const raw = options.object.get("raw") orelse return "json";
+    if (raw != .object) return "json";
+    const language = str(raw, "language");
+    return if (language.len == 0) "json" else language;
+}
+
+// How many rows the CURRENT mode's table holds; a raw body has none.
+pub fn bodyPartCount(item: Value) usize {
+    const body = bodyOf(item) orelse return 0;
+    const name = bodyArrayName(str(body, "mode")) orelse return 0;
+    const parts = body.object.get(name) orelse return 0;
+    if (parts != .array) return 0;
+    return parts.array.items.len;
+}
+
+pub fn bodyPart(item: Value, index: usize) BodyPart {
+    const body = bodyOf(item) orelse return .{};
+    const name = bodyArrayName(str(body, "mode")) orelse return .{};
+    const parts = body.object.get(name) orelse return .{};
+    if (parts != .array) return .{};
+    if (index >= parts.array.items.len) return .{};
+    const row = parts.array.items[index];
+    if (row != .object) return .{};
+    return .{ .key = str(row, "key"), .value = str(row, "value"), .disabled = boolean(row, "disabled") };
+}
 
 // Everything the editor draws for one request item. The strings are borrowed from the document arena.
 pub fn requestView(alloc: Allocator, item: Value) !RequestView {
@@ -138,7 +250,24 @@ pub fn requestView(alloc: Allocator, item: Value) !RequestView {
     if (request.object.get("body")) |body| {
         if (body == .object) {
             out.body_mode = str(body, "mode");
+            out.body_language = bodyLanguage(body);
             if (std.mem.eql(u8, out.body_mode, "raw")) out.body = str(body, "raw");
+            if (bodyArrayName(out.body_mode)) |name| {
+                if (body.object.get(name)) |parts| {
+                    if (parts == .array) {
+                        var rows: std.ArrayList(BodyPart) = .empty;
+                        for (parts.array.items) |row| {
+                            if (row != .object) continue;
+                            try rows.append(alloc, .{
+                                .key = str(row, "key"),
+                                .value = str(row, "value"),
+                                .disabled = boolean(row, "disabled"),
+                            });
+                        }
+                        out.parts = try rows.toOwnedSlice(alloc);
+                    }
+                }
+            }
         }
     }
     return out;
@@ -354,13 +483,89 @@ pub fn setUrl(alloc: Allocator, item: *Value, raw: []const u8) !void {
 }
 
 pub fn setBodyRaw(alloc: Allocator, item: *Value, raw: []const u8) !void {
-    const request = try requestChild(alloc, item);
-    const body = try objectChild(alloc, request, "body");
-    try setString(alloc, body, "mode", "raw");
+    try setBodyMode(alloc, item, "raw");
+    try setRawText(alloc, item, raw);
+    try setBodyLanguage(alloc, item, "json");
+}
+
+// ---- writing: the body, mode by mode -------------------------------------------------------------------------
+
+// The body object, created when the request has none.
+fn bodyChild(alloc: Allocator, item: *Value) !*Value {
+    return objectChild(alloc, try requestChild(alloc, item), "body");
+}
+
+// `body.mode`, and the array a table mode needs so its first row has somewhere to go.
+pub fn setBodyMode(alloc: Allocator, item: *Value, mode: []const u8) !void {
+    const body = try bodyChild(alloc, item);
+    try setString(alloc, body, "mode", mode);
+    if (bodyArrayName(mode)) |name| _ = try arrayChild(alloc, body, name);
+}
+
+// The raw text alone: switching to `raw` is `setBodyMode`, and typing must not change what the request sends.
+pub fn setRawText(alloc: Allocator, item: *Value, raw: []const u8) !void {
+    const body = try bodyChild(alloc, item);
     try setString(alloc, body, "raw", raw);
+}
+
+// `body.options.raw.language`, the field Postman reads to decide how to draw the text.
+pub fn setBodyLanguage(alloc: Allocator, item: *Value, language: []const u8) !void {
+    const body = try bodyChild(alloc, item);
     const options = try objectChild(alloc, body, "options");
     const raw_options = try objectChild(alloc, options, "raw");
-    if (str(raw_options.*, "language").len == 0) try setString(alloc, raw_options, "language", "json");
+    try setString(alloc, raw_options, "language", language);
+}
+
+// The rows array of the mode the body is in, created on demand; null for raw and none.
+fn partsArray(alloc: Allocator, item: *Value) !?*Array {
+    const body = try bodyChild(alloc, item);
+    const name = bodyArrayName(str(body.*, "mode")) orelse return null;
+    return try arrayChild(alloc, body, name);
+}
+
+// Grow the current mode's table so `index` exists, then return that row as an object.
+pub fn ensureBodyPart(alloc: Allocator, item: *Value, index: usize) !*Value {
+    const rows = (try partsArray(alloc, item)) orelse return error.NotATableBody;
+    while (rows.items.len <= index) try rows.append(.{ .object = .empty });
+    if (rows.items[index] != .object) rows.items[index] = .{ .object = .empty };
+    return &rows.items[index];
+}
+
+pub fn addBodyPart(alloc: Allocator, item: *Value) !usize {
+    const rows = (try partsArray(alloc, item)) orelse return error.NotATableBody;
+    try rows.append(.{ .object = .empty });
+    const index = rows.items.len - 1;
+    // Postman labels a form-data row with its type; a urlencoded row carries none.
+    if (std.mem.eql(u8, bodyMode(item.*), "formdata")) try setString(alloc, &rows.items[index], "type", "text");
+    return index;
+}
+
+pub fn setBodyPartKey(alloc: Allocator, item: *Value, index: usize, key: []const u8) !void {
+    const entry = try ensureBodyPart(alloc, item, index);
+    try setString(alloc, entry, "key", key);
+}
+
+pub fn setBodyPartValue(alloc: Allocator, item: *Value, index: usize, value: []const u8) !void {
+    const entry = try ensureBodyPart(alloc, item, index);
+    try setString(alloc, entry, "value", value);
+}
+
+pub fn setBodyPartEnabled(alloc: Allocator, item: *Value, index: usize, enabled: bool) !void {
+    const entry = try ensureBodyPart(alloc, item, index);
+    try setBool(alloc, entry, "disabled", !enabled);
+}
+
+pub fn bodyPartDisabled(item: Value, index: usize) bool {
+    return bodyPart(item, index).disabled;
+}
+
+pub fn removeBodyPart(item: *Value, index: usize) void {
+    const body = bodyOf(item.*) orelse return;
+    const name = bodyArrayName(str(body, "mode")) orelse return;
+    const found = body.object.getPtr(name) orelse return;
+    if (found.* != .array) return;
+    if (index >= found.array.items.len) return;
+    _ = found.array.orderedRemove(index);
 }
 
 pub fn setHeaderEnabled(alloc: Allocator, item: *Value, index: usize, enabled: bool) !void {
@@ -741,4 +946,91 @@ test "a body and a url survive being set on an item that had neither" {
     try std.testing.expectEqualStrings("{\"a\":1}", view.body);
     const body = item.object.get("request").?.object.get("body").?;
     try std.testing.expectEqualStrings("json", str(body.object.get("options").?.object.get("raw").?, "language"));
+}
+
+test "a urlencoded body round-trips through the file with its rows and its mode" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var item = try newRequest(arena, "Form", "POST", "https://api.example.com/token");
+    try setBodyMode(arena, &item, "urlencoded");
+    const first = try addBodyPart(arena, &item);
+    try setBodyPartKey(arena, &item, first, "grant_type");
+    try setBodyPartValue(arena, &item, first, "client_credentials");
+    const second = try addBodyPart(arena, &item);
+    try setBodyPartKey(arena, &item, second, "scope");
+    try setBodyPartValue(arena, &item, second, "read");
+    try setBodyPartEnabled(arena, &item, second, false);
+
+    try std.testing.expectEqualStrings("urlencoded", bodyMode(item));
+    try std.testing.expectEqual(@as(usize, 2), bodyPartCount(item));
+
+    // Through the file: write the collection, parse it again, read the rows back.
+    var collection = try parseTree(arena, "{\"info\":{\"name\":\"C\"},\"item\":[]}");
+    try collection.object.getPtr("item").?.array.append(item);
+    const bytes = try write(arena, collection, true);
+    const reloaded = try parseTree(arena, bytes);
+
+    const view = try requestView(arena, itemAt(reloaded, 0).?);
+    try std.testing.expectEqualStrings("urlencoded", view.body_mode);
+    try std.testing.expectEqual(@as(usize, 2), view.parts.len);
+    try std.testing.expectEqualStrings("grant_type", view.parts[0].key);
+    try std.testing.expectEqualStrings("client_credentials", view.parts[0].value);
+    try std.testing.expect(!view.parts[0].disabled);
+    try std.testing.expectEqualStrings("scope", view.parts[1].key);
+    try std.testing.expect(view.parts[1].disabled);
+}
+
+test "a form-data body keeps its rows apart from a urlencoded body, and a row can be removed" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var item = try newRequest(arena, "Upload", "POST", "https://api.example.com/upload");
+    try setBodyMode(arena, &item, "urlencoded");
+    _ = try addBodyPart(arena, &item);
+    try setBodyPartKey(arena, &item, 0, "field");
+
+    // Switching the mode switches the table: the urlencoded row is kept but no longer the one that sends.
+    try setBodyMode(arena, &item, "formdata");
+    try std.testing.expectEqual(@as(usize, 0), bodyPartCount(item));
+    _ = try addBodyPart(arena, &item);
+    try setBodyPartKey(arena, &item, 0, "file");
+    try setBodyPartValue(arena, &item, 0, "a,b");
+    try std.testing.expectEqual(@as(usize, 1), bodyPartCount(item));
+    try std.testing.expectEqualStrings("file", bodyPart(item, 0).key);
+
+    const body = item.object.get("request").?.object.get("body").?;
+    try std.testing.expectEqualStrings("text", str(body.object.get("formdata").?.array.items[0], "type"));
+    try std.testing.expectEqualStrings("field", str(body.object.get("urlencoded").?.array.items[0], "key"));
+
+    removeBodyPart(&item, 0);
+    try std.testing.expectEqual(@as(usize, 0), bodyPartCount(item));
+    try std.testing.expectEqual(@as(usize, 1), body.object.get("urlencoded").?.array.items.len);
+}
+
+test "switching to raw keeps the table, and typing the raw text does not change the mode" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var item = try newRequest(arena, "Mixed", "POST", "https://api.example.com/mixed");
+    try setBodyMode(arena, &item, "formdata");
+    _ = try addBodyPart(arena, &item);
+
+    try setBodyMode(arena, &item, "raw");
+    try setRawText(arena, &item, "{\"a\":1}");
+    try setBodyLanguage(arena, &item, "xml");
+
+    const view = try requestView(arena, item);
+    try std.testing.expectEqualStrings("raw", view.body_mode);
+    try std.testing.expectEqualStrings("{\"a\":1}", view.body);
+    try std.testing.expectEqualStrings("xml", view.body_language);
+    // A raw body has no table rows to draw, even though the form-data array is still in the document.
+    try std.testing.expectEqual(@as(usize, 0), view.parts.len);
+
+    try setBodyMode(arena, &item, "none");
+    try std.testing.expectEqualStrings("none", bodyMode(item));
+    try std.testing.expectEqual(@as(usize, 1), item.object.get("request").?.object.get("body").?.object.get("formdata").?.array.items.len);
 }

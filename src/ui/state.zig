@@ -13,9 +13,12 @@ pub const response_min_h: f32 = 120;
 pub const max_depth: usize = 8;
 pub const max_tree_rows: usize = 512;
 pub const max_headers: usize = 32;
+pub const max_body_parts: usize = 32;
 pub const max_body: usize = 64 * 1024;
 pub const max_url: usize = 2048;
 pub const max_name: usize = 128;
+// How many results a session keeps: the newest this many sends are the whole history.
+pub const max_history: usize = 20;
 
 pub const NodeKind = enum {
     collection,
@@ -23,10 +26,42 @@ pub const NodeKind = enum {
     request,
 };
 
-// Which pane the request editor and the response show.
+// Which pane the request editor shows.
 pub const Tab = enum {
     headers,
     body,
+};
+
+// Which pane the response shows: its own result, its own headers, or the last `max_history` results.
+pub const ResponseTab = enum {
+    body,
+    headers,
+    history,
+};
+
+// What a request sends, in the four modes Postman's Body tab offers. The words live in the document's model.
+pub const BodyMode = postman.BodyMode;
+
+// The languages a raw body can claim, so the Content-Type and the highlighting agree with what is typed.
+pub const raw_languages = [_][]const u8{ "json", "text", "xml", "html" };
+
+// One row of a form-data or urlencoded body, as the editor draws it.
+pub const BodyPartRow = struct {
+    key: []const u8 = "",
+    value: []const u8 = "",
+    disabled: bool = false,
+};
+
+// One past result, as the History tab lists it.
+pub const HistoryRow = struct {
+    serial: u64 = 0,
+    method: []const u8 = "",
+    name: []const u8 = "",
+    status: []const u8 = "",
+    detail: []const u8 = "",
+    failed: bool = false,
+    // The row the pane is showing right now, so the list says which result you are looking at.
+    pinned: bool = false,
 };
 
 // A node's address: the collection index, then one index per nesting level inside `item[]`.
@@ -137,11 +172,19 @@ pub const UiState = struct {
     headers: []const HeaderRow = &.{},
     header_count: usize = 0,
     body: []const u8 = "",
+    // The Body tab's mode selector, the language a raw body claims, and the rows the two table modes edit.
+    body_mode: BodyMode = .none,
+    body_language: []const u8 = "json",
+    body_parts: []const BodyPartRow = &.{},
+    body_part_count: usize = 0,
     editor_tab: Tab = .headers,
     // The method dropdown is the panel's: the frame only reads whether it is open.
     method_open: bool = false,
-    response_tab: Tab = .body,
+    response_tab: ResponseTab = .body,
     response: ResponseView = .{},
+    // The last `max_history` results, newest first, and whether the pane is showing an old one.
+    history: []const HistoryRow = &.{},
+    response_pinned: bool = false,
     // A request is on its own task right now, so the pane is waiting for it.
     sending: bool = false,
 
@@ -195,6 +238,15 @@ pub fn timeLabel(buffer: []u8, ms: u64) []const u8 {
     return std.fmt.bufPrint(buffer, "{d:.2} s", .{@as(f64, @floatFromInt(ms)) / 1000}) catch "?";
 }
 
+// How long ago a result landed: a history row says "3s" rather than a wall clock the reader must subtract from.
+pub fn ageLabel(buffer: []u8, age_ms: u64) []const u8 {
+    if (age_ms < 1000) return "now";
+    if (age_ms < 60_000) return std.fmt.bufPrint(buffer, "{d}s", .{age_ms / 1000}) catch "?";
+    if (age_ms < 3_600_000) return std.fmt.bufPrint(buffer, "{d}m", .{age_ms / 60_000}) catch "?";
+    if (age_ms < 86_400_000) return std.fmt.bufPrint(buffer, "{d}h", .{age_ms / 3_600_000}) catch "?";
+    return std.fmt.bufPrint(buffer, "{d}d", .{age_ms / 86_400_000}) catch "?";
+}
+
 // "200 OK", or just the code when the server sent no phrase Kurir knows.
 pub fn statusLabel(buffer: []u8, status: u16, reason: []const u8) []const u8 {
     if (reason.len == 0) return std.fmt.bufPrint(buffer, "{d}", .{status}) catch "?";
@@ -245,4 +297,33 @@ test "the response view starts empty, which is the empty state the pane draws" {
     try std.testing.expectEqual(ResponseKind.none, view.kind);
     try std.testing.expectEqual(@as(u16, 0), view.status);
     try std.testing.expectEqual(@as(usize, 0), view.headers.len);
+}
+
+test "a body mode says its Postman word both ways, and only two of them are tables" {
+    try std.testing.expectEqualStrings("none", BodyMode.none.label());
+    try std.testing.expectEqualStrings("form-data", BodyMode.formdata.label());
+    try std.testing.expectEqualStrings("x-www-form-urlencoded", BodyMode.urlencoded.label());
+    try std.testing.expectEqualStrings("raw", BodyMode.raw.label());
+
+    try std.testing.expectEqual(BodyMode.raw, BodyMode.fromPostman("raw"));
+    try std.testing.expectEqual(BodyMode.formdata, BodyMode.fromPostman("formdata"));
+    try std.testing.expectEqual(BodyMode.urlencoded, BodyMode.fromPostman("urlencoded"));
+    // A mode Kurir does not implement (binary, graphql) sends nothing rather than guessing.
+    try std.testing.expectEqual(BodyMode.none, BodyMode.fromPostman("graphql"));
+    try std.testing.expectEqual(BodyMode.none, BodyMode.fromPostman(""));
+
+    try std.testing.expect(BodyMode.formdata.isTable());
+    try std.testing.expect(BodyMode.urlencoded.isTable());
+    try std.testing.expect(!BodyMode.raw.isTable());
+    try std.testing.expect(!BodyMode.none.isTable());
+}
+
+test "a history row ages from now to days, so its own age needs no clock on screen" {
+    var buffer: [32]u8 = undefined;
+    try std.testing.expectEqualStrings("now", ageLabel(&buffer, 0));
+    try std.testing.expectEqualStrings("now", ageLabel(&buffer, 999));
+    try std.testing.expectEqualStrings("3s", ageLabel(&buffer, 3_400));
+    try std.testing.expectEqualStrings("2m", ageLabel(&buffer, 125_000));
+    try std.testing.expectEqualStrings("5h", ageLabel(&buffer, 5 * 3_600_000));
+    try std.testing.expectEqualStrings("2d", ageLabel(&buffer, 2 * 86_400_000));
 }
