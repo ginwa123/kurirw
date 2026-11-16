@@ -1142,3 +1142,103 @@ test "dragging inside the response body selects text and leaves the pane where i
 
 const many_lines = "1,\n2,\n3,\n4,\n5,\n6,\n7,\n8,\n9,\n10,\n11,\n12,\n13,\n14,\n15,\n16,\n17,\n18,\n19,\n20,\n" ++
     "21,\n22,\n23,\n24,\n25,\n26,\n27,\n28,\n29,\n30,\n31,\n32,\n33,\n34,\n35,\n36,\n37,\n38,\n39,\n40,\n";
+
+test "a wheel over the result body scrolls the pane" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
+    try h.driver.click(view_model.url_field_id);
+    try h.driver.typeText("https://api.example.com/v1/items");
+    h.fake.body = "[\n" ++ many_lines ++ "]";
+    try h.driver.click("kurir.send");
+    try settle(&h);
+
+    // The pointer sits over the TEXT, which is where a user aims: the field's own horizontal clip is under it.
+    const bb = h.driver.box(kurirw.response_vm.body_text_id).?;
+    h.driver.move(bb.x + 40, bb.y + 20);
+    try testing.expectEqual(@as(f32, 0), glinlandui.components.scroll.view(kurirw.response_vm.body_scroll_id).y);
+
+    // A trackpad/ wheel flick: the body must move, which it could not while a nested clip swallowed the delta.
+    h.driver.scroll(0, 120);
+    const after = glinlandui.components.scroll.view(kurirw.response_vm.body_scroll_id);
+    try testing.expect(after.y > 0);
+    try testing.expect(after.y <= after.content_height - after.height + 0.5);
+}
+
+test "the result body is cut by the pane's clip, not by its own" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
+    try h.driver.click(view_model.url_field_id);
+    try h.driver.typeText("https://api.example.com/v1/items");
+
+    // A body wide enough to slide sideways and long enough to run past the pane in both directions.
+    var body: std.ArrayList(u8) = .empty;
+    defer body.deinit(gpa);
+    try body.appendSlice(gpa, "[\n");
+    while (body.items.len < 512 * 1024) {
+        try body.appendSlice(gpa, "  { \"name\": \"Adeel Solangi\", \"language\": \"Sindhi\", \"id\": \"V59OF92YF627HFY0\", \"bio\": \"Vestibulum ante ipsum primis in faucibus orci\" },\n");
+    }
+    try body.appendSlice(gpa, "]\n");
+    h.fake.body = body.items;
+
+    try h.driver.click("kurir.send");
+    try settle(&h);
+
+    const box = h.driver.box(kurirw.response_vm.body_scroll_id).?;
+    // The field's own clip is bigger than the pane in both directions, so only the intersection keeps the body inside.
+    const field = h.driver.box(kurirw.response_vm.body_text_id).?;
+    try testing.expect(field.height > box.height);
+
+    // Walk the frame's scissor stream the way a renderer does, and check every body line is under a clip inside the pane.
+    var clips: [32][4]f32 = undefined;
+    var depth: usize = 0;
+    var body_lines: usize = 0;
+    for (h.driver.commands()) |cmd| {
+        switch (cmd.command_type) {
+            .scissor_start => {
+                const b = cmd.bounding_box;
+                const cur: [4]f32 = if (depth == 0) .{ 0, 0, 1280, 840 } else clips[depth - 1];
+                const next = [4]f32{ b.x, b.y, b.x + b.width, b.y + b.height };
+                if (depth < clips.len) {
+                    clips[depth] = .{
+                        @max(cur[0], next[0]),
+                        @max(cur[1], next[1]),
+                        @min(cur[2], next[2]),
+                        @min(cur[3], next[3]),
+                    };
+                    depth += 1;
+                }
+            },
+            .scissor_end => {
+                if (depth > 0) depth -= 1;
+            },
+            .text => {
+                const b = cmd.bounding_box;
+                if (b.y + b.height <= box.y or b.y >= box.y + box.height) continue;
+                if (b.x + b.width <= box.x) continue;
+                body_lines += 1;
+                if (depth == 0) return error.BodyNotClipped;
+                const clip = clips[depth - 1];
+                try testing.expect(clip[0] >= box.x - 0.5);
+                try testing.expect(clip[2] <= box.x + box.width + 0.5);
+                try testing.expect(clip[1] >= box.y - 0.5);
+                try testing.expect(clip[3] <= box.y + box.height + 0.5);
+            },
+            else => {},
+        }
+    }
+    try testing.expect(body_lines > 0);
+}

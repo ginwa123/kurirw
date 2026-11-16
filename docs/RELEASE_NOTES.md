@@ -28,6 +28,23 @@ Or download the archive for your machine from the assets below and run the binar
 | Linux x86_64 | `kurirw-linux-x86_64.tar.gz` | built on Ubuntu 24.04, so it wants glibc 2.39+; run it in a Wayland session with the pango/cairo and libcurl runtime libraries installed |
 | Windows x86_64 | `kurirw-windows-x86_64.zip` | self-contained: `Send` works over http and https, with TLS through Windows' own certificate store |
 
+## Fixed: the response body stays in its pane, and scrolls under the trackpad
+
+A big answer used to paint its text over the sidebar and past the window edge, and the pane refused to
+scroll while the pointer was over the body. Both were engine bugs, both are fixed in the toolkit rather
+than worked around here:
+
+- **Nested clips now intersect.** A text field wraps its own value in a clip that is as wide as its
+  content and as tall as every line, and the renderer used to *replace* the scroll box's clip with it —
+  so the lines the pane draws just outside the viewport (and every line a sideways scroll had pushed
+  left) landed on the sidebar. A clip now narrows the clip around it, on every backend.
+- **A clip no longer swallows the wheel.** Every clip element counts as a scroll container, so the
+  field's horizontal-only clip was taking the vertical wheel and dropping it. The wheel now goes to the
+  deepest container that can actually move, which is the pane.
+
+Right-click the body and **Inspect element** still shows it is the same read-only field; nothing in
+Kurir changed shape.
+
 ## New: drop a row anywhere — beside a row, or inside a folder
 
 - **Every drop is now a real move.** Onto the **top or bottom edge** of a row it takes that slot; onto
