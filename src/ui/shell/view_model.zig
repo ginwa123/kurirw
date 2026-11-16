@@ -407,6 +407,9 @@ pub const KurirViewModel = struct {
 
     // The window asked to close. True means it was held open: there are edits nobody has saved yet.
     pub fn requestClose(self: *KurirViewModel) bool {
+        // The session goes down FIRST: AppKit can end the process as soon as the last window closes,
+        // and this is the last hook the app is guaranteed to see.
+        self.session.persistSession(self.tabs[0..self.tab_count], self.session.selection);
         if (!self.session.hasUnsaved()) return false;
         self.quit_prompt = true;
         self.session.touch();
