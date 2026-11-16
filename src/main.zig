@@ -4,8 +4,6 @@ const builtin = @import("builtin");
 const glinlandui = @import("glinlandui");
 const kurirw = @import("kurirw");
 
-const Ctx = glinlandui.Ctx;
-
 pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
 
@@ -13,7 +11,7 @@ pub fn main(init: std.process.Init) !void {
     try app.start(gpa, init.io, init.environ_map);
     defer app.deinit();
 
-    var host = try glinlandui.host.Host.init(gpa, Ctx.from(&app), kurirw.app.App.content);
+    var host = try glinlandui.host.Host.init(gpa, &app, kurirw.app.App.content);
     defer host.deinit();
     // A Debug or ReleaseSafe build is a build a developer is looking at, so the component tree is one right-click away.
     if (builtin.mode == .Debug or builtin.mode == .ReleaseSafe) _ = glinlandui.devtools.attach(gpa, &host);
@@ -27,13 +25,13 @@ pub fn main(init: std.process.Init) !void {
         .min_height = 560,
     });
     // While a request is in flight the window keeps presenting frames, so `uiState()` can collect it.
-    app.pump = .{ .ctx = Ctx.from(&window), .set_fn = setAnimating };
+    app.pump = .{ .ctx = &window, .set_fn = setAnimating };
     window.delegate = host.delegate();
     try window.run();
 }
 
 // Only a backend that can be asked has `setAnimating`; the Linux window draws on demand, so there the pump is a no-op.
-fn setAnimating(ctx: Ctx, on: bool) void {
-    const win = ctx.get(glinlandui.Window);
+fn setAnimating(ctx: ?*anyopaque, on: bool) void {
+    const win: *glinlandui.Window = @ptrCast(@alignCast(ctx.?));
     if (@hasDecl(glinlandui.Window, "setAnimating")) win.setAnimating(on);
 }

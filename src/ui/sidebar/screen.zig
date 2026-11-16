@@ -16,11 +16,9 @@ const theme_mod = @import("../theme/theme.zig");
 const scope_mod = @import("../shell/scope.zig");
 const sidebar_vm = @import("view_model.zig");
 const actions = @import("../shell/actions.zig");
-const shell_vm = @import("../shell/view_model.zig");
 
 const Scope = scope_mod.Scope;
 const Color = glinlandui.Color;
-const Ctx = props.Ctx;
 const row_h = scope_mod.row_h;
 const indent = scope_mod.indent;
 const tree_id = "kurir.tree";
@@ -136,7 +134,7 @@ pub fn searchRowChildren(scope: *Scope) void {
     input_mod.textField(field);
 
     // A menu button: one button whose card lists what can be created, so the row stays one line.
-    button_mod.click(.{
+    button_mod.button(.{
         .src = @src(),
         .id = .{ .text = sidebar_vm.new_trigger_id },
         .label = .{ .text = "+ New  v", .size = t.type_scale.caption, .color = t.colors.on_primary },
@@ -146,7 +144,8 @@ pub fn searchRowChildren(scope: *Scope) void {
         .h = .{ .fixed = 28 },
         .pad = props.Pad.axes(0, 8),
         .radius = props.Radius.all(6),
-    }, scope.vm, actions.onNewToggle);
+        .on_click = .{ .f = actions.onNewToggle, .ctx = scope.vm },
+    });
 }
 
 pub fn sectionLabel(scope: *Scope) void {
@@ -192,7 +191,7 @@ pub fn emptyTree(scope: *Scope) void {
         .pad = props.Pad.all(16),
         .gap = .{ .px = 6 },
         .hover_bg = scope.theme.colors.hover,
-        .on_click = props.Click.on(scope.vm, actions.onAddCollection),
+        .on_click = .{ .f = actions.onAddCollection, .ctx = scope.vm },
     }, scope, emptyTreeChildren);
 }
 
@@ -240,23 +239,24 @@ pub fn treeChildren(scope: *Scope) void {
         .caret_fg = t.colors.text_dim,
         .radius = .{ .px = 4 },
         .selected_bar = theme_mod.accent,
-        .on_select = props.Select.on(scope.vm, actions.onRow),
+        .on_select = .{ .f = actions.onRow, .ctx = scope.vm },
         .context_menus = scope.state.tree_menus,
-        .reorder = .{ .on_drop = onTreeDrop, .ctx = Ctx.from(&scope.vm.sidebar) },
-        .row_extra = props.RowExtra.on(scope, chipExtra),
+        .reorder = .{ .on_drop = onTreeDrop, .ctx = &scope.vm.sidebar },
+        .row_extra = .{ .f = chipExtra, .ctx = scope },
         // The chip's own width, so the engine can cut a label that would not fit beside it.
         .extra_width = .{ .px = 46 },
     });
 }
 
 // The engine reports the row it was over and where on it; the panel owns what that means for the document.
-fn onTreeDrop(ctx: Ctx, from: usize, to: usize, zone: tree_mod.Zone) void {
-    const sb = ctx.get(sidebar_vm.Sidebar);
+fn onTreeDrop(ctx: ?*anyopaque, from: usize, to: usize, zone: tree_mod.Zone) void {
+    const sb: *sidebar_vm.Sidebar = @ptrCast(@alignCast(ctx.?));
     sb.onTreeDrop(from, to, zone);
 }
 
 // The app's own decor for a row, between the engine's caret and the label: a chip for a request, a folder for a container.
-fn chipExtra(scope: *Scope, index: usize) void {
+fn chipExtra(ctx: ?*anyopaque, index: usize) void {
+    const scope: *Scope = @ptrCast(@alignCast(ctx.?));
     if (index >= scope.state.rows.len) return;
     const r = scope.state.rows[index];
     if (r.kind != .request) return folderIcon(scope, index);
@@ -337,7 +337,7 @@ fn menus(scope: *Scope) void {
             .radius = .{ .px = 0 },
             .gap = .{ .px = 0 },
             .font_size = scope.theme.type_scale.caption,
-            .on_select = props.Select.on(scope.vm, actions.onNewPick),
+            .on_select = .{ .f = actions.onNewPick, .ctx = scope.vm },
             .overlay = true,
             .anchor_text = sidebar_vm.new_trigger_id,
             .overlay_id = sidebar_vm.new_menu_id,
@@ -361,7 +361,7 @@ fn menus(scope: *Scope) void {
             .radius = .{ .px = 0 },
             .gap = .{ .px = 0 },
             .font_size = scope.theme.type_scale.caption,
-            .on_select = props.Select.on(scope.vm, actions.onWsPick),
+            .on_select = .{ .f = actions.onWsPick, .ctx = scope.vm },
             .overlay = true,
             // Anchored to the header row, because a card is only as wide as what it hangs from.
             .anchor_text = "kurir.ws.head",
@@ -381,9 +381,9 @@ fn plainRow(t: glinlandui.theme.Theme, item: []const u8, index: usize) void {
 }
 
 // A square button with no fill of its own: it is a mark, not a block.
-fn iconButton(scope: *Scope, id: []const u8, label: []const u8, width: u32, comptime handler: fn (*shell_vm.KurirViewModel) void) void {
+fn iconButton(scope: *Scope, id: []const u8, label: []const u8, width: u32, comptime handler: *const fn (?*anyopaque) void) void {
     const t = scope.theme;
-    button_mod.click(.{
+    button_mod.button(.{
         .src = @src(),
         .id = .{ .text = id },
         .label = .{ .text = label, .size = t.type_scale.caption, .color = t.colors.text_dim },
@@ -393,5 +393,6 @@ fn iconButton(scope: *Scope, id: []const u8, label: []const u8, width: u32, comp
         .h = .{ .fixed = 26 },
         .pad = props.Pad.all(0),
         .radius = props.Radius.all(6),
-    }, scope.vm, handler);
+        .on_click = .{ .f = handler, .ctx = scope.vm },
+    });
 }

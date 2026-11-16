@@ -85,7 +85,7 @@ pub fn nameRowChildren(scope: *Scope) void {
 
     box_mod.spacer(.{ .text = "kurir.name.spacer" });
 
-    button_mod.click(.{
+    button_mod.button(.{
         .id = .{ .text = "kurir.delete" },
         .label = .{ .text = "Delete", .size = t.type_scale.caption, .color = t.colors.text },
         .bg = t.colors.surface_variant,
@@ -93,7 +93,8 @@ pub fn nameRowChildren(scope: *Scope) void {
         .disabled = !scope.state.can_delete,
         .pad = props.Pad.axes(4, 10),
         .radius = props.Radius.all(4),
-    }, scope.vm, actions.onDelete);
+        .on_click = .{ .f = actions.onDelete, .ctx = scope.vm },
+    });
 }
 
 // What the URL field may take: a text field is never narrower than its own value, so an uncapped one widens the row and pushes Send past the window's edge.
@@ -128,7 +129,7 @@ pub fn methodRowChildren(scope: *Scope) void {
     const color = theme_mod.methodColor(method);
 
     // The trigger is the anchor: the card attaches to this element by name, and nothing shifts when it opens.
-    button_mod.click(.{
+    button_mod.button(.{
         .id = .{ .text = editor_vm.method_trigger_id },
         .label = .{ .text = frame.formatText("{s}  v", .{method}), .size = t.type_scale.caption, .color = if (enabled) t.colors.on_primary else t.colors.text_dim },
         .bg = if (enabled) color else t.colors.background,
@@ -137,7 +138,8 @@ pub fn methodRowChildren(scope: *Scope) void {
         .w = .{ .fixed = 96 },
         .pad = props.Pad.axes(4, 6),
         .radius = props.Radius.all(4),
-    }, scope.vm, actions.onMethodToggle);
+        .on_click = .{ .f = actions.onMethodToggle, .ctx = scope.vm },
+    });
 
     if (scope.state.method_open) {
         dropdown_mod.dropdown(.{
@@ -154,7 +156,7 @@ pub fn methodRowChildren(scope: *Scope) void {
             .radius = .{ .px = 0 },
             .gap = .{ .px = 0 },
             .font_size = t.type_scale.caption,
-            .on_select = props.Select.on(scope.vm, actions.onMethodPick),
+            .on_select = .{ .f = actions.onMethodPick, .ctx = scope.vm },
             .overlay = true,
             .anchor_text = editor_vm.method_trigger_id,
             .overlay_id = editor_vm.method_menu_id,
@@ -172,7 +174,7 @@ pub fn methodRowChildren(scope: *Scope) void {
     field.w = urlWidth(scope);
     input_mod.textField(field);
 
-    button_mod.click(.{
+    button_mod.button(.{
         .id = .{ .text = "kurir.send" },
         .label = .{ .text = if (scope.state.sending) "Sending..." else "Send", .size = t.type_scale.label, .color = t.colors.on_primary },
         .bg = theme_mod.success,
@@ -180,7 +182,8 @@ pub fn methodRowChildren(scope: *Scope) void {
         .disabled = !enabled or scope.state.sending,
         .pad = props.Pad.axes(8, 18),
         .radius = props.Radius.all(6),
-    }, scope.vm, actions.onSend);
+        .on_click = .{ .f = actions.onSend, .ctx = scope.vm },
+    });
 
     // The other half of "paste a curl command": this one writes the request back out as one.
     if (enabled) smallButton(scope, editor_vm.curl_copy_id, "cURL", 64, actions.onCopyCurl);
@@ -308,7 +311,7 @@ pub fn headerRowChildren(hs: *const HeaderScope) void {
     const row = scope.state.headers[index];
     const enabled = !scope.vm.headerFieldsDisabled(index);
 
-    button_mod.click(.{
+    button_mod.button(.{
         .id = .{ .text = frame.elementId("kurir.header.on", index) },
         .label = .{ .text = if (enabled) "on" else "off", .size = t.type_scale.caption, .color = if (enabled) t.colors.on_primary else t.colors.text_dim },
         .bg = if (enabled) theme_mod.success else t.colors.surface_variant,
@@ -316,7 +319,8 @@ pub fn headerRowChildren(hs: *const HeaderScope) void {
         .w = .{ .fixed = 34 },
         .pad = props.Pad.axes(3, 4),
         .radius = props.Radius.all(4),
-    }, &scope.vm.editor.header_ctxs[index * 2], actions.onToggleHeader);
+        .on_click = .{ .f = actions.onToggleHeader, .ctx = &scope.vm.editor.header_ctxs[index * 2] },
+    });
 
     const key_field = &scope.vm.editor.header_fields[index * 2];
     key_field.value = row.name;
@@ -330,14 +334,15 @@ pub fn headerRowChildren(hs: *const HeaderScope) void {
     value_field.w = headerValueWidth(scope, index);
     input_mod.textField(value_field);
 
-    button_mod.click(.{
+    button_mod.button(.{
         .id = .{ .text = frame.elementId("kurir.header.del", index) },
         .label = .{ .text = "x", .size = t.type_scale.caption, .color = t.colors.text_dim },
         .bg = t.colors.surface,
         .hover_bg = t.colors.hover,
         .pad = props.Pad.axes(3, 8),
         .radius = props.Radius.all(4),
-    }, &scope.vm.editor.header_ctxs[index * 2], actions.onRemoveHeader);
+        .on_click = .{ .f = actions.onRemoveHeader, .ctx = &scope.vm.editor.header_ctxs[index * 2] },
+    });
 }
 
 pub fn bodyEditor(scope: *Scope) void {

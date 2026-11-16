@@ -7,15 +7,11 @@ const props = glinlandui.props;
 const scope_mod = @import("scope.zig");
 const Scope = scope_mod.Scope;
 
-const view_model = @import("view_model.zig");
-const KurirViewModel = view_model.KurirViewModel;
-
-// A handler of this shape, so a props constructor can name the model its target already carries.
-const HandlerFn = fn (*KurirViewModel) void;
+const HandlerFn = *const fn (?*anyopaque) void;
 
 pub fn smallButton(scope: *Scope, id: []const u8, label: []const u8, width: u32, comptime handler: HandlerFn) void {
     const t = scope.theme;
-    button_mod.click(.{
+    button_mod.button(.{
         .id = .{ .text = id },
         .label = .{ .text = label, .size = t.type_scale.caption, .color = t.colors.text },
         .bg = t.colors.surface_variant,
@@ -23,17 +19,19 @@ pub fn smallButton(scope: *Scope, id: []const u8, label: []const u8, width: u32,
         .w = .{ .fixed = @floatFromInt(width) },
         .pad = props.Pad.axes(4, 8),
         .radius = props.Radius.all(4),
-    }, scope.vm, handler);
+        .on_click = .{ .f = handler, .ctx = scope.vm },
+    });
 }
 
 pub fn tabButton(scope: *Scope, id: []const u8, label: []const u8, active: bool, comptime handler: HandlerFn) void {
     const t = scope.theme;
-    button_mod.click(.{
+    button_mod.button(.{
         .id = .{ .text = id },
         .label = .{ .text = label, .size = t.type_scale.caption, .color = if (active) t.colors.text else t.colors.text_dim },
         .bg = if (active) t.colors.surface_variant else t.colors.surface,
         .hover_bg = t.colors.hover,
         .pad = props.Pad.axes(4, 10),
         .radius = props.Radius.all(4),
-    }, scope.vm, handler);
+        .on_click = .{ .f = handler, .ctx = scope.vm },
+    });
 }

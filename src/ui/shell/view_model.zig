@@ -3,7 +3,6 @@ const std = @import("std");
 const glinlandui = @import("glinlandui");
 const input_mod = glinlandui.components.input;
 const split_mod = glinlandui.components.split;
-const prop = glinlandui.props;
 
 const postman = @import("../../data/model/postman.zig");
 const store = @import("../../data/local/workspace_store.zig");
@@ -26,7 +25,6 @@ const import_collection = @import("../../domain/usecase/import_collection.zig");
 const export_collection = @import("../../domain/usecase/export_collection.zig");
 
 const Allocator = std.mem.Allocator;
-const Ctx = prop.Ctx;
 const UiState = state_mod.UiState;
 const Path = state_mod.Path;
 const Session = session_mod.Session;
@@ -120,7 +118,7 @@ pub const KurirViewModel = struct {
         self.editor.start(&self.session);
         self.response.start(&self.session);
         // The one intent that crosses panels: Ctrl/Cmd+Enter while the body has the keyboard sends.
-        self.editor.body_field.onSubmit(self, onBodySubmit);
+        self.editor.body_field.on_submit = .{ .f = onBodySubmit, .ctx = self };
 
         const loaded = self.session.load();
         self.sidebar.restore();
@@ -392,7 +390,7 @@ pub const KurirViewModel = struct {
     pub fn transport(self: *KurirViewModel, arena: Allocator) http_mod.Transport {
         if (self.transport_override) |override| return override;
         if (self.real) |real| return real.transport(arena);
-        return .{ .ctx = Ctx.none, .arena = arena, .send_fn = http_mod.sendOffline };
+        return .{ .ctx = null, .arena = arena, .send_fn = http_mod.sendOffline };
     }
 
     pub fn send(self: *KurirViewModel) void {
@@ -484,7 +482,8 @@ pub const KurirViewModel = struct {
     }
 
     // Ctrl/Cmd+Enter: the field asks whether the intent took the draft. It did not, so the body stays where it is.
-    fn onBodySubmit(self: *KurirViewModel, text: []const u8) bool {
+    fn onBodySubmit(raw: ?*anyopaque, text: []const u8) bool {
+        const self: *KurirViewModel = @ptrCast(@alignCast(raw.?));
         _ = text;
         self.send();
         return false;
@@ -502,18 +501,18 @@ const DialogFake = struct {
     saves: usize = 0,
 };
 
-fn fakeOpen(ctx: Ctx, gpa: Allocator, title: []const u8) ?[]const u8 {
+fn fakeOpen(ctx: ?*anyopaque, gpa: Allocator, title: []const u8) ?[]const u8 {
     _ = title;
-    const self = ctx.get(DialogFake);
+    const self: *DialogFake = @ptrCast(@alignCast(ctx.?));
     self.opens += 1;
     if (self.open_path.len == 0) return null;
     return gpa.dupe(u8, self.open_path) catch null;
 }
 
-fn fakeSave(ctx: Ctx, gpa: Allocator, title: []const u8, suggested: []const u8) ?[]const u8 {
+fn fakeSave(ctx: ?*anyopaque, gpa: Allocator, title: []const u8, suggested: []const u8) ?[]const u8 {
     _ = title;
     _ = suggested;
-    const self = ctx.get(DialogFake);
+    const self: *DialogFake = @ptrCast(@alignCast(ctx.?));
     self.saves += 1;
     if (self.save_path.len == 0) return null;
     return gpa.dupe(u8, self.save_path) catch null;
@@ -837,7 +836,7 @@ test "export writes a Postman file, and import reads one back" {
 
     var dialogs = DialogFake{ .save_path = export_path };
     h.dialogs.save_fn = fakeSave;
-    h.dialogs.ctx = Ctx.from(&dialogs);
+    h.dialogs.ctx = &dialogs;
 
     h.vm.exportSelected();
     try testing.expectEqual(@as(usize, 1), dialogs.saves);
@@ -852,7 +851,7 @@ test "export writes a Postman file, and import reads one back" {
 
     var import_dialogs = DialogFake{ .open_path = export_path };
     h.dialogs.open_fn = fakeOpen;
-    h.dialogs.ctx = Ctx.from(&import_dialogs);
+    h.dialogs.ctx = &import_dialogs;
     h.vm.importCollection();
     try testing.expectEqual(@as(usize, 1), import_dialogs.opens);
     try testing.expectEqual(@as(usize, 2), h.state().rows.len);
@@ -870,7 +869,7 @@ test "import says what is wrong with a file that is not a collection" {
 
     var dialogs = DialogFake{ .open_path = path };
     h.dialogs.open_fn = fakeOpen;
-    h.dialogs.ctx = Ctx.from(&dialogs);
+    h.dialogs.ctx = &dialogs;
 
     h.vm.importCollection();
     try testing.expect(h.state().status_is_error);

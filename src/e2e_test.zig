@@ -5,7 +5,6 @@ const kurirw = @import("kurirw");
 
 const testing = std.testing;
 const Driver = glinlandui.testing.Driver;
-const Ctx = glinlandui.Ctx;
 const App = kurirw.app.App;
 const postman = kurirw.postman;
 const store_mod = kurirw.store;
@@ -31,7 +30,7 @@ const Harness = struct {
         app.* = .{};
         try app.start(gpa, testing.io, env);
 
-        var driver = try Driver.initOwned(gpa, Ctx.from(app), App.content);
+        var driver = try Driver.initOwned(gpa, app, App.content);
         errdefer driver.deinit();
         try driver.start(viewport);
 
@@ -606,13 +605,13 @@ fn clipSet(text: []const u8) void {
     @memcpy(clip_buf[0..clip_len], text[0..clip_len]);
 }
 
-fn clipRead(_: Ctx, buf: []u8) []const u8 {
+fn clipRead(_: ?*anyopaque, buf: []u8) []const u8 {
     const n = @min(clip_len, buf.len);
     @memcpy(buf[0..n], clip_buf[0..n]);
     return buf[0..n];
 }
 
-fn clipWrite(_: Ctx, text: []const u8) void {
+fn clipWrite(_: ?*anyopaque, text: []const u8) void {
     clipSet(text);
 }
 
@@ -679,7 +678,7 @@ test "export writes a Postman v2.1 collection, and import reads it back into the
     // The file panel is replaced by a scripted answer, so no window is opened.
     var dialogs = DialogsFake{ .save_path = export_path };
     h.app.container.dialogs = .{
-        .ctx = Ctx.from(&dialogs),
+        .ctx = &dialogs,
         .open_fn = dialogsOpen,
         .save_fn = dialogsSave,
         .available = true,
@@ -704,7 +703,7 @@ test "export writes a Postman v2.1 collection, and import reads it back into the
     // Import the same file back: the tree grows by one collection, and the frame shows it.
     var import_dialogs = DialogsFake{ .open_path = export_path };
     h.app.container.dialogs = .{
-        .ctx = Ctx.from(&import_dialogs),
+        .ctx = &import_dialogs,
         .open_fn = dialogsOpen,
         .save_fn = dialogsSave,
         .available = true,
@@ -722,18 +721,18 @@ const DialogsFake = struct {
     saves: usize = 0,
 };
 
-fn dialogsOpen(ctx: Ctx, gpa: std.mem.Allocator, title: []const u8) ?[]const u8 {
+fn dialogsOpen(ctx: ?*anyopaque, gpa: std.mem.Allocator, title: []const u8) ?[]const u8 {
     _ = title;
-    const self = ctx.get(DialogsFake);
+    const self: *DialogsFake = @ptrCast(@alignCast(ctx.?));
     self.opens += 1;
     if (self.open_path.len == 0) return null;
     return gpa.dupe(u8, self.open_path) catch null;
 }
 
-fn dialogsSave(ctx: Ctx, gpa: std.mem.Allocator, title: []const u8, suggested: []const u8) ?[]const u8 {
+fn dialogsSave(ctx: ?*anyopaque, gpa: std.mem.Allocator, title: []const u8, suggested: []const u8) ?[]const u8 {
     _ = title;
     _ = suggested;
-    const self = ctx.get(DialogsFake);
+    const self: *DialogsFake = @ptrCast(@alignCast(ctx.?));
     self.saves += 1;
     if (self.save_path.len == 0) return null;
     return gpa.dupe(u8, self.save_path) catch null;
