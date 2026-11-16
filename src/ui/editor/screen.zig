@@ -277,6 +277,20 @@ const HeaderScope = struct {
     index: usize,
 };
 
+// A header's value may take what its row has left: the window, minus the panel, the editor, the on button, the name column, the delete button and the scroll gutter.
+fn headerValueWidth(scope: *Scope, index: usize) props.Size {
+    const key_w: f32 = if (frame.bounds(glinlandui.props.Id.at(editor_vm.header_key_prefix, index).clay())) |b| b.width else 220;
+    const del_w: f32 = if (frame.bounds((props.Id{ .text = frame.elementId("kurir.header.del", index) }).clay())) |b| b.width else 24;
+    const fixed: f32 = 7 + 24 + 34 + key_w + del_w + 18 + 16;
+    const avail = scope.vm.viewport_w - scope.state.sidebar_width - fixed;
+    if (std.c.getenv("KURIR_DEBUG_WIDTH") != null and index == 0) {
+        const root_w: f32 = if (frame.bounds((props.Id{ .text = "kurir.root" }).clay())) |b| b.width else 0;
+        std.debug.print("hdrwin root={d:.1} key={d:.1} del={d:.1} fixed={d:.1} avail={d:.1}\n", .{ root_w, key_w, del_w, fixed, avail });
+    }
+    if (avail < 120) return .grow;
+    return .{ .clamp = .{ .min = 120, .max = avail, .grow = true } };
+}
+
 pub fn headerRow(scope: *Scope, index: usize) void {
     box_mod.box(.{
         .src = @src(),
@@ -317,7 +331,7 @@ pub fn headerRowChildren(hs: *const HeaderScope) void {
     const value_field = &scope.vm.editor.header_fields[index * 2 + 1];
     value_field.value = row.value;
     value_field.h = .{ .fixed = 26 };
-    value_field.w = .grow;
+    value_field.w = headerValueWidth(scope, index);
     input_mod.textField(value_field);
 
     button_mod.button(.{
