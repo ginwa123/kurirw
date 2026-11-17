@@ -1,9 +1,8 @@
 //! The screen's ViewModel: one of each panel, the wiring between them, and the intents the view raises.
 const std = @import("std");
 const glinlandui = @import("glinlandui");
-const input_mod = glinlandui.components.input;
-const split_mod = glinlandui.components.split;
-const tabs_mod = glinlandui.components.tabs;
+const split = glinlandui.components.split;
+const TabAction = glinlandui.components.tabs.Action;
 
 const postman = @import("../../data/model/postman.zig");
 const store = @import("../../data/local/workspace_store.zig");
@@ -103,7 +102,7 @@ pub const KurirViewModel = struct {
     view: UiState = .{},
 
     // The line between the editor and the response: the response's height is what it drags.
-    split: split_mod.State = .{ .size = 320 },
+    split: split.State = .{ .size = 320 },
     // Borrowed, not owned: the container built them and outlives the view.
     dialogs: *Dialogs = undefined,
     real: ?*http_mod.Real = null,
@@ -250,7 +249,7 @@ pub const KurirViewModel = struct {
     // ---- the facade: one line per intent, so the view and the tests never reach into a panel -------
 
     // The line between the editor and the response. A pane BELOW a horizontal line grows as the line goes up.
-    pub fn splitProps(self: *KurirViewModel) split_mod.Props {
+    pub fn splitProps(self: *KurirViewModel) split.Props {
         const t = self.session.theme;
         return .{
             .id = .{ .text = "kurir.split" },
@@ -271,7 +270,7 @@ pub const KurirViewModel = struct {
 
     // The height the response draws at right now: read while the frame is declared, because a drag happens there.
     pub fn responseHeight(self: *KurirViewModel) f32 {
-        return split_mod.size(self.splitProps());
+        return split.size(self.splitProps());
     }
 
     pub fn sidebarProps(self: *KurirViewModel) glinlandui.components.sidebar.Props {
@@ -362,7 +361,7 @@ pub const KurirViewModel = struct {
     }
 
     // A tab's card: the engine names the action, the model decides what it means for this document.
-    pub fn pickTabMenu(self: *KurirViewModel, index: usize, action: tabs_mod.Action) void {
+    pub fn pickTabMenu(self: *KurirViewModel, index: usize, action: TabAction) void {
         if (index >= self.tab_count) return;
         switch (action) {
             // "Save" is this document's save: Kurir keeps one file, so a tab has nothing of its own to write.

@@ -2,11 +2,12 @@
 const std = @import("std");
 const glinlandui = @import("glinlandui");
 
-const box_mod = glinlandui.components.box;
-const button_mod = glinlandui.components.button;
-const input_mod = glinlandui.components.input;
-const scroll_mod = glinlandui.components.scroll;
-const text_mod = glinlandui.components.text;
+const box = glinlandui.components.box.box;
+const spacer = glinlandui.components.box.spacer;
+const button = glinlandui.components.button.button;
+const textField = glinlandui.components.input.textField;
+const scroll = glinlandui.components.scroll.scroll;
+const label = glinlandui.components.text.label;
 const frame = glinlandui.frame;
 const props = glinlandui.props;
 
@@ -21,7 +22,7 @@ const Scope = scope_mod.Scope;
 
 // The whole page: the mockup's card, drawn in the main area because the engine's modal has no room for a table.
 pub fn managerPage(scope: *Scope) void {
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = env_vm.manager_id },
         .direction = .column,
@@ -41,7 +42,7 @@ fn managerChildren(scope: *Scope) void {
 }
 
 fn managerHeader(scope: *Scope) void {
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = "kurir.env.manager.header" },
         .direction = .row,
@@ -52,13 +53,13 @@ fn managerHeader(scope: *Scope) void {
 
 fn managerHeaderChildren(scope: *Scope) void {
     const t = scope.theme;
-    text_mod.label(.{ .label = .{ .text = "Manage environments", .size = t.type_scale.title, .color = t.colors.text } });
-    box_mod.spacer(.{ .text = "kurir.env.manager.header.spacer" });
+    label(.{ .label = .{ .text = "Manage environments", .size = t.type_scale.title, .color = t.colors.text } });
+    spacer(.{ .text = "kurir.env.manager.header.spacer" });
     smallButton(scope, env_vm.close_id, "Close", 64, actions.onEnvClose);
 }
 
 fn managerBody(scope: *Scope) void {
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = "kurir.env.manager.body" },
         .direction = .row,
@@ -75,7 +76,7 @@ fn managerBodyChildren(scope: *Scope) void {
 
 // The left list: the environments, the button that adds one, then the workspace's collections.
 fn environmentList(scope: *Scope) void {
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = "kurir.env.manager.list" },
         .direction = .column,
@@ -95,12 +96,12 @@ fn environmentListChildren(scope: *Scope) void {
         listRow(scope, &scope.vm.env.env_ctxs[index], frame.elementId(env_vm.env_row_prefix, index), name, chosen, active);
     }
     if (scope.state.env_names.len == 0) {
-        text_mod.label(.{ .label = .{ .text = "No environments yet.", .size = t.type_scale.caption, .color = t.colors.text_dim } });
+        label(.{ .label = .{ .text = "No environments yet.", .size = t.type_scale.caption, .color = t.colors.text_dim } });
     }
     smallButton(scope, env_vm.new_id, "+ New environment", 150, actions.onEnvNew);
 
     // A little air, then the collections: they follow the environments instead of being pushed to the floor.
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = "kurir.env.manager.gap" },
         .w = .grow,
@@ -112,13 +113,13 @@ fn environmentListChildren(scope: *Scope) void {
         listRow(scope, &scope.vm.env.collection_ctxs[index], frame.elementId(env_vm.collection_row_prefix, index), name, chosen, false);
     }
     if (scope.state.collection_names.len == 0) {
-        text_mod.label(.{ .label = .{ .text = "No collections here.", .size = t.type_scale.caption, .color = t.colors.text_dim } });
+        label(.{ .label = .{ .text = "No collections here.", .size = t.type_scale.caption, .color = t.colors.text_dim } });
     }
 }
 
 fn sectionLabel(scope: *Scope, text: []const u8) void {
     const t = scope.theme;
-    text_mod.label(.{ .label = .{ .text = text, .size = t.type_scale.caption, .color = t.colors.text_done } });
+    label(.{ .label = .{ .text = text, .size = t.type_scale.caption, .color = t.colors.text_done } });
 }
 
 fn nothing(_: *Scope) void {}
@@ -126,10 +127,10 @@ fn nothing(_: *Scope) void {}
 // One name in the left list: the row being edited is filled, and the environment that sends says so.
 fn listRow(scope: *Scope, ctx: *env_vm.Env.ListCtx, id: []const u8, name: []const u8, chosen: bool, active: bool) void {
     const t = scope.theme;
-    const label = if (active) frame.formatText("{s}   active", .{name}) else name;
-    button_mod.button(.{
+    const text = if (active) frame.formatText("{s}   active", .{name}) else name;
+    button(.{
         .id = .{ .text = id },
-        .label = .{ .text = label, .size = t.type_scale.caption, .color = if (chosen) t.colors.text else t.colors.text_dim },
+        .label = .{ .text = text, .size = t.type_scale.caption, .color = if (chosen) t.colors.text else t.colors.text_dim },
         .bg = if (chosen) t.colors.surface_variant else t.colors.surface,
         .hover_bg = t.colors.hover,
         .w = .grow,
@@ -141,7 +142,7 @@ fn listRow(scope: *Scope, ctx: *env_vm.Env.ListCtx, id: []const u8, name: []cons
 
 // The right pane: the selected group's title, its note, and the table of variables under it.
 fn variablePane(scope: *Scope) void {
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = "kurir.env.manager.pane" },
         .direction = .column,
@@ -155,7 +156,7 @@ fn variablePaneChildren(scope: *Scope) void {
     const t = scope.theme;
     const environment_group = scope.state.env_group == .environment;
     if (environment_group) {
-        box_mod.box(.{
+        box(.{
             .src = @src(),
             .id = .{ .text = "kurir.env.manager.title" },
             .direction = .row,
@@ -164,9 +165,9 @@ fn variablePaneChildren(scope: *Scope) void {
             .child_align = .{ .y = .center },
         }, scope, paneTitleRow);
     } else {
-        text_mod.label(.{ .label = .{ .text = groupTitle(scope), .size = t.type_scale.body, .color = t.colors.text } });
+        label(.{ .label = .{ .text = groupTitle(scope), .size = t.type_scale.body, .color = t.colors.text } });
     }
-    text_mod.label(.{ .label = .{
+    label(.{ .label = .{
         .text = if (environment_group)
             "Sent with every request while this environment is active: the current value wins, the initial one is the fallback."
         else
@@ -187,9 +188,9 @@ fn paneTitleRow(scope: *Scope) void {
     field.h = .{ .fixed = 30 };
     field.w = .{ .fixed = 260 };
     field.pad = props.Pad.axes(4, 9);
-    input_mod.textField(field);
-    box_mod.spacer(.{ .text = "kurir.env.manager.title.spacer" });
-    text_mod.label(.{ .label = .{ .text = "Rename it here.", .size = t.type_scale.caption, .color = t.colors.text_done } });
+    textField(field);
+    spacer(.{ .text = "kurir.env.manager.title.spacer" });
+    label(.{ .label = .{ .text = "Rename it here.", .size = t.type_scale.caption, .color = t.colors.text_done } });
     smallButton(scope, env_vm.delete_id, "Delete", 64, actions.onEnvRemove);
 }
 
@@ -205,7 +206,7 @@ fn groupTitle(scope: *Scope) []const u8 {
 }
 
 fn environmentHeader(scope: *Scope) void {
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = "kurir.env.manager.columns" },
         .direction = .row,
@@ -232,7 +233,7 @@ fn valueWidth() props.Size {
 
 fn columnLabel(scope: *Scope, text: []const u8, size: props.Size) void {
     const t = scope.theme;
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         // The label names its own box: two columns may be the same width, but no two say the same thing.
         .id = .{ .text = frame.elementId(text, 0) },
@@ -247,11 +248,11 @@ const CellLabel = struct {
 };
 
 fn cellLabel(cell: *const CellLabel) void {
-    text_mod.label(.{ .label = .{ .text = cell.text, .size = cell.theme.type_scale.caption, .color = cell.theme.colors.text_done } });
+    label(.{ .label = .{ .text = cell.text, .size = cell.theme.type_scale.caption, .color = cell.theme.colors.text_done } });
 }
 
 fn collectionHeader(scope: *Scope) void {
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = "kurir.env.manager.columns" },
         .direction = .row,
@@ -267,7 +268,7 @@ fn collectionHeaderChildren(scope: *Scope) void {
 
 fn environmentRows(scope: *Scope) void {
     const t = scope.theme;
-    scroll_mod.scroll(.{
+    scroll(.{
         .id = .{ .text = "kurir.env.manager.rows" },
         .direction = .vertical,
         .w = .grow,
@@ -281,7 +282,7 @@ fn environmentRowList(scope: *Scope) void {
     const t = scope.theme;
     const count = @min(scope.state.env_count, state_mod.max_env_vars);
     if (count == 0) {
-        text_mod.label(.{ .label = .{ .text = "No variables in this environment yet.", .size = t.type_scale.caption, .color = t.colors.text_done } });
+        label(.{ .label = .{ .text = "No variables in this environment yet.", .size = t.type_scale.caption, .color = t.colors.text_done } });
     }
     var i: usize = 0;
     while (i < count) : (i += 1) environmentRow(scope, i);
@@ -295,7 +296,7 @@ const RowScope = struct {
 };
 
 fn environmentRow(scope: *Scope, index: usize) void {
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = frame.elementId("kurir.env.manager.row", index) },
         .direction = .row,
@@ -320,21 +321,21 @@ fn environmentRowChildren(rs: *const RowScope) void {
     name_field.value = row.name;
     name_field.h = .{ .fixed = 26 };
     name_field.w = nameWidth();
-    input_mod.textField(name_field);
+    textField(name_field);
 
     const initial_field = &env.initial_fields[index];
     initial_field.value = if (row.secret) dots else row.initial;
     initial_field.h = .{ .fixed = 26 };
     initial_field.w = valueWidth();
-    input_mod.textField(initial_field);
+    textField(initial_field);
 
     const current_field = &env.current_fields[index];
     current_field.value = if (row.secret) dots else row.current;
     current_field.h = .{ .fixed = 26 };
     current_field.w = valueWidth();
-    input_mod.textField(current_field);
+    textField(current_field);
 
-    button_mod.button(.{
+    button(.{
         .id = .{ .text = frame.elementId("kurir.env.manager.secret", index) },
         .label = .{ .text = if (row.secret) "on" else "off", .size = t.type_scale.caption, .color = if (row.secret) theme_on(t) else t.colors.text_dim },
         .bg = t.colors.surface_variant,
@@ -345,7 +346,7 @@ fn environmentRowChildren(rs: *const RowScope) void {
         .on_click = .{ .f = actions.onEnvToggleSecret, .ctx = &env.var_ctxs[index * 3] },
     });
 
-    button_mod.button(.{
+    button(.{
         .id = .{ .text = frame.elementId("kurir.env.manager.del", index) },
         .label = .{ .text = "x", .size = t.type_scale.caption, .color = t.colors.text_dim },
         .bg = t.colors.surface,
@@ -362,7 +363,7 @@ fn theme_on(t: glinlandui.theme.Theme) glinlandui.Color {
 
 fn collectionRows(scope: *Scope) void {
     const t = scope.theme;
-    scroll_mod.scroll(.{
+    scroll(.{
         .id = .{ .text = "kurir.env.manager.pairs" },
         .direction = .vertical,
         .w = .grow,
@@ -376,7 +377,7 @@ fn collectionRowList(scope: *Scope) void {
     const t = scope.theme;
     const count = @min(scope.state.pair_count, state_mod.max_vars);
     if (count == 0) {
-        text_mod.label(.{ .label = .{ .text = "No variables in this collection yet.", .size = t.type_scale.caption, .color = t.colors.text_done } });
+        label(.{ .label = .{ .text = "No variables in this collection yet.", .size = t.type_scale.caption, .color = t.colors.text_done } });
     }
     var i: usize = 0;
     while (i < count) : (i += 1) collectionRow(scope, i);
@@ -384,7 +385,7 @@ fn collectionRowList(scope: *Scope) void {
 }
 
 fn collectionRow(scope: *Scope, index: usize) void {
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = frame.elementId("kurir.env.manager.pair", index) },
         .direction = .row,
@@ -407,15 +408,15 @@ fn collectionRowChildren(rs: *const RowScope) void {
     name_field.value = row.name;
     name_field.h = .{ .fixed = 26 };
     name_field.w = nameWidth();
-    input_mod.textField(name_field);
+    textField(name_field);
 
     const value_field = &env.initial_fields[index];
     value_field.value = row.value;
     value_field.h = .{ .fixed = 26 };
     value_field.w = valueWidth();
-    input_mod.textField(value_field);
+    textField(value_field);
 
-    button_mod.button(.{
+    button(.{
         .id = .{ .text = frame.elementId("kurir.env.manager.pair.del", index) },
         .label = .{ .text = "x", .size = t.type_scale.caption, .color = t.colors.text_dim },
         .bg = t.colors.surface,
@@ -428,7 +429,7 @@ fn collectionRowChildren(rs: *const RowScope) void {
 
 fn managerFooter(scope: *Scope) void {
     const t = scope.theme;
-    text_mod.label(.{ .label = .{
+    label(.{ .label = .{
         .text = "Use them in a request as {{name}}. A request's own Vars tab is read first, then this environment, then the collection.",
         .size = t.type_scale.caption,
         .color = t.colors.text_done,

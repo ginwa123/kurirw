@@ -1,7 +1,7 @@
 //! The Env panel: the workspace's environments, which one is active, and the manager that edits them.
 const std = @import("std");
 const glinlandui = @import("glinlandui");
-const input_mod = glinlandui.components.input;
+const InputField = glinlandui.components.input.Field;
 const props = glinlandui.props;
 
 const env = @import("../../domain/env.zig");
@@ -62,12 +62,12 @@ pub const Env = struct {
     collection: usize = 0,
     // The picker under its trigger.
     picker: bool = false,
-    name_fields: [state_mod.max_env_vars]input_mod.Field = undefined,
-    initial_fields: [state_mod.max_env_vars]input_mod.Field = undefined,
-    current_fields: [state_mod.max_env_vars]input_mod.Field = undefined,
+    name_fields: [state_mod.max_env_vars]InputField = undefined,
+    initial_fields: [state_mod.max_env_vars]InputField = undefined,
+    current_fields: [state_mod.max_env_vars]InputField = undefined,
     var_ctxs: [state_mod.max_env_vars * 3]VarCtx = undefined,
     // The name of the environment the right pane is editing, drawn as the pane's title.
-    name_field: input_mod.Field = undefined,
+    name_field: InputField = undefined,
     name_ctx: NameCtx = undefined,
     env_ctxs: [max_list]ListCtx = undefined,
     collection_ctxs: [max_list]ListCtx = undefined,

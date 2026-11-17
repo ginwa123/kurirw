@@ -1,14 +1,15 @@
 //! The left panel's screen: the workspace header, the filter and "+ New" row, and the collection tree.
 const glinlandui = @import("glinlandui");
 
-const box_mod = glinlandui.components.box;
-const button_mod = glinlandui.components.button;
-const dropdown_mod = glinlandui.components.dropdown;
-const input_mod = glinlandui.components.input;
-const scroll_mod = glinlandui.components.scroll;
-const sidebar_mod = glinlandui.components.sidebar;
-const text_mod = glinlandui.components.text;
-const tree_mod = glinlandui.components.tree;
+const box = glinlandui.components.box.box;
+const button = glinlandui.components.button.button;
+const dropdown = glinlandui.components.dropdown.dropdown;
+const textField = glinlandui.components.input.textField;
+const scroll = glinlandui.components.scroll.scroll;
+const sidebarWidth = glinlandui.components.sidebar.width;
+const label = glinlandui.components.text.label;
+const tree = glinlandui.components.tree.tree;
+const TreeZone = glinlandui.components.tree.Zone;
 const frame = glinlandui.frame;
 const props = glinlandui.props;
 
@@ -26,8 +27,8 @@ const tree_id = "kurir.tree";
 
 pub fn sidebarChildren(scope: *Scope) void {
     // Pinned to the panel's own width: text metrics must never widen the panel past the line the pointer holds.
-    const w = sidebar_mod.width(scope.vm.sidebar.props());
-    box_mod.box(.{
+    const w = sidebarWidth(scope.vm.sidebar.props());
+    box(.{
         .src = @src(),
         .id = .{ .text = "kurir.sidebar.content" },
         .direction = .column,
@@ -41,14 +42,14 @@ pub fn sidebarContent(scope: *Scope) void {
     workspaceHeader(scope);
     searchRow(scope);
     sectionLabel(scope);
-    tree(scope);
+    treePanel(scope);
     menus(scope);
 }
 
 // ---- the workspace header: a badge, the name, the counter, and the two menu buttons ------------------
 
 pub fn workspaceHeader(scope: *Scope) void {
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = "kurir.ws" },
         .direction = .column,
@@ -60,7 +61,7 @@ pub fn workspaceHeader(scope: *Scope) void {
 
 // The head is closed by a rule: the workspace block and the tree below it are two things, not one column.
 fn headerRule(scope: *Scope) void {
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = "kurir.ws.rule" },
         .direction = .row,
@@ -78,7 +79,7 @@ pub fn workspaceHeaderChildren(scope: *Scope) void {
 }
 
 fn headRow(scope: *Scope) void {
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = "kurir.ws.head" },
         .direction = .row,
@@ -93,7 +94,7 @@ pub fn workspaceHead(scope: *Scope) void {
     const t = scope.theme;
 
     // The badge is the workspace's mark, so it takes the accent and carries the initial.
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = "kurir.ws.badge" },
         .direction = .row,
@@ -107,7 +108,7 @@ pub fn workspaceHead(scope: *Scope) void {
     const field = &scope.vm.sidebar.workspace_field;
     field.value = scope.state.workspace_name;
     // The name may not eat the row either: a field is never narrower than its value, so it is capped to what the header has left.
-    const panel_w = sidebar_mod.width(scope.vm.sidebar.props());
+    const panel_w = sidebarWidth(scope.vm.sidebar.props());
     field.w = .{ .clamp = .{ .min = 80, .max = @max(80, panel_w - 170), .grow = true } };
     field.h = .{ .fixed = 26 };
     field.bg = t.colors.surface;
@@ -115,9 +116,9 @@ pub fn workspaceHead(scope: *Scope) void {
     field.border = .{};
     field.pad = props.Pad.axes(0, 2);
     field.font_size = t.type_scale.body;
-    input_mod.textField(field);
+    textField(field);
 
-    text_mod.label(.{ .label = .{
+    label(.{ .label = .{
         .text = frame.formatText("{d} / {d}", .{ scope.state.workspace_index + 1, scope.state.workspace_count }),
         .size = t.type_scale.caption,
         .color = t.colors.text_dim,
@@ -129,13 +130,13 @@ pub fn workspaceHead(scope: *Scope) void {
 
 pub fn badgeChildren(scope: *Scope) void {
     const t = scope.theme;
-    text_mod.label(.{ .label = .{ .text = "K", .size = t.type_scale.caption, .color = t.colors.on_primary } });
+    label(.{ .label = .{ .text = "K", .size = t.type_scale.caption, .color = t.colors.on_primary } });
 }
 
 // ---- the filter and the "+ New" menu button ----------------------------------------------------------
 
 pub fn searchRow(scope: *Scope) void {
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = "kurir.tools" },
         .direction = .row,
@@ -154,10 +155,10 @@ pub fn searchRowChildren(scope: *Scope) void {
     // A step above the panel, so the filter reads as a control sitting on the sidebar and not as a hole in it.
     field.bg = t.colors.surface_variant;
     field.w = .grow;
-    input_mod.textField(field);
+    textField(field);
 
     // A menu button: one button whose card lists what can be created, so the row stays one line.
-    button_mod.button(.{
+    button(.{
         .src = @src(),
         .id = .{ .text = sidebar_vm.new_trigger_id },
         .label = .{ .text = "+ New  v", .size = t.type_scale.caption, .color = t.colors.on_primary },
@@ -172,7 +173,7 @@ pub fn searchRowChildren(scope: *Scope) void {
 }
 
 pub fn sectionLabel(scope: *Scope) void {
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = "kurir.tree.section" },
         .direction = .row,
@@ -185,15 +186,15 @@ pub fn sectionLabel(scope: *Scope) void {
 // A section head says what the list is and how much of it there is, and the count keeps to the right edge.
 pub fn sectionLabelText(scope: *Scope) void {
     const t = scope.theme;
-    text_mod.label(.{ .label = .{ .text = "COLLECTIONS", .size = t.type_scale.caption, .color = t.colors.text_done } });
-    box_mod.box(.{
+    label(.{ .label = .{ .text = "COLLECTIONS", .size = t.type_scale.caption, .color = t.colors.text_done } });
+    box(.{
         .src = @src(),
         .id = .{ .text = "kurir.tree.section.spacer" },
         .direction = .row,
         .w = .grow,
         .h = .{ .fixed = 1 },
     }, scope, noChildren);
-    text_mod.label(.{ .label = .{
+    label(.{ .label = .{
         .text = frame.formatText("{d}", .{scope.state.collection_count}),
         .size = t.type_scale.caption,
         .color = t.colors.text_done,
@@ -202,12 +203,12 @@ pub fn sectionLabelText(scope: *Scope) void {
 
 // ---- the tree ---------------------------------------------------------------------------------------
 
-pub fn tree(scope: *Scope) void {
+pub fn treePanel(scope: *Scope) void {
     if (scope.state.rows.len == 0) {
         emptyTree(scope);
         return;
     }
-    scroll_mod.scroll(.{
+    scroll(.{
         .id = .{ .text = "kurir.tree.scroll" },
         .direction = .vertical,
         .w = .grow,
@@ -220,7 +221,7 @@ pub fn tree(scope: *Scope) void {
 
 // An empty tree says what to do, and the whole block is the button that does it.
 pub fn emptyTree(scope: *Scope) void {
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = "kurir.tree.empty" },
         .direction = .column,
@@ -235,12 +236,12 @@ pub fn emptyTree(scope: *Scope) void {
 pub fn emptyTreeChildren(scope: *Scope) void {
     const t = scope.theme;
     // A filter that matches nothing is a different empty state from a workspace with no collections.
-    text_mod.label(.{ .label = .{
+    label(.{ .label = .{
         .text = if (scope.state.filter_active) "Nothing matches that filter." else "No collections yet.",
         .size = t.type_scale.body,
         .color = t.colors.text_dim,
     } });
-    text_mod.label(.{ .label = .{
+    label(.{ .label = .{
         .text = if (scope.state.filter_active) "Clear the filter to see the whole tree." else "Press + New to make one.",
         .size = t.type_scale.caption,
         .color = t.colors.text_done,
@@ -249,7 +250,7 @@ pub fn emptyTreeChildren(scope: *Scope) void {
 
 pub fn treeChildren(scope: *Scope) void {
     const t = scope.theme;
-    tree_mod.tree(.{
+    tree(.{
         .src = @src(),
         .id = .{ .text = tree_id },
         .rows = scope.state.tree_rows,
@@ -286,7 +287,7 @@ pub fn treeChildren(scope: *Scope) void {
 }
 
 // The engine reports the row it was over and where on it; the panel owns what that means for the document.
-fn onTreeDrop(ctx: ?*anyopaque, from: usize, to: usize, zone: tree_mod.Zone) void {
+fn onTreeDrop(ctx: ?*anyopaque, from: usize, to: usize, zone: TreeZone) void {
     const sb: *sidebar_vm.Sidebar = @ptrCast(@alignCast(ctx.?));
     sb.onTreeDrop(from, to, zone);
 }
@@ -297,7 +298,7 @@ fn chipExtra(ctx: ?*anyopaque, index: usize) void {
     if (index >= scope.state.rows.len) return;
     const r = scope.state.rows[index];
     if (r.kind != .request) return folderIcon(scope, index);
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = frame.elementId("kurir.tree.extra", index) },
         .direction = .row,
@@ -317,7 +318,7 @@ const ExtraScope = struct {
 
 fn extraChildren(ctx: *const ExtraScope) void {
     if (ctx.row.dirty) {
-        box_mod.box(.{
+        box(.{
             .src = @src(),
             .id = .{ .text = frame.elementId("kurir.tree.dirty", ctx.index) },
             .direction = .row,
@@ -327,7 +328,7 @@ fn extraChildren(ctx: *const ExtraScope) void {
             .radius = props.Radius.all(3),
         }, ctx, extraNoChildren);
     }
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = frame.elementId("kurir.tree.chip", ctx.index) },
         .direction = .row,
@@ -345,7 +346,7 @@ fn extraNoChildren(ctx: *const ExtraScope) void {
 
 // A container's icon, drawn rather than typed: the font has no folder glyph, and a box would read as one missing.
 fn folderIcon(scope: *Scope, index: usize) void {
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = frame.elementId("kurir.tree.icon", index) },
         .direction = .column,
@@ -362,7 +363,7 @@ const IconCtx = struct {
 fn folderChildren(ic: *const IconCtx) void {
     const t = ic.theme;
     // The tab first, then the body: a two-part silhouette reads as a folder, where a ring or a glyph cannot.
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = frame.elementId("kurir.tree.icon.tab", ic.index) },
         .direction = .row,
@@ -371,7 +372,7 @@ fn folderChildren(ic: *const IconCtx) void {
         .bg = t.colors.text_done,
         .radius = props.Radius.all(1),
     }, ic, iconNoChildren);
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = frame.elementId("kurir.tree.icon.body", ic.index) },
         .direction = .row,
@@ -389,14 +390,14 @@ fn iconNoChildren(ic: *const IconCtx) void {
 
 // A verb's chip: a tint of its own tone, so the column of requests can be read at a glance.
 fn chipLabel(method: *const []const u8) void {
-    text_mod.label(.{ .label = .{ .text = method.*, .size = .{ .px = 10 }, .color = theme_mod.methodColor(method.*) } });
+    label(.{ .label = .{ .text = method.*, .size = .{ .px = 10 }, .color = theme_mod.methodColor(method.*) } });
 }
 
 // ---- the two menus ----------------------------------------------------------------------------------
 
 fn menus(scope: *Scope) void {
     if (scope.state.new_menu_open) {
-        dropdown_mod.dropdown(.{
+        dropdown(.{
             .src = @src(),
             .field_id = "kurir.new.picker",
             .list_id = sidebar_vm.new_list_id,
@@ -420,7 +421,7 @@ fn menus(scope: *Scope) void {
         }, sidebar_vm.new_rows[0..], scope.theme, plainRow);
     }
     if (scope.state.ws_menu_open) {
-        dropdown_mod.dropdown(.{
+        dropdown(.{
             .src = @src(),
             .field_id = "kurir.ws.picker",
             .list_id = sidebar_vm.ws_list_id,
@@ -448,16 +449,16 @@ fn menus(scope: *Scope) void {
 
 fn plainRow(t: glinlandui.theme.Theme, item: []const u8, index: usize) void {
     _ = index;
-    text_mod.label(.{ .label = .{ .text = item, .size = t.type_scale.caption, .color = t.colors.text } });
+    label(.{ .label = .{ .text = item, .size = t.type_scale.caption, .color = t.colors.text } });
 }
 
 // A square button with no fill of its own: it is a mark, not a block.
-fn iconButton(scope: *Scope, id: []const u8, label: []const u8, width: u32, comptime handler: *const fn (?*anyopaque) void) void {
+fn iconButton(scope: *Scope, id: []const u8, text: []const u8, width: u32, comptime handler: *const fn (?*anyopaque) void) void {
     const t = scope.theme;
-    button_mod.button(.{
+    button(.{
         .src = @src(),
         .id = .{ .text = id },
-        .label = .{ .text = label, .size = t.type_scale.caption, .color = t.colors.text_dim },
+        .label = .{ .text = text, .size = t.type_scale.caption, .color = t.colors.text_dim },
         .bg = t.colors.surface,
         .hover_bg = t.colors.hover,
         .w = .{ .fixed = @floatFromInt(width) },

@@ -1,7 +1,7 @@
 //! The response pane's ViewModel: the last `max_history` results, the one on screen, and the body view.
 const std = @import("std");
 const glinlandui = @import("glinlandui");
-const input_mod = glinlandui.components.input;
+const Field = glinlandui.components.input.Field;
 
 const postman = @import("../../data/model/postman.zig");
 const body_mod = @import("../../data/model/body.zig");
@@ -62,7 +62,7 @@ pub const Response = struct {
     pinned: u64 = 0,
     tab: state_mod.ResponseTab = .body,
     // The body itself: one read-only multiline field, so a response can be selected and copied like any text.
-    body_field: input_mod.Field = undefined,
+    body_field: Field = undefined,
 
     pub fn start(self: *Response, session: *Session) void {
         self.session = session;

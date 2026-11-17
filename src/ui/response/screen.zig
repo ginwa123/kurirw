@@ -2,10 +2,11 @@
 const std = @import("std");
 const glinlandui = @import("glinlandui");
 
-const box_mod = glinlandui.components.box;
-const input_mod = glinlandui.components.input;
-const scroll_mod = glinlandui.components.scroll;
-const text_mod = glinlandui.components.text;
+const box = glinlandui.components.box.box;
+const spacer = glinlandui.components.box.spacer;
+const textField = glinlandui.components.input.textField;
+const scroll = glinlandui.components.scroll.scroll;
+const label = glinlandui.components.text.label;
 const frame = glinlandui.frame;
 const props = glinlandui.props;
 
@@ -25,7 +26,7 @@ const Color = glinlandui.Color;
 
 // The pane is as tall as the split says: the line above it is what the pointer drags.
 pub fn responsePane(scope: *Scope, height: f32) void {
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = "kurir.response" },
         .direction = .column,
@@ -43,7 +44,7 @@ pub fn responseChildren(scope: *Scope) void {
 }
 
 pub fn responseHeader(scope: *Scope) void {
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = "kurir.response.head" },
         .direction = .row,
@@ -57,16 +58,16 @@ pub fn responseHeadChildren(scope: *Scope) void {
     const t = scope.theme;
     const response = scope.state.response;
     switch (response.kind) {
-        .none => text_mod.label(.{ .label = .{ .text = "No response yet. Send a request to see one.", .size = t.type_scale.body, .color = t.colors.text_dim } }),
+        .none => label(.{ .label = .{ .text = "No response yet. Send a request to see one.", .size = t.type_scale.body, .color = t.colors.text_dim } }),
         .ok => {
-            text_mod.label(.{ .label = .{ .text = response.status_text, .size = t.type_scale.label, .color = theme_mod.statusColor(response.status) } });
-            text_mod.label(.{ .label = .{ .text = response.time_text, .size = t.type_scale.caption, .color = t.colors.text_dim } });
-            text_mod.label(.{ .label = .{ .text = response.size_text, .size = t.type_scale.caption, .color = t.colors.text_dim } });
+            label(.{ .label = .{ .text = response.status_text, .size = t.type_scale.label, .color = theme_mod.statusColor(response.status) } });
+            label(.{ .label = .{ .text = response.time_text, .size = t.type_scale.caption, .color = t.colors.text_dim } });
+            label(.{ .label = .{ .text = response.size_text, .size = t.type_scale.caption, .color = t.colors.text_dim } });
         },
-        .failed => text_mod.label(.{ .label = .{ .text = response.error_title, .size = t.type_scale.label, .color = theme_mod.danger } }),
+        .failed => label(.{ .label = .{ .text = response.error_title, .size = t.type_scale.label, .color = theme_mod.danger } }),
     }
 
-    box_mod.spacer(.{ .text = "kurir.response.head.spacer" });
+    spacer(.{ .text = "kurir.response.head.spacer" });
 
     // The tabs belong to the pane, not to the answer: the history outlives whatever result is on screen.
     tabButton(scope, "kurir.resp.tab.body", "Body", scope.state.response_tab == .body, actions.onResponseBodyTab);
@@ -75,7 +76,7 @@ pub fn responseHeadChildren(scope: *Scope) void {
         tabButton(scope, "kurir.resp.tab.history", frame.formatText("History {d}", .{scope.state.history.len}), scope.state.response_tab == .history, actions.onResponseHistoryTab);
     }
     if (scope.state.response_pinned) {
-        text_mod.label(.{ .label = .{ .text = "history", .size = t.type_scale.caption, .color = theme_mod.accent } });
+        label(.{ .label = .{ .text = "history", .size = t.type_scale.caption, .color = theme_mod.accent } });
     }
 }
 
@@ -93,7 +94,7 @@ pub fn responseBody(scope: *Scope) void {
 
 pub fn errorBanner(scope: *Scope) void {
     const t = scope.theme;
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = "kurir.response.error" },
         .direction = .column,
@@ -108,14 +109,14 @@ pub fn errorBanner(scope: *Scope) void {
 
 pub fn errorBannerChildren(scope: *Scope) void {
     const t = scope.theme;
-    text_mod.label(.{ .label = .{ .text = scope.state.response.error_title, .size = t.type_scale.label, .color = theme_mod.danger } });
-    text_mod.label(.{ .label = .{ .text = scope.state.response.error_message, .size = t.type_scale.body, .color = t.colors.text }, .wrap = true });
+    label(.{ .label = .{ .text = scope.state.response.error_title, .size = t.type_scale.label, .color = theme_mod.danger } });
+    label(.{ .label = .{ .text = scope.state.response.error_message, .size = t.type_scale.body, .color = t.colors.text }, .wrap = true });
 }
 
 pub fn okResponse(scope: *Scope) void {
     const t = scope.theme;
     if (scope.state.response_tab == .headers) {
-        scroll_mod.scroll(.{
+        scroll(.{
             .id = .{ .text = "kurir.response.headers" },
             .direction = .vertical,
             .w = .grow,
@@ -125,7 +126,7 @@ pub fn okResponse(scope: *Scope) void {
         }, scope, responseHeaderRows);
         return;
     }
-    scroll_mod.scroll(.{
+    scroll(.{
         .id = .{ .text = response_vm.body_scroll_id },
         .direction = .both,
         .w = .grow,
@@ -142,7 +143,7 @@ pub fn okResponse(scope: *Scope) void {
 
 pub fn responseHeaderRows(scope: *Scope) void {
     for (scope.state.response.headers, 0..) |header, i| {
-        box_mod.box(.{
+        box(.{
             .src = @src(),
             .id = .{ .text = frame.elementId("kurir.response.header", i) },
             .direction = .row,
@@ -159,15 +160,15 @@ const HeaderNameScope = struct {
 };
 
 pub fn responseHeaderRowChildren(hs: *const HeaderNameScope) void {
-    text_mod.label(.{ .label = .{ .text = hs.name, .size = hs.theme.type_scale.caption, .color = hs.theme.colors.text_dim } });
-    text_mod.label(.{ .label = .{ .text = hs.value, .size = hs.theme.type_scale.body, .color = hs.theme.colors.text } });
+    label(.{ .label = .{ .text = hs.name, .size = hs.theme.type_scale.caption, .color = hs.theme.colors.text_dim } });
+    label(.{ .label = .{ .text = hs.value, .size = hs.theme.type_scale.body, .color = hs.theme.colors.text } });
 }
 
 // The body is the toolkit's READ-ONLY multiline field: select a run, Cmd/Ctrl+C, and nothing can edit it.
 pub fn responseBodyLines(scope: *Scope) void {
     const t = scope.theme;
     if (scope.state.response.body.len == 0) {
-        text_mod.label(.{ .label = .{ .text = "(empty body)", .size = t.type_scale.body, .color = t.colors.text_dim } });
+        label(.{ .label = .{ .text = "(empty body)", .size = t.type_scale.body, .color = t.colors.text_dim } });
         return;
     }
     const field = &scope.vm.response.body_field;
@@ -179,7 +180,7 @@ pub fn responseBodyLines(scope: *Scope) void {
     // Full content height: the scrollbar measures the whole body while the field itself only draws the visible window.
     const total = if (scope.state.response.lines.len > 1) scope.state.response.lines.len - 1 else 0;
     field.h = .{ .fixed = @as(f32, @floatFromInt(total)) * field.lineHeight() + 2 * field.pad.top.pts() + 4 };
-    input_mod.textField(field);
+    textField(field);
 }
 
 // ---- the history tab ------------------------------------------------------------------------------------------
@@ -188,7 +189,7 @@ pub fn responseBodyLines(scope: *Scope) void {
 pub fn historyList(scope: *Scope) void {
     const t = scope.theme;
     if (scope.state.history.len == 0) {
-        box_mod.box(.{
+        box(.{
             .src = @src(),
             .id = .{ .text = "kurir.response.history.empty" },
             .direction = .column,
@@ -199,7 +200,7 @@ pub fn historyList(scope: *Scope) void {
         }, scope, historyEmpty);
         return;
     }
-    scroll_mod.scroll(.{
+    scroll(.{
         .id = .{ .text = response_vm.history_scroll_id },
         .direction = .vertical,
         .w = .grow,
@@ -211,8 +212,8 @@ pub fn historyList(scope: *Scope) void {
 
 fn historyEmpty(scope: *Scope) void {
     const t = scope.theme;
-    text_mod.label(.{ .label = .{ .text = "No results yet.", .size = t.type_scale.body, .color = t.colors.text_dim } });
-    text_mod.label(.{ .label = .{ .text = "Send a request and its result lands here, twenty at a time.", .size = t.type_scale.caption, .color = t.colors.text_done } });
+    label(.{ .label = .{ .text = "No results yet.", .size = t.type_scale.body, .color = t.colors.text_dim } });
+    label(.{ .label = .{ .text = "Send a request and its result lands here, twenty at a time.", .size = t.type_scale.caption, .color = t.colors.text_done } });
 }
 
 pub fn historyRows(scope: *Scope) void {
@@ -227,7 +228,7 @@ const HistoryScope = struct {
 
 pub fn historyRow(scope: *Scope, row: state_mod.HistoryRow, index: usize) void {
     const t = scope.theme;
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = frame.elementId(response_vm.history_row_prefix, index) },
         .direction = .row,
@@ -246,9 +247,9 @@ pub fn historyRow(scope: *Scope, row: state_mod.HistoryRow, index: usize) void {
 pub fn historyRowChildren(hs: *const HistoryScope) void {
     const t = hs.scope.theme;
     const row = hs.row;
-    text_mod.label(.{ .label = .{ .text = row.method, .size = t.type_scale.caption, .color = theme_mod.methodColor(row.method) } });
-    text_mod.label(.{ .label = .{ .text = row.name, .size = t.type_scale.body, .color = t.colors.text } });
-    box_mod.spacer(.{ .text = frame.elementId("kurir.response.history.spacer", hs.index) });
-    text_mod.label(.{ .label = .{ .text = row.status, .size = t.type_scale.caption, .color = if (row.failed) theme_mod.danger else theme_mod.statusColor(200) } });
-    text_mod.label(.{ .label = .{ .text = row.detail, .size = t.type_scale.caption, .color = t.colors.text_done } });
+    label(.{ .label = .{ .text = row.method, .size = t.type_scale.caption, .color = theme_mod.methodColor(row.method) } });
+    label(.{ .label = .{ .text = row.name, .size = t.type_scale.body, .color = t.colors.text } });
+    spacer(.{ .text = frame.elementId("kurir.response.history.spacer", hs.index) });
+    label(.{ .label = .{ .text = row.status, .size = t.type_scale.caption, .color = if (row.failed) theme_mod.danger else theme_mod.statusColor(200) } });
+    label(.{ .label = .{ .text = row.detail, .size = t.type_scale.caption, .color = t.colors.text_done } });
 }

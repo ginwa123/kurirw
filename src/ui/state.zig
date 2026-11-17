@@ -3,12 +3,12 @@ const std = @import("std");
 const glinlandui = @import("glinlandui");
 const postman = @import("../data/model/postman.zig");
 
-const tree_mod = glinlandui.components.tree;
-const tabs_mod = glinlandui.components.tabs;
+const tree = glinlandui.components.tree;
+const tabs = glinlandui.components.tabs;
 const props = glinlandui.props;
 
 // One tab: the toolkit's own row, because the tab bar draws it.
-pub const TabRow = tabs_mod.Tab;
+pub const TabRow = tabs.Tab;
 
 // The two panes share the window between them: the response may not grow past the editor's floor, and vice versa.
 pub const editor_min_h: f32 = 260;
@@ -190,7 +190,7 @@ pub const ResponseView = struct {
 pub const UiState = struct {
     rows: []const TreeRow = &.{},
     // The same rows in the tree component's shape, and one right-click menu per row, both built in the view arena.
-    tree_rows: []const tree_mod.Row = &.{},
+    tree_rows: []const tree.Row = &.{},
     tree_menus: []const props.ContextMenu = &.{},
     selection: ?Path = null,
     workspace_name: []const u8 = "",

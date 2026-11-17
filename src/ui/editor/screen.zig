@@ -2,12 +2,13 @@
 const std = @import("std");
 const glinlandui = @import("glinlandui");
 
-const box_mod = glinlandui.components.box;
-const dropdown_mod = glinlandui.components.dropdown;
-const button_mod = glinlandui.components.button;
-const input_mod = glinlandui.components.input;
-const scroll_mod = glinlandui.components.scroll;
-const text_mod = glinlandui.components.text;
+const box = glinlandui.components.box.box;
+const spacer = glinlandui.components.box.spacer;
+const dropdown = glinlandui.components.dropdown.dropdown;
+const button = glinlandui.components.button.button;
+const textField = glinlandui.components.input.textField;
+const scroll = glinlandui.components.scroll.scroll;
+const label = glinlandui.components.text.label;
 const frame = glinlandui.frame;
 const props = glinlandui.props;
 
@@ -34,11 +35,11 @@ const MethodMenu = struct {
 fn renderMethodRow(menu: MethodMenu, item: []const u8, index: usize) void {
     _ = index;
     const t = menu.theme;
-    text_mod.label(.{ .label = .{ .text = item, .size = t.type_scale.caption, .color = theme_mod.methodColor(item) } });
+    label(.{ .label = .{ .text = item, .size = t.type_scale.caption, .color = theme_mod.methodColor(item) } });
 }
 
 pub fn requestEditor(scope: *Scope) void {
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = "kurir.editor" },
         .direction = .column,
@@ -59,7 +60,7 @@ pub fn editorChildren(scope: *Scope) void {
 }
 
 pub fn nameRow(scope: *Scope) void {
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = "kurir.name.row" },
         .direction = .row,
@@ -75,19 +76,19 @@ pub fn nameRowChildren(scope: *Scope) void {
     field.value = scope.state.node_name;
     field.disabled = !scope.state.has_selection;
     field.w = .{ .clamp = .{ .min = 160, .max = 360, .grow = true } };
-    input_mod.textField(field);
+    textField(field);
 
     if (!scope.state.has_selection) {
-        text_mod.label(.{ .label = .{ .text = "Pick a request on the left, or create one.", .size = t.type_scale.caption, .color = t.colors.text_dim } });
+        label(.{ .label = .{ .text = "Pick a request on the left, or create one.", .size = t.type_scale.caption, .color = t.colors.text_dim } });
     } else if (scope.state.node_kind != .request) {
-        text_mod.label(.{ .label = .{ .text = "Container: add a request inside it.", .size = t.type_scale.caption, .color = t.colors.text_dim } });
+        label(.{ .label = .{ .text = "Container: add a request inside it.", .size = t.type_scale.caption, .color = t.colors.text_dim } });
     }
 
-    box_mod.spacer(.{ .text = "kurir.name.spacer" });
+    spacer(.{ .text = "kurir.name.spacer" });
 
     // The environment this window sends with. The mockup puts it at the right of the request's own row.
-    text_mod.label(.{ .label = .{ .text = "Environment", .size = t.type_scale.caption, .color = t.colors.text_dim } });
-    button_mod.button(.{
+    label(.{ .label = .{ .text = "Environment", .size = t.type_scale.caption, .color = t.colors.text_dim } });
+    button(.{
         .id = .{ .text = editor_vm.env_trigger_id },
         .label = .{ .text = environmentLabel(scope.state.env_active), .size = t.type_scale.caption, .color = t.colors.text },
         .bg = t.colors.surface_variant,
@@ -98,7 +99,7 @@ pub fn nameRowChildren(scope: *Scope) void {
     });
     if (scope.state.env_menu) environmentMenu(scope);
 
-    button_mod.button(.{
+    button(.{
         .id = .{ .text = "kurir.delete" },
         .label = .{ .text = "Delete", .size = t.type_scale.caption, .color = t.colors.text },
         .bg = t.colors.surface_variant,
@@ -111,7 +112,7 @@ pub fn nameRowChildren(scope: *Scope) void {
 }
 
 pub fn methodRow(scope: *Scope) void {
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = "kurir.method.row" },
         .direction = .row,
@@ -128,7 +129,7 @@ pub fn methodRowChildren(scope: *Scope) void {
     const color = theme_mod.methodColor(method);
 
     // The trigger is the anchor: the card attaches to this element by name, and nothing shifts when it opens.
-    button_mod.button(.{
+    button(.{
         .id = .{ .text = editor_vm.method_trigger_id },
         .label = .{ .text = frame.formatText("{s}  v", .{method}), .size = t.type_scale.caption, .color = if (enabled) t.colors.on_primary else t.colors.text_dim },
         .bg = if (enabled) color else t.colors.background,
@@ -141,7 +142,7 @@ pub fn methodRowChildren(scope: *Scope) void {
     });
 
     if (scope.state.method_open) {
-        dropdown_mod.dropdown(.{
+        dropdown(.{
             .src = @src(),
             // No element carries this id: it is the menu's name in the semantics tree only.
             .field_id = "kurir.method.picker",
@@ -172,9 +173,9 @@ pub fn methodRowChildren(scope: *Scope) void {
     field.disabled = !enabled;
     // The weight: the room the row has left after the method button, Send and cURL; 160 pt is the floor.
     field.w = .{ .clamp = .{ .min = 160, .grow = true } };
-    input_mod.textField(field);
+    textField(field);
 
-    button_mod.button(.{
+    button(.{
         .id = .{ .text = "kurir.send" },
         .label = .{ .text = if (scope.state.sending) "Sending..." else "Send", .size = t.type_scale.label, .color = t.colors.on_primary },
         .bg = theme_mod.success,
@@ -190,7 +191,7 @@ pub fn methodRowChildren(scope: *Scope) void {
 }
 
 pub fn editorTabs(scope: *Scope) void {
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = "kurir.editor.tabs" },
         .direction = .row,
@@ -205,7 +206,7 @@ pub fn editorTabsChildren(scope: *Scope) void {
     tabButton(scope, "kurir.tab.headers", "Headers", scope.state.editor_tab == .headers, actions.onHeadersTab);
     tabButton(scope, "kurir.tab.body", "Body", scope.state.editor_tab == .body, actions.onBodyTab);
     tabButton(scope, "kurir.tab.vars", "Vars (this request only)", scope.state.editor_tab == .vars, actions.onVarsTab);
-    box_mod.spacer(.{ .text = "kurir.tabs.spacer" });
+    spacer(.{ .text = "kurir.tabs.spacer" });
     if (scope.state.node_kind == .request and scope.state.editor_tab == .headers) {
         smallButton(scope, "kurir.header.add", "+ Header", 84, actions.onAddHeader);
     } else if (scope.state.node_kind == .request and scope.state.editor_tab == .body and scope.state.body_mode.isTable()) {
@@ -213,12 +214,12 @@ pub fn editorTabsChildren(scope: *Scope) void {
     } else if (scope.state.node_kind == .request and scope.state.editor_tab == .vars) {
         smallButton(scope, "kurir.var.add", "+ Variable", 92, actions.onAddRequestVar);
     }
-    text_mod.label(.{ .label = .{ .text = "Ctrl/Cmd+Enter sends", .size = t.type_scale.caption, .color = t.colors.text_done } });
+    label(.{ .label = .{ .text = "Ctrl/Cmd+Enter sends", .size = t.type_scale.caption, .color = t.colors.text_done } });
 }
 
 pub fn editorBody(scope: *Scope) void {
     if (scope.state.node_kind != .request) {
-        box_mod.box(.{
+        box(.{
             .src = @src(),
             .id = .{ .text = "kurir.editor.empty" },
             .w = .grow,
@@ -238,7 +239,7 @@ pub fn editorBody(scope: *Scope) void {
 
 // The Body tab: the mode selector above whatever that mode edits.
 pub fn bodyTab(scope: *Scope) void {
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = "kurir.body.tab" },
         .direction = .column,
@@ -259,7 +260,7 @@ pub fn bodyTabChildren(scope: *Scope) void {
 
 // Postman's radio row, drawn as the tabs this panel already uses: one button per mode, plus the raw language.
 pub fn bodyModeRow(scope: *Scope) void {
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = "kurir.body.modes" },
         .direction = .row,
@@ -271,7 +272,7 @@ pub fn bodyModeRow(scope: *Scope) void {
 
 pub fn bodyModeRowChildren(scope: *Scope) void {
     for (editor_vm.Editor.modes, 0..) |mode, index| bodyModeButton(scope, mode, index);
-    box_mod.spacer(.{ .text = "kurir.body.modes.spacer" });
+    spacer(.{ .text = "kurir.body.modes.spacer" });
     if (scope.state.body_mode == .raw) {
         for (state_mod.raw_languages, 0..) |language, index| bodyLanguageButton(scope, language, index);
         smallButton(scope, "kurir.body.prettify", "Prettify", 76, actions.onPrettifyBody);
@@ -281,7 +282,7 @@ pub fn bodyModeRowChildren(scope: *Scope) void {
 fn bodyModeButton(scope: *Scope, mode: postman.BodyMode, index: usize) void {
     const t = scope.theme;
     const active = scope.state.body_mode == mode;
-    button_mod.button(.{
+    button(.{
         .id = .{ .text = frame.elementId(editor_vm.mode_prefix, index) },
         .label = .{ .text = mode.label(), .size = t.type_scale.caption, .color = if (active) t.colors.text else t.colors.text_dim },
         .bg = if (active) t.colors.surface_variant else t.colors.surface,
@@ -295,7 +296,7 @@ fn bodyModeButton(scope: *Scope, mode: postman.BodyMode, index: usize) void {
 fn bodyLanguageButton(scope: *Scope, language: []const u8, index: usize) void {
     const t = scope.theme;
     const active = std.mem.eql(u8, scope.state.body_language, language);
-    button_mod.button(.{
+    button(.{
         .id = .{ .text = frame.elementId(editor_vm.language_prefix, index) },
         .label = .{ .text = language, .size = t.type_scale.caption, .color = if (active) t.colors.text else t.colors.text_done },
         .bg = if (active) t.colors.surface_variant else t.colors.surface,
@@ -307,7 +308,7 @@ fn bodyLanguageButton(scope: *Scope, language: []const u8, index: usize) void {
 }
 
 fn bodyNoneHint(scope: *Scope) void {
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = "kurir.body.none" },
         .direction = .column,
@@ -320,19 +321,19 @@ fn bodyNoneHint(scope: *Scope) void {
 
 fn bodyNoneChildren(scope: *Scope) void {
     const t = scope.theme;
-    text_mod.label(.{ .label = .{ .text = "This request sends no body.", .size = t.type_scale.body, .color = t.colors.text_dim } });
-    text_mod.label(.{ .label = .{ .text = "Pick raw, form-data or x-www-form-urlencoded above to give it one.", .size = t.type_scale.caption, .color = t.colors.text_done } });
+    label(.{ .label = .{ .text = "This request sends no body.", .size = t.type_scale.body, .color = t.colors.text_dim } });
+    label(.{ .label = .{ .text = "Pick raw, form-data or x-www-form-urlencoded above to give it one.", .size = t.type_scale.caption, .color = t.colors.text_done } });
 }
 
 pub fn editorEmpty(scope: *Scope) void {
     const t = scope.theme;
-    text_mod.label(.{ .label = .{ .text = "A method, a URL, headers and a JSON body live here once a request is selected.", .size = t.type_scale.body, .color = t.colors.text_dim }, .wrap = true });
+    label(.{ .label = .{ .text = "A method, a URL, headers and a JSON body live here once a request is selected.", .size = t.type_scale.body, .color = t.colors.text_dim }, .wrap = true });
 }
 
 pub fn headersTable(scope: *Scope) void {
     const t = scope.theme;
     if (scope.state.header_count == 0) {
-        box_mod.box(.{
+        box(.{
             .src = @src(),
             .id = .{ .text = "kurir.headers.empty" },
             .w = .grow,
@@ -343,7 +344,7 @@ pub fn headersTable(scope: *Scope) void {
         }, scope, headersEmpty);
         return;
     }
-    scroll_mod.scroll(.{
+    scroll(.{
         .id = .{ .text = "kurir.headers" },
         .direction = .vertical,
         .w = .grow,
@@ -355,8 +356,8 @@ pub fn headersTable(scope: *Scope) void {
 
 pub fn headersEmpty(scope: *Scope) void {
     const t = scope.theme;
-    text_mod.label(.{ .label = .{ .text = "No headers on this request.", .size = t.type_scale.body, .color = t.colors.text_dim } });
-    text_mod.label(.{ .label = .{ .text = "Press + Header to add one, for example Content-Type: application/json.", .size = t.type_scale.caption, .color = t.colors.text_done } });
+    label(.{ .label = .{ .text = "No headers on this request.", .size = t.type_scale.body, .color = t.colors.text_dim } });
+    label(.{ .label = .{ .text = "Press + Header to add one, for example Content-Type: application/json.", .size = t.type_scale.caption, .color = t.colors.text_done } });
 }
 
 pub fn headerRows(scope: *Scope) void {
@@ -371,7 +372,7 @@ const HeaderScope = struct {
 };
 
 pub fn headerRow(scope: *Scope, index: usize) void {
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = frame.elementId("kurir.header.row", index) },
         .direction = .row,
@@ -390,7 +391,7 @@ pub fn headerRowChildren(hs: *const HeaderScope) void {
     const row = scope.state.headers[index];
     const enabled = !scope.vm.headerFieldsDisabled(index);
 
-    button_mod.button(.{
+    button(.{
         .id = .{ .text = frame.elementId("kurir.header.on", index) },
         .label = .{ .text = if (enabled) "on" else "off", .size = t.type_scale.caption, .color = if (enabled) t.colors.on_primary else t.colors.text_dim },
         .bg = if (enabled) theme_mod.success else t.colors.surface_variant,
@@ -405,16 +406,16 @@ pub fn headerRowChildren(hs: *const HeaderScope) void {
     key_field.value = row.name;
     key_field.h = .{ .fixed = 26 };
     key_field.w = .{ .clamp = .{ .min = 90, .max = 220 } };
-    input_mod.textField(key_field);
+    textField(key_field);
 
     const value_field = &scope.vm.editor.header_fields[index * 2 + 1];
     value_field.value = row.value;
     value_field.h = .{ .fixed = 26 };
     // The row has one weight: the value takes what the key and the buttons leave.
     value_field.w = .{ .clamp = .{ .min = 120, .grow = true } };
-    input_mod.textField(value_field);
+    textField(value_field);
 
-    button_mod.button(.{
+    button(.{
         .id = .{ .text = frame.elementId("kurir.header.del", index) },
         .label = .{ .text = "x", .size = t.type_scale.caption, .color = t.colors.text_dim },
         .bg = t.colors.surface,
@@ -427,7 +428,7 @@ pub fn headerRowChildren(hs: *const HeaderScope) void {
 
 pub fn bodyEditor(scope: *Scope) void {
     const t = scope.theme;
-    scroll_mod.scroll(.{
+    scroll(.{
         .id = .{ .text = editor_vm.body_scroll_id },
         .direction = .both,
         .w = .grow,
@@ -445,7 +446,7 @@ pub fn bodyEditor(scope: *Scope) void {
 pub fn bodyPartsTable(scope: *Scope) void {
     const t = scope.theme;
     if (scope.state.body_part_count == 0) {
-        box_mod.box(.{
+        box(.{
             .src = @src(),
             .id = .{ .text = "kurir.body.parts.empty" },
             .w = .grow,
@@ -456,7 +457,7 @@ pub fn bodyPartsTable(scope: *Scope) void {
         }, scope, bodyPartsEmpty);
         return;
     }
-    scroll_mod.scroll(.{
+    scroll(.{
         .id = .{ .text = "kurir.body.parts" },
         .direction = .vertical,
         .w = .grow,
@@ -468,8 +469,8 @@ pub fn bodyPartsTable(scope: *Scope) void {
 
 fn bodyPartsEmpty(scope: *Scope) void {
     const t = scope.theme;
-    text_mod.label(.{ .label = .{ .text = "No rows in this body yet.", .size = t.type_scale.body, .color = t.colors.text_dim } });
-    text_mod.label(.{ .label = .{ .text = "Press + Row to add a key and a value.", .size = t.type_scale.caption, .color = t.colors.text_done } });
+    label(.{ .label = .{ .text = "No rows in this body yet.", .size = t.type_scale.body, .color = t.colors.text_dim } });
+    label(.{ .label = .{ .text = "Press + Row to add a key and a value.", .size = t.type_scale.caption, .color = t.colors.text_done } });
 }
 
 pub fn partRows(scope: *Scope) void {
@@ -484,7 +485,7 @@ const PartScope = struct {
 };
 
 pub fn partRow(scope: *Scope, index: usize) void {
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = frame.elementId("kurir.body.part.row", index) },
         .direction = .row,
@@ -503,7 +504,7 @@ pub fn partRowChildren(ps: *const PartScope) void {
     const row = scope.state.body_parts[index];
     const enabled = !scope.vm.editor.bodyPartDisabled(index);
 
-    button_mod.button(.{
+    button(.{
         .id = .{ .text = frame.elementId("kurir.body.part.on", index) },
         .label = .{ .text = if (enabled) "on" else "off", .size = t.type_scale.caption, .color = if (enabled) t.colors.on_primary else t.colors.text_dim },
         .bg = if (enabled) theme_mod.success else t.colors.surface_variant,
@@ -518,16 +519,16 @@ pub fn partRowChildren(ps: *const PartScope) void {
     key_field.value = row.key;
     key_field.h = .{ .fixed = 26 };
     key_field.w = .{ .clamp = .{ .min = 90, .max = 220 } };
-    input_mod.textField(key_field);
+    textField(key_field);
 
     const value_field = &scope.vm.editor.part_fields[index * 2 + 1];
     value_field.value = row.value;
     value_field.h = .{ .fixed = 26 };
     // The row has one weight: the value takes what the key and the buttons leave.
     value_field.w = .{ .clamp = .{ .min = 120, .grow = true } };
-    input_mod.textField(value_field);
+    textField(value_field);
 
-    button_mod.button(.{
+    button(.{
         .id = .{ .text = frame.elementId("kurir.body.part.del", index) },
         .label = .{ .text = "x", .size = t.type_scale.caption, .color = t.colors.text_dim },
         .bg = t.colors.surface,
@@ -546,7 +547,7 @@ pub fn bodyField(scope: *Scope) void {
     field.w = .grow;
     // Tall enough for the text, and never shorter than the pane, so a long body scrolls instead of clipping.
     field.h = .{ .fixed = @max(body_min_h, lines * field.lineHeight() + 12) };
-    input_mod.textField(field);
+    textField(field);
 }
 
 // ---- the environment picker, and the request's own variables -----------------------------------------------
@@ -567,9 +568,9 @@ fn renderEnvRow(menu: EnvMenu, item: []const u8, index: usize) void {
     _ = index;
     const t = menu.theme;
     const chosen = menu.active.len > 0 and std.mem.eql(u8, item, menu.active);
-    const label = if (chosen) frame.formatText("{s}   active", .{item}) else item;
-    text_mod.label(.{ .label = .{
-        .text = label,
+    const text = if (chosen) frame.formatText("{s}   active", .{item}) else item;
+    label(.{ .label = .{
+        .text = text,
         .size = t.type_scale.caption,
         .color = if (chosen) theme_mod.accent else t.colors.text,
     } });
@@ -589,7 +590,7 @@ fn environmentMenu(scope: *Scope) void {
     count += 1;
     rows[count] = editor_vm.manage_environments;
     count += 1;
-    dropdown_mod.dropdown(.{
+    dropdown(.{
         .src = @src(),
         .field_id = editor_vm.env_menu_field_id,
         .list_id = editor_vm.env_menu_list_id,
@@ -616,7 +617,7 @@ fn environmentMenu(scope: *Scope) void {
 
 // The Vars tab: the variables this request carries itself, which no other request resolves.
 pub fn varsTab(scope: *Scope) void {
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = "kurir.vars.tab" },
         .direction = .column,
@@ -628,16 +629,16 @@ pub fn varsTab(scope: *Scope) void {
 
 pub fn varsTabChildren(scope: *Scope) void {
     const t = scope.theme;
-    text_mod.label(.{ .label = .{
+    label(.{ .label = .{
         .text = "These variables apply to this request only. Shared variables live in the Environment.",
         .size = t.type_scale.caption,
         .color = t.colors.text_dim,
     }, .wrap = true });
     if (scope.state.request_var_count == 0) {
-        text_mod.label(.{ .label = .{ .text = "No variables of its own yet.", .size = t.type_scale.body, .color = t.colors.text_done } });
+        label(.{ .label = .{ .text = "No variables of its own yet.", .size = t.type_scale.body, .color = t.colors.text_done } });
         return;
     }
-    scroll_mod.scroll(.{
+    scroll(.{
         .id = .{ .text = "kurir.vars" },
         .direction = .vertical,
         .w = .grow,
@@ -659,7 +660,7 @@ const VarScope = struct {
 };
 
 pub fn varsRow(scope: *Scope, index: usize) void {
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = frame.elementId("kurir.var.row", index) },
         .direction = .row,
@@ -682,15 +683,15 @@ pub fn varsRowChildren(vs: *const VarScope) void {
     name_field.value = row.name;
     name_field.h = .{ .fixed = 26 };
     name_field.w = .{ .clamp = .{ .min = 90, .max = 220, .grow = true } };
-    input_mod.textField(name_field);
+    textField(name_field);
 
     const value_field = &editor.var_fields[index * 2 + 1];
     value_field.value = row.value;
     value_field.h = .{ .fixed = 26 };
     value_field.w = .{ .clamp = .{ .min = 120, .max = 520, .grow = true } };
-    input_mod.textField(value_field);
+    textField(value_field);
 
-    button_mod.button(.{
+    button(.{
         .id = .{ .text = frame.elementId("kurir.var.del", index) },
         .label = .{ .text = "x", .size = t.type_scale.caption, .color = t.colors.text_dim },
         .bg = t.colors.surface,

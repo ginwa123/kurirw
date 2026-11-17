@@ -1,9 +1,11 @@
 //! The left panel's ViewModel: the rows, which folders are open, the workspace strip, and node create/delete.
 const std = @import("std");
 const glinlandui = @import("glinlandui");
-const input_mod = glinlandui.components.input;
-const sidebar_mod = glinlandui.components.sidebar;
-const tree_mod = glinlandui.components.tree;
+const Field = glinlandui.components.input.Field;
+const setTextAllocator = glinlandui.components.input.setTextAllocator;
+const sidebar = glinlandui.components.sidebar;
+const TreeRow = glinlandui.components.tree.Row;
+const TreeZone = glinlandui.components.tree.Zone;
 const frame = glinlandui.frame;
 const prop = glinlandui.props;
 
@@ -123,12 +125,12 @@ pub const Sidebar = struct {
     expanded: std.ArrayList(Path) = .empty,
     rows: std.ArrayList(state_mod.TreeRow) = .empty,
     // The toolkit's panel state: its width and whether it is collapsed. The app owns it, the widget drags it.
-    state: sidebar_mod.State = .{ .width = 300, .expanded_width = 300 },
+    state: sidebar.State = .{ .width = 300, .expanded_width = 300 },
 
     // Renaming a node, naming a workspace, and narrowing the tree: the panel's three fields.
-    name_field: input_mod.Field = undefined,
-    workspace_field: input_mod.Field = undefined,
-    filter_field: input_mod.Field = undefined,
+    name_field: Field = undefined,
+    workspace_field: Field = undefined,
+    filter_field: Field = undefined,
     filter_buf: [256]u8 = undefined,
     filter_len: usize = 0,
 
@@ -425,7 +427,7 @@ pub const Sidebar = struct {
     }
 
     // A row was dropped on another: the panel owns what each zone means for the document.
-    pub fn onTreeDrop(self: *Sidebar, from_row: usize, to_row: usize, zone: tree_mod.Zone) void {
+    pub fn onTreeDrop(self: *Sidebar, from_row: usize, to_row: usize, zone: TreeZone) void {
         const from = self.rowAt(from_row) orelse return;
         const to = self.rowAt(to_row) orelse return;
         if (Path.eql(from, to)) return;
@@ -687,7 +689,7 @@ pub const Sidebar = struct {
     pub fn start(self: *Sidebar, session: *Session) void {
         self.session = session;
         // One allocator for every field: the name and workspace boxes grow with it, so neither is capped at 256 bytes.
-        input_mod.setTextAllocator(session.gpa);
+        setTextAllocator(session.gpa);
         self.name_field = session.fieldStyle(.{ .text = name_field_id }, @src());
         self.name_field.bind();
         self.workspace_field = session.fieldStyle(.{ .text = workspace_field_id }, @src());
@@ -726,7 +728,7 @@ pub const Sidebar = struct {
     }
 
     // The left panel's props: the limits and tones live here, so the view only adds its own call site.
-    pub fn props(self: *Sidebar) sidebar_mod.Props {
+    pub fn props(self: *Sidebar) sidebar.Props {
         const t = self.session.theme;
         return .{
             .id = .{ .text = "kurir.sidebar" },
@@ -746,7 +748,7 @@ pub const Sidebar = struct {
 
     // The width the panel settled on. Read while the frame is declared, because a drag happens there.
     pub fn width(self: *Sidebar) f32 {
-        return sidebar_mod.width(self.props());
+        return sidebar.width(self.props());
     }
 
     // The keyboard-free way to open and close the panel, for a button or a shortcut later.
@@ -779,8 +781,8 @@ pub const Sidebar = struct {
     }
 
     // The tree component's own row shape: a label, a depth, its caret state, and its count as the meta.
-    fn treeRows(self: *Sidebar, arena: Allocator) []const tree_mod.Row {
-        const out = arena.alloc(tree_mod.Row, self.rows.items.len) catch return &.{};
+    fn treeRows(self: *Sidebar, arena: Allocator) []const TreeRow {
+        const out = arena.alloc(TreeRow, self.rows.items.len) catch return &.{};
         for (self.rows.items, out) |r, *row| {
             row.* = .{
                 .label = r.label,

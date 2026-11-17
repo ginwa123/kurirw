@@ -1,7 +1,8 @@
 //! The request editor's ViewModel: method, URL, headers, body. Edits land in the document, never in a copy.
 const std = @import("std");
 const glinlandui = @import("glinlandui");
-const input_mod = glinlandui.components.input;
+const Field = glinlandui.components.input.Field;
+const setTextAllocator = glinlandui.components.input.setTextAllocator;
 const frame = glinlandui.frame;
 
 const postman = @import("../../data/model/postman.zig");
@@ -47,19 +48,19 @@ pub const line_height: f32 = 20;
 pub const Editor = struct {
     session: *Session = undefined,
 
-    url_field: input_mod.Field = undefined,
-    header_fields: [state_mod.max_headers * 2]input_mod.Field = undefined,
+    url_field: Field = undefined,
+    header_fields: [state_mod.max_headers * 2]Field = undefined,
     header_ctxs: [state_mod.max_headers * 2]HeaderCtx = undefined,
 
     // The body is the toolkit's multiline field: Enter types a line, Ctrl/Cmd+Enter sends.
-    body_field: input_mod.Field = undefined,
+    body_field: Field = undefined,
 
     // The two table modes edit one key/value row per part, with the same fields a header row uses.
-    part_fields: [state_mod.max_body_parts * 2]input_mod.Field = undefined,
+    part_fields: [state_mod.max_body_parts * 2]Field = undefined,
     part_ctxs: [state_mod.max_body_parts * 2]PartCtx = undefined,
 
     // The request's own variables, one field per column of a row of the Vars tab.
-    var_fields: [state_mod.max_vars * 2]input_mod.Field = undefined,
+    var_fields: [state_mod.max_vars * 2]Field = undefined,
     var_ctxs: [state_mod.max_vars * 2]VarCtx = undefined,
 
     // The body mode selector and the raw language row: one context per button, so a click knows which one it hit.
@@ -178,7 +179,7 @@ pub const Editor = struct {
         const gpa = session.gpa;
 
         // One allocator for every field in this app: none of them is bound to a fixed size, so none has a length limit.
-        input_mod.setTextAllocator(gpa);
+        setTextAllocator(gpa);
 
         self.url_field = session.fieldStyle(.{ .text = url_field_id }, @src());
         self.url_field.bind();

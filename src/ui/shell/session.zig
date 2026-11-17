@@ -1,7 +1,7 @@
 //! The document session: the tree every panel reads, the arenas behind it, and the selection and status.
 const std = @import("std");
 const glinlandui = @import("glinlandui");
-const input_mod = glinlandui.components.input;
+const Field = glinlandui.components.input.Field;
 
 const postman = @import("../../data/model/postman.zig");
 const store = @import("../../data/local/workspace_store.zig");
@@ -350,7 +350,7 @@ pub const Session = struct {
     }
 
     // The style both panels create a field with, so a field looks the same wherever it lives.
-    pub fn fieldStyle(self: *Session, id: glinlandui.props.Id, src: std.builtin.SourceLocation) input_mod.Field {
+    pub fn fieldStyle(self: *Session, id: glinlandui.props.Id, src: std.builtin.SourceLocation) Field {
         const t = self.theme;
         return .{
             // The devtool shows where the app declared this field, not only where the component lives.

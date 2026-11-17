@@ -2,14 +2,15 @@
 const std = @import("std");
 const glinlandui = @import("glinlandui");
 
-const box_mod = glinlandui.components.box;
+const box = glinlandui.components.box.box;
 const frame = glinlandui.frame;
-const modal_mod = glinlandui.components.modal;
+const modal = glinlandui.components.modal.modal;
+const ModalAction = glinlandui.components.modal.Action;
 const props = glinlandui.props;
-const sidebar_mod = glinlandui.components.sidebar;
-const split_mod = glinlandui.components.split;
-const tabs_mod = glinlandui.components.tabs;
-const text_mod = glinlandui.components.text;
+const sidebar = glinlandui.components.sidebar.sidebar;
+const grip = glinlandui.components.split.grip;
+const tabs = glinlandui.components.tabs.tabs;
+const label = glinlandui.components.text.label;
 
 const theme_mod = @import("../theme/theme.zig");
 const state_mod = @import("../state.zig");
@@ -28,7 +29,7 @@ pub const work_id = "kurir.work";
 pub const quit_id = "kurir.quit";
 
 pub fn KurirScreen(scope: *Scope) void {
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = "kurir.root" },
         .direction = .row,
@@ -42,12 +43,12 @@ pub fn rootChildren(scope: *Scope) void {
     // The panel and its grab line are the toolkit's; what goes inside is Kurir's.
     var panel = scope.vm.sidebar.props();
     panel.src = @src();
-    sidebar_mod.sidebar(panel, scope, sidebar_screen.sidebarChildren);
+    sidebar(panel, scope, sidebar_screen.sidebarChildren);
     mainArea(scope);
 }
 
 fn mainArea(scope: *Scope) void {
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = "kurir.main" },
         .direction = .column,
@@ -65,7 +66,7 @@ fn mainChildren(scope: *Scope) void {
         env_screen.managerPage(scope);
     } else {
         // The request and its answer share one box, so the split divides exactly the room these two panes have.
-        box_mod.box(.{
+        box(.{
             .src = @src(),
             .id = .{ .text = work_id },
             .direction = .column,
@@ -87,7 +88,7 @@ fn workChildren(scope: *Scope) void {
 fn tabBar(scope: *Scope) void {
     if (scope.state.tabs.len == 0) return;
     const t = scope.theme;
-    tabs_mod.tabs(.{
+    tabs(.{
         .src = @src(),
         .id = .{ .text = tabs_id },
         .tabs = scope.state.tabs,
@@ -130,12 +131,12 @@ fn tabBar(scope: *Scope) void {
 fn quitPrompt(scope: *Scope) void {
     if (!scope.state.quit_prompt) return;
     const t = scope.theme;
-    const answers = [_]modal_mod.Action{
+    const answers = [_]ModalAction{
         .{ .label = "Cancel" },
         .{ .label = "Quit without saving" },
         .{ .label = "Save and quit", .primary = true },
     };
-    modal_mod.modal(.{
+    modal(.{
         .src = @src(),
         .id = .{ .text = quit_id },
         .title = "Unsaved changes",
@@ -159,13 +160,13 @@ fn quitPrompt(scope: *Scope) void {
 fn splitGrip(scope: *Scope) void {
     var p = scope.vm.splitProps();
     p.src = @src();
-    split_mod.grip(p);
+    grip(p);
 }
 
 // The status line lives with the work, not with the tree, so an error never reads as a collection row.
 fn statusBar(scope: *Scope) void {
     const t = scope.theme;
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = "kurir.status" },
         .direction = .row,
@@ -179,7 +180,7 @@ fn statusBar(scope: *Scope) void {
 
 fn statusChildren(scope: *Scope) void {
     const t = scope.theme;
-    text_mod.label(.{ .label = .{
+    label(.{ .label = .{
         .text = scope.state.status,
         .size = t.type_scale.caption,
         .color = if (scope.state.status_is_error) theme_mod.danger else t.colors.text_dim,
@@ -187,7 +188,7 @@ fn statusChildren(scope: *Scope) void {
     // A zoom the engine is applying says so, the way a browser's zoom chip does; 100% is not worth a word.
     const factor = frame.zoom();
     if (factor == 1) return;
-    box_mod.box(.{
+    box(.{
         .src = @src(),
         .id = .{ .text = "kurir.status.gap" },
         .direction = .row,
@@ -195,7 +196,7 @@ fn statusChildren(scope: *Scope) void {
         .h = .{ .fixed = 1 },
     }, scope, statusSpacer);
     var buffer: [16]u8 = undefined;
-    text_mod.label(.{
+    label(.{
         .label = .{
             // The frame's own scratch, because Clay keeps the pointer until it paints: a stack slice would be dead by then.
             .text = frame.formatText("Zoom {s}", .{glinlandui.zoom.percentLabel(&buffer, factor)}),
