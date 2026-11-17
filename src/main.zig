@@ -34,6 +34,8 @@ pub fn main(init: std.process.Init) !void {
     });
     // The engine zooms for Ctrl/Cmd `+`/`-`/`0`; the app only says how small its layout may get, so a zoom that would not fit stops early.
     host.min_content = .{ .w = 900, .h = 560 };
+    // The Activity's theme reaches the window once: every widget that leaves a spacing prop unset follows it.
+    host.theme = app.theme;
     // While a request is in flight the window keeps presenting frames, so `uiState()` can collect it.
     app.pump = .{ .ctx = &window, .set_fn = setAnimating };
     window.delegate = host.delegate();
