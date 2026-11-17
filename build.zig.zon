@@ -10,8 +10,8 @@
     // To work on a dependency locally, point its entry at a path (`.path = "../glinlandui"`).
     .dependencies = .{
         .glinlandui = .{
-            .url = "git+https://github.com/ginwa123/glinlandui#ca071286277ce450adddd178f0f60a4da4260e39",
-            .hash = "glinlandui-0.0.0-ngP3RrAVNQAc4dVz7S9WkqzVwWX5LuQCs30yT9E8Ox9B",
+            .url = "git+https://github.com/ginwa123/glinlandui#7c2cce2cec5fa618caff318f53d50a6458400508",
+            .hash = "glinlandui-0.0.0-ngP3Rp0FNQCL51hUCdN3T-STYRoU_z5VBuKMzJXmotPR",
         },
         .kabelweb = .{
             .url = "git+https://github.com/ginwa123/kabelweb.git#1726a5786b49f0c9469d99219232eb52f4766339",
