@@ -74,6 +74,8 @@ pub const Response = struct {
         self.body_field.pad = glinlandui.props.Pad.all(10);
         // The pane already draws the frame around the body: the field itself is seamless, so the text is the content.
         self.body_field.border = .{};
+        // And no focus ring either: an outline around a page of printed JSON reads as a defect, and the caret shows the focus.
+        self.body_field.focus_ring_w = .{ .px = 0 };
         self.body_field.radius = glinlandui.props.Radius.all(0);
         self.body_field.h = .{ .fixed = 30 };
     }

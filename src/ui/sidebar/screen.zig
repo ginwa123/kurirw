@@ -53,11 +53,31 @@ pub fn workspaceHeader(scope: *Scope) void {
         .id = .{ .text = "kurir.ws" },
         .direction = .column,
         .w = .grow,
-        .pad = props.Pad.sides(10, 10, 10, 10),
+        .pad = props.Pad.sides(10, 10, 8, 10),
+        .gap = .{ .px = 9 },
     }, scope, workspaceHeaderChildren);
 }
 
+// The head is closed by a rule: the workspace block and the tree below it are two things, not one column.
+fn headerRule(scope: *Scope) void {
+    box_mod.box(.{
+        .src = @src(),
+        .id = .{ .text = "kurir.ws.rule" },
+        .direction = .row,
+        .w = .grow,
+        .h = .{ .fixed = 1 },
+        .bg = scope.theme.colors.divider,
+    }, scope, noChildren);
+}
+
+fn noChildren(_: *Scope) void {}
+
 pub fn workspaceHeaderChildren(scope: *Scope) void {
+    headRow(scope);
+    headerRule(scope);
+}
+
+fn headRow(scope: *Scope) void {
     box_mod.box(.{
         .src = @src(),
         .id = .{ .text = "kurir.ws.head" },
@@ -150,18 +170,32 @@ pub fn searchRowChildren(scope: *Scope) void {
 }
 
 pub fn sectionLabel(scope: *Scope) void {
-    const t = scope.theme;
     box_mod.box(.{
         .src = @src(),
         .id = .{ .text = "kurir.tree.section" },
         .direction = .row,
         .w = .grow,
-        .pad = props.Pad.sides(4, 12, 8, 12),
-    }, &t, sectionLabelText);
+        .pad = props.Pad.sides(10, 12, 8, 12),
+        .child_align = .{ .y = .center },
+    }, scope, sectionLabelText);
 }
 
-pub fn sectionLabelText(t: *const glinlandui.theme.Theme) void {
+// A section head says what the list is and how much of it there is, and the count keeps to the right edge.
+pub fn sectionLabelText(scope: *Scope) void {
+    const t = scope.theme;
     text_mod.label(.{ .label = .{ .text = "COLLECTIONS", .size = t.type_scale.caption, .color = t.colors.text_done } });
+    box_mod.box(.{
+        .src = @src(),
+        .id = .{ .text = "kurir.tree.section.spacer" },
+        .direction = .row,
+        .w = .grow,
+        .h = .{ .fixed = 1 },
+    }, scope, noChildren);
+    text_mod.label(.{ .label = .{
+        .text = frame.formatText("{d}", .{scope.state.collection_count}),
+        .size = t.type_scale.caption,
+        .color = t.colors.text_done,
+    } });
 }
 
 // ---- the tree ---------------------------------------------------------------------------------------
@@ -231,7 +265,7 @@ pub fn treeChildren(scope: *Scope) void {
         .caret_size = t.type_scale.caption,
         .group_bold = true,
         .row_bg = t.colors.surface,
-        .selected_bg = Color.lerp(t.colors.surface, theme_mod.accent, 0.12),
+        .selected_bg = glinlandui.theme.selected,
         .hover_bg = t.colors.hover,
         .fg = t.colors.text,
         .selected_fg = t.colors.text,

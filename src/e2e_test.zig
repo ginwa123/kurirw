@@ -1602,7 +1602,9 @@ test "endpoints open as tabs, an edit marks its row, and Cmd/Ctrl+S is what clea
     // A new request has never been written, so its row (and its tab) carry the dot.
     try testing.expect(state.rows[1].dirty);
     try testing.expect(state.rows[2].dirty);
-    try testing.expect(state.tabs[1].accent != null);
+    try testing.expect(state.tabs[1].dirty);
+    // A tab has no second dot: its only dot is the one that means "not saved".
+    try testing.expect(state.tabs[0].accent == null);
     try h.driver.expectText("Request 1");
     try h.driver.expectText("Request 2");
 
@@ -1617,6 +1619,7 @@ test "endpoints open as tabs, an edit marks its row, and Cmd/Ctrl+S is what clea
     h.app.vm().save();
     try testing.expect(!h.app.vm().uiState().unsaved);
     try testing.expect(!h.app.vm().uiState().rows[1].dirty);
+    try testing.expect(!h.app.vm().uiState().tabs[0].dirty);
     try testing.expect(h.app.vm().uiState().tabs[0].accent == null);
 
     // Closing with nothing unsaved just closes; with an edit the window asks first.

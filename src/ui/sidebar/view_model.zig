@@ -827,7 +827,8 @@ pub const Sidebar = struct {
             self.session.workspace + 1,
             u.workspace_count,
         }) catch u.workspace_name;
-        u.has_collection = store.collectionCount(self.session.doc, self.session.workspace) > 0;
+        u.collection_count = store.collectionCount(self.session.doc, self.session.workspace);
+        u.has_collection = u.collection_count > 0;
         u.sidebar_width = self.width();
         u.sidebar_collapsed = self.state.collapsed;
         u.filter = self.filterText();

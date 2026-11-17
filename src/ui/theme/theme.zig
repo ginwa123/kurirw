@@ -25,6 +25,10 @@ pub const warn = Color.hexC("#c4b28a");
 // The sidebar's accent: the badge, the "+ New" button and the selected row's bar are one colour.
 pub const accent = success;
 
+// The tab strip's three fills: the bar is the page, a hovered tab one step up, the open tab the brightest of the three.
+pub const tab_hover = Color.lerp(app_theme.colors.background, app_theme.colors.surface_variant, 0.6);
+pub const tab_active = app_theme.colors.surface_variant;
+
 // How far a method chip's fill leans towards the verb's own tone. Low enough that a chip is a tint, not a block.
 const chip_tint: f32 = 0.28;
 

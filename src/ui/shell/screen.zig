@@ -71,7 +71,7 @@ fn mainChildren(scope: *Scope) void {
     quitPrompt(scope);
 }
 
-// The open endpoints, with a dot on the ones whose edits nobody has saved yet.
+// The open endpoints: the tab on screen is the brightest one, and a tab with unsaved edits wears a dot where its close box sits.
 fn tabBar(scope: *Scope) void {
     if (scope.state.tabs.len == 0) return;
     const t = scope.theme;
@@ -79,16 +79,21 @@ fn tabBar(scope: *Scope) void {
         .src = @src(),
         .id = .{ .text = tabs_id },
         .tabs = scope.state.tabs,
-        .h = .{ .fixed = 32 },
+        .h = .{ .fixed = 34 },
         // Every tab is the same width, so the bar reads as a bar however long a request's name is.
-        .tab_w = .{ .px = 168 },
+        .tab_w = .{ .px = 176 },
         .bg = t.colors.background,
-        .active_bg = t.colors.surface,
-        .hover_bg = t.colors.hover,
+        .active_bg = theme_mod.tab_active,
+        .hover_bg = theme_mod.tab_hover,
         .fg = t.colors.text_dim,
         .active_fg = t.colors.text,
         .close_fg = t.colors.text_done,
-        .close_hover = t.colors.surface_variant,
+        .close_hover = t.colors.hover,
+        // The dot that stands in for the close box is the sidebar's unsaved tone, so one colour means one thing.
+        .dirty_fg = theme_mod.accent,
+        // The active tab keeps one bright edge, drawn where it meets the pane it opens.
+        .active_line = theme_mod.accent,
+        .divider = t.colors.divider,
         .drop_line = theme_mod.accent,
         .on_select = .{ .f = actions.onPickTab, .ctx = scope.vm },
         .on_close = .{ .f = actions.onCloseTab, .ctx = scope.vm },

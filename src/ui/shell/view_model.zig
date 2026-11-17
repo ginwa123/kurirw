@@ -521,8 +521,7 @@ pub const KurirViewModel = struct {
                 .label = if (name.len == 0) "(unnamed)" else name,
                 .active = active != null and active.? == index,
                 .closable = true,
-                .accent = if (self.session.isDirty(path)) theme_mod.accent else null,
-                // The same fact the dot draws, in the form the tab's card reads: only a tab with unsaved work can Save.
+                // The dot is the tab's one mark, and it sits where the close box sits: a dot in a tab means unsaved work.
                 .dirty = self.session.isDirty(path),
             };
         }

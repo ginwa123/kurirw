@@ -196,6 +196,8 @@ pub const UiState = struct {
     workspace_name: []const u8 = "",
     workspace_index: usize = 0,
     workspace_count: usize = 0,
+    // How many collections the workspace holds: the section head counts them, so the list says how long it is.
+    collection_count: usize = 0,
     workspace_label: []const u8 = "",
     // The endpoints open in a tab, in the order they were opened, and whether any edit is unsaved.
     tabs: []const TabRow = &.{},
