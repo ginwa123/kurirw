@@ -31,3 +31,6 @@ dist/
 .idea/
 .vscode/
 *.swp
+
+# Worktrees a sub-agent created inside the repo: not part of the tree.
+.worktree/
