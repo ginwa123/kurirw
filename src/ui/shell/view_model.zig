@@ -3,6 +3,7 @@ const std = @import("std");
 const glinlandui = @import("glinlandui");
 const input_mod = glinlandui.components.input;
 const split_mod = glinlandui.components.split;
+const tabs_mod = glinlandui.components.tabs;
 
 const postman = @import("../../data/model/postman.zig");
 const store = @import("../../data/local/workspace_store.zig");
@@ -340,6 +341,64 @@ pub const KurirViewModel = struct {
 
     // ---- the tab bar ------------------------------------------------------------------------------------
 
+    // A tab dragged onto another: the bar's order IS the session's order, so a move is a splice.
+    pub fn moveTab(self: *KurirViewModel, from: usize, to: usize) void {
+        if (from >= self.tab_count or to >= self.tab_count or from == to) return;
+        const moved = self.tabs[from];
+        if (from < to) {
+            std.mem.copyForwards(Path, self.tabs[from..to], self.tabs[from + 1 .. to + 1]);
+        } else {
+            std.mem.copyBackwards(Path, self.tabs[to + 1 .. from + 1], self.tabs[to..from]);
+        }
+        self.tabs[to] = moved;
+        // The next start opens the bar the same way round, so the order belongs to the session, not to the frame.
+        self.session.persistSession(self.tabs[0..self.tab_count], self.session.selection);
+        self.session.touch();
+    }
+
+    // A tab's card: the engine names the action, the model decides what it means for this document.
+    pub fn pickTabMenu(self: *KurirViewModel, index: usize, action: tabs_mod.Action) void {
+        if (index >= self.tab_count) return;
+        switch (action) {
+            // "Save" is this document's save: Kurir keeps one file, so a tab has nothing of its own to write.
+            .save => self.save(),
+            .close => self.closeTab(index),
+            .close_others => self.keepTabSide(index, .others),
+            .close_right => self.keepTabSide(index, .right),
+            .close_left => self.keepTabSide(index, .left),
+        }
+    }
+
+    // Which tabs a card's close action keeps: one, the left of it (with it), or its right (with it).
+    const Keep = enum { others, left, right };
+
+    // Close a side of the bar in one pass: the tabs a card keeps are copied down over the ones it does not.
+    fn keepTabSide(self: *KurirViewModel, index: usize, keep: Keep) void {
+        var written: usize = 0;
+        for (self.tabs[0..self.tab_count], 0..) |open, i| {
+            const survives = switch (keep) {
+                .others => i == index,
+                .left => i <= index,
+                .right => i >= index,
+            };
+            if (!survives) continue;
+            self.tabs[written] = open;
+            written += 1;
+        }
+        self.tab_count = written;
+        self.session.touch();
+        if (self.tab_count == 0) {
+            self.session.selection = null;
+            self.editor.load();
+            self.response.clearPin();
+            self.session.touch();
+            return;
+        }
+        // The editor follows the selection: if what was on screen survived, it stays there.
+        if (self.activeTab() != null) return;
+        self.select(self.tabs[@min(index, self.tab_count - 1)]);
+    }
+
     // A request joins the tab bar, or becomes the active tab when it is already open. A container gets none.
     fn openTab(self: *KurirViewModel, path: Path) void {
         if (path.depth == 0) return;
@@ -407,8 +466,7 @@ pub const KurirViewModel = struct {
 
     // The window asked to close. True means it was held open: there are edits nobody has saved yet.
     pub fn requestClose(self: *KurirViewModel) bool {
-        // The session goes down FIRST: AppKit can end the process as soon as the last window closes,
-        // and this is the last hook the app is guaranteed to see.
+        // The session goes down FIRST: AppKit can end the process as soon as the last window closes, and this is the last hook the app is guaranteed to see.
         self.session.persistSession(self.tabs[0..self.tab_count], self.session.selection);
         if (!self.session.hasUnsaved()) return false;
         self.quit_prompt = true;
@@ -450,6 +508,8 @@ pub const KurirViewModel = struct {
                 .active = active != null and active.? == index,
                 .closable = true,
                 .accent = if (self.session.isDirty(path)) theme_mod.accent else null,
+                // The same fact the dot draws, in the form the tab's card reads: only a tab with unsaved work can Save.
+                .dirty = self.session.isDirty(path),
             };
         }
         return rows;

@@ -172,6 +172,18 @@ pub fn onCloseTab(ctx: ?*anyopaque, index: usize) void {
     vm.closeTab(index);
 }
 
+// The card a tab raises: the engine names the action, the model decides what it means.
+pub fn onPickTabMenu(ctx: ?*anyopaque, index: usize, action: glinlandui.components.tabs.Action) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.pickTabMenu(index, action);
+}
+
+// A tab dragged onto another: the bar keeps the order the model holds.
+pub fn onMoveTab(ctx: ?*anyopaque, from: usize, to: usize) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.moveTab(from, to);
+}
+
 pub fn onPrettifyBody(ctx: ?*anyopaque) void {
     const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
     vm.editor.prettifyBody();

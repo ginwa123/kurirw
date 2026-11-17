@@ -75,13 +75,32 @@ fn tabBar(scope: *Scope) void {
         .id = .{ .text = tabs_id },
         .tabs = scope.state.tabs,
         .h = .{ .fixed = 32 },
+        // Every tab is the same width, so the bar reads as a bar however long a request's name is.
+        .tab_w = .{ .px = 168 },
         .bg = t.colors.background,
         .active_bg = t.colors.surface,
+        .hover_bg = t.colors.hover,
         .fg = t.colors.text_dim,
         .active_fg = t.colors.text,
         .close_fg = t.colors.text_done,
+        .close_hover = t.colors.surface_variant,
+        .drop_line = theme_mod.accent,
         .on_select = .{ .f = actions.onPickTab, .ctx = scope.vm },
         .on_close = .{ .f = actions.onCloseTab, .ctx = scope.vm },
+        // Drag a tab onto another to move it, and right click one for Save / Close others / Close to a side / Close.
+        .on_move = actions.onMoveTab,
+        .ctx = scope.vm,
+        .menu = .{
+            .f = actions.onPickTabMenu,
+            .ctx = scope.vm,
+            .style = .{
+                .bg = t.colors.surface,
+                .fg = t.colors.text,
+                .hover_bg = t.colors.hover,
+                .disabled_fg = t.colors.text_done,
+                .border = t.colors.divider,
+            },
+        },
     });
 }
 
