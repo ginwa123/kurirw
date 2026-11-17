@@ -151,6 +151,8 @@ pub fn searchRowChildren(scope: *Scope) void {
 
     const field = &scope.vm.sidebar.filter_field;
     field.value = scope.state.filter;
+    // A step above the panel, so the filter reads as a control sitting on the sidebar and not as a hole in it.
+    field.bg = t.colors.surface_variant;
     field.w = .grow;
     input_mod.textField(field);
 
