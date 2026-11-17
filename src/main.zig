@@ -13,6 +13,8 @@ pub fn main(init: std.process.Init) !void {
 
     var host = try glinlandui.host.Host.init(gpa, &app, kurirw.app.App.content);
     defer host.deinit();
+    // The app's own face, installed before the first frame so no width was measured with the toolkit's bundled one.
+    kurirw.font.install(gpa) catch |err| std.debug.print("kurir: the embedded face could not be installed ({s}); drawing with the toolkit's\n", .{@errorName(err)});
     // Unsaved edits hold the window open and ask their question; the answer closes it through this host.
     host.close_hook = onCloseRequested;
     host.close_ctx = &app;

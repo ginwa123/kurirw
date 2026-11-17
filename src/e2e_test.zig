@@ -23,6 +23,8 @@ const Harness = struct {
     fake: *http_mod.Fake,
 
     fn boot(gpa: std.mem.Allocator, home: []const u8) !Harness {
+        // The real app's face, before the first frame: the E2E has to lay text out with what ships.
+        try kurirw.font.install(gpa);
         var env = std.process.Environ.Map.init(gpa);
         try env.put("HOME", home);
 

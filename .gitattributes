@@ -1,3 +1,6 @@
 # Every text file is LF in the repository AND in a Windows checkout: `zig fmt --check` compares bytes,
 # so a CRLF checkout would make every file "unformatted" on the Windows runner.
 * text=auto eol=lf
+
+# The embedded face is a binary: a line-ending conversion would corrupt every glyph.
+*.ttf binary

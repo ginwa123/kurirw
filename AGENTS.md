@@ -39,6 +39,7 @@ src/ui/shell/                      session, view_model, screen, scope, widgets, 
 src/ui/{sidebar,editor,response}/  view_model.zig (state + intents) + screen.zig (declaration)
 src/ui/state.zig                      the state as a value + label helpers
 src/app.zig, src/main.zig          the Activity and the entry point
+src/font.zig                       the embedded face (Source Sans 3), installed before the first frame
 src/e2e_test.zig                   the acceptance path, headless
 ```
 
@@ -99,6 +100,9 @@ src/e2e_test.zig                   the acceptance path, headless
   icon font, so an icon is DRAWN: a folder is a 5x2 tab over a 12x8 body. A border does not follow a
   corner radius here, so a ring (a magnifier) cannot be drawn at all — use a hint instead of a shape that
   would read as a missing glyph. Check a glyph in a screenshot before shipping it.
+- **The face is the app's, not the toolkit's.** `font.zig` embeds Source Sans 3 and installs it through
+  `glinlandui.text.installFaceBytes`; a new binary entry point that skips `font.install` draws IBM Plex Mono,
+  and the widths it measures are a different layout, so the E2E has to install it too (it does, in `boot`).
 - **The response body is never truncated**, and the pane never declares one text run per line of it: the lines
   are indexed in `data/model/body.zig` and only the viewport's range is drawn (top spacer, lines, bottom spacer).
   Re-indenting a megabyte happens on the request's own thread, not the frame's.

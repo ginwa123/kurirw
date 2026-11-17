@@ -1,5 +1,6 @@
 //! Kurir as a MODULE: `@import("kurirw")` is the whole app — its state, its intents, its view, and its window.
 pub const app = @import("app.zig");
+pub const font = @import("font.zig");
 pub const view = @import("ui/shell/screen.zig");
 pub const view_model = @import("ui/shell/view_model.zig");
 pub const state = @import("ui/state.zig");
@@ -23,6 +24,7 @@ pub const editor_view_model = @import("ui/editor/view_model.zig");
 
 // Every file's own tests, collected without adding an anonymous one, so the suite counts real tests.
 comptime {
+    _ = @import("font.zig");
     _ = @import("ui/state.zig");
     _ = @import("ui/theme/theme.zig");
     _ = @import("data/model/postman.zig");
