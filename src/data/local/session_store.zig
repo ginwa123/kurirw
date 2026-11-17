@@ -137,5 +137,7 @@ test "the session path sits beside the document it belongs to" {
     defer arena_state.deinit();
     const arena = arena_state.allocator();
     const path = try pathFor(arena, "/home/someone/.kurir/workspaces.json");
-    try testing.expectEqualStrings("/home/someone/.kurir/session.json", path);
+    // The separator is the host's, so the expectation is joined rather than spelled: this suite runs on all three.
+    const want = try std.fs.path.join(arena, &.{ "/home/someone/.kurir", file_name });
+    try testing.expectEqualStrings(want, path);
 }
