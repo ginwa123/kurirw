@@ -17,6 +17,11 @@ pub const response_min_h: f32 = 120;
 pub const max_depth: usize = 8;
 pub const max_tree_rows: usize = 512;
 pub const max_headers: usize = 32;
+// How many environments a workspace may name, and how many variables one environment may hold.
+pub const max_environments: usize = 12;
+pub const max_env_vars: usize = 32;
+// How many variables a request, or a collection, may carry of its own.
+pub const max_vars: usize = 16;
 pub const max_body_parts: usize = 32;
 pub const max_name: usize = 128;
 // How many results a session keeps: the newest this many sends are the whole history.
@@ -31,10 +36,17 @@ pub const NodeKind = enum {
     request,
 };
 
-// Which pane the request editor shows.
+// Which pane the request editor shows. `vars` is this request's own, not the environment's.
 pub const Tab = enum {
     headers,
     body,
+    vars,
+};
+
+// What the manager is listing: the workspace's environments, or one collection's own variables.
+pub const EnvGroup = enum {
+    environment,
+    collection,
 };
 
 // Which pane the response shows: its own result, its own headers, or the last `max_history` results.
@@ -137,6 +149,20 @@ pub const HeaderRow = struct {
     value: []const u8 = "",
 };
 
+// One environment variable, as the manager draws it: three values and whether it is a secret.
+pub const EnvRow = struct {
+    name: []const u8 = "",
+    initial: []const u8 = "",
+    current: []const u8 = "",
+    secret: bool = false,
+};
+
+// One name/value row: a request's own variable, or a collection's.
+pub const PairRow = struct {
+    name: []const u8 = "",
+    value: []const u8 = "",
+};
+
 pub const ResponseKind = enum {
     none,
     ok,
@@ -190,6 +216,25 @@ pub const UiState = struct {
     body_parts: []const BodyPartRow = &.{},
     body_part_count: usize = 0,
     editor_tab: Tab = .headers,
+    // The workspace's environments, which one sends, and which one the manager is showing.
+    env_names: []const []const u8 = &.{},
+    env_active: []const u8 = "",
+    env_selected: usize = 0,
+    env_rows: []const EnvRow = &.{},
+    env_count: usize = 0,
+    // The manager: whether it is up, and whether its right pane lists an environment or a collection.
+    env_manager: bool = false,
+    env_group: EnvGroup = .environment,
+    // The workspace's collections, so the manager can offer their own variables too.
+    collection_names: []const []const u8 = &.{},
+    collection_selected: usize = 0,
+    pair_rows: []const PairRow = &.{},
+    pair_count: usize = 0,
+    // The request's own variables, which the Vars tab edits.
+    request_vars: []const PairRow = &.{},
+    request_var_count: usize = 0,
+    // The environment menu under its trigger.
+    env_menu: bool = false,
     // The method dropdown is the panel's: the frame only reads whether it is open.
     method_open: bool = false,
     response_tab: ResponseTab = .body,

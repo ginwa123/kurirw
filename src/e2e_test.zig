@@ -1660,3 +1660,96 @@ test "a quit keeps the tabs and the unsaved edits, and the next start opens them
     try testing.expect(state.unsaved);
     try testing.expect(state.rows[2].dirty);
 }
+
+test "the environment picker drives what a send resolves, and a request's own Vars win" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+    const env_vm = kurirw.env_view_model;
+    const editor_vm = kurirw.editor_view_model;
+
+    // A collection and a request whose URL names a variable nothing defines yet.
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
+    try h.driver.click(view_model.url_field_id);
+    try h.driver.typeText("https://api.example.com/{{token}}/charges");
+
+    // The picker opens under its trigger and carries the way into the manager: row 0 is "No environment".
+    try h.driver.click(editor_vm.env_trigger_id);
+    try testing.expect(h.app.vm().uiState().env_menu);
+    try pickCardRow(&h, editor_vm.env_menu_list_id, 1);
+    try testing.expect(h.app.vm().uiState().env_manager);
+    try h.driver.expectText("Manage environments");
+
+    // + New environment makes one, and a workspace's first environment is the one it sends with.
+    try h.driver.click(env_vm.new_id);
+    const created = h.app.vm().uiState();
+    try testing.expectEqual(@as(usize, 1), created.env_names.len);
+    try testing.expectEqualStrings("Environment 1", created.env_active);
+
+    // The pane's title is the environment's own name: it is an editable field, and a rename follows into `active`.
+    try testing.expect(glinlandui.frame.bounds(glinlandui.frame.clayId(env_vm.env_name_id)) != null);
+    h.app.vm().env.renameSelected("Dev");
+    try testing.expectEqualStrings("Dev", h.app.vm().uiState().env_names[0]);
+    try testing.expectEqualStrings("Dev", h.app.vm().uiState().env_active);
+
+    // Its first variable: the name a request writes in braces, and the value that send uses.
+    try h.driver.click(env_vm.add_variable_id);
+    try testing.expectEqual(@as(usize, 1), h.app.vm().uiState().env_count);
+    try h.driver.click(glinlandui.frame.elementId(env_vm.name_prefix, 0));
+    try h.driver.typeText("token");
+    try h.driver.click(glinlandui.frame.elementId(env_vm.current_prefix, 0));
+    try h.driver.typeText("from-environment");
+
+    // The manager writes the environment file beside the document, as the edit happens.
+    const env_path = try std.fs.path.join(gpa, &.{ scratch.home, ".kurir", "environment.json" });
+    defer gpa.free(env_path);
+    const written = try std.Io.Dir.cwd().readFileAlloc(testing.io, env_path, gpa, .limited(1 << 20));
+    defer gpa.free(written);
+    try testing.expect(std.mem.indexOf(u8, written, "from-environment") != null);
+    try testing.expect(std.mem.indexOf(u8, written, h.app.vm().session.workspaceId()) != null);
+
+    // A secret is hidden on screen, and still leaves as its text: only the table masks it.
+    try h.driver.click(glinlandui.frame.elementId("kurir.env.manager.secret", 0));
+    try testing.expect(h.app.vm().uiState().env_rows[0].secret);
+    try testing.expectEqualStrings("from-environment", h.app.vm().uiState().env_rows[0].current);
+
+    // Closing the manager brings the request back, and the send carries the environment's value.
+    try h.driver.click(env_vm.close_id);
+    try testing.expect(!h.app.vm().uiState().env_manager);
+    h.driver.frame();
+    try h.driver.click("kurir.send");
+    try settle(&h);
+    try testing.expectEqualStrings("https://api.example.com/from-environment/charges", h.fake.last_url);
+
+    // The request's own Vars tab is read first: the same name there wins.
+    try h.driver.click("kurir.tab.vars");
+    try h.driver.click("kurir.var.add");
+    try h.driver.click(glinlandui.frame.elementId(editor_vm.var_name_prefix, 0));
+    try h.driver.typeText("token");
+    try h.driver.click(glinlandui.frame.elementId(editor_vm.var_value_prefix, 0));
+    try h.driver.typeText("from-request");
+    try testing.expectEqual(@as(usize, 1), h.app.vm().uiState().request_var_count);
+    try h.driver.click("kurir.send");
+    try settle(&h);
+    try testing.expectEqualStrings("https://api.example.com/from-request/charges", h.fake.last_url);
+
+    // Removing that row puts the environment's value back.
+    try h.driver.click(glinlandui.frame.elementId("kurir.var.del", 0));
+    try testing.expectEqual(@as(usize, 0), h.app.vm().uiState().request_var_count);
+    try h.driver.click("kurir.send");
+    try settle(&h);
+    try testing.expectEqualStrings("https://api.example.com/from-environment/charges", h.fake.last_url);
+
+    // "No environment" in the picker stops the environment from resolving, so the braces stay as typed.
+    const no_environment_row = h.app.vm().uiState().env_names.len;
+    try h.driver.click(editor_vm.env_trigger_id);
+    try pickCardRow(&h, editor_vm.env_menu_list_id, no_environment_row);
+    try testing.expectEqualStrings("", h.app.vm().uiState().env_active);
+    try h.driver.click("kurir.send");
+    try settle(&h);
+    try testing.expectEqualStrings("https://api.example.com/{{token}}/charges", h.fake.last_url);
+}

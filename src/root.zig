@@ -17,6 +17,9 @@ pub const import_collection = @import("domain/usecase/import_collection.zig");
 pub const export_collection = @import("domain/usecase/export_collection.zig");
 pub const curl_transfer = @import("domain/usecase/curl_transfer.zig");
 pub const container = @import("di/container.zig");
+pub const env = @import("domain/env.zig");
+pub const env_view_model = @import("ui/env/view_model.zig");
+pub const editor_view_model = @import("ui/editor/view_model.zig");
 
 // Every file's own tests, collected without adding an anonymous one, so the suite counts real tests.
 comptime {
@@ -49,4 +52,8 @@ comptime {
     _ = @import("domain/repository/workspace.zig");
     _ = @import("data/repository/workspace_impl.zig");
     _ = @import("di/container.zig");
+    _ = @import("domain/env.zig");
+    _ = @import("data/local/env_store.zig");
+    _ = @import("ui/env/view_model.zig");
+    _ = @import("ui/env/screen.zig");
 }

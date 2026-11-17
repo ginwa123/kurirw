@@ -5,6 +5,7 @@ const input_mod = glinlandui.components.input;
 const frame = glinlandui.frame;
 
 const postman = @import("../../data/model/postman.zig");
+const env_mod = @import("../../domain/env.zig");
 const curl_transfer = @import("../../domain/usecase/curl_transfer.zig");
 const state_mod = @import("../../ui/state.zig");
 const session_mod = @import("../shell/session.zig");
@@ -24,10 +25,21 @@ pub const header_key_prefix = "kurir.header.key";
 pub const header_value_prefix = "kurir.header.value";
 pub const part_key_prefix = "kurir.body.part.key";
 pub const part_value_prefix = "kurir.body.part.value";
+// The Vars tab: this request's own names and values, which no other request resolves.
+pub const var_name_prefix = "kurir.var.name";
+pub const var_value_prefix = "kurir.var.value";
 // The mode and language selectors: each button's id, so a click and a test can address it by name.
 pub const mode_prefix = "kurir.body.mode";
 pub const language_prefix = "kurir.body.language";
 pub const curl_copy_id = "kurir.curl.copy";
+
+// The environment picker at the right of the request's row, and the two verbs its card always carries.
+pub const env_trigger_id = "kurir.env.trigger";
+pub const env_menu_id = "kurir.env.menu";
+pub const env_menu_field_id = "kurir.env.field";
+pub const env_menu_list_id = "kurir.env.menu.list";
+pub const no_environment = "No environment";
+pub const manage_environments = "Manage environments...";
 
 pub const body_pad: f32 = 10;
 pub const line_height: f32 = 20;
@@ -45,6 +57,10 @@ pub const Editor = struct {
     // The two table modes edit one key/value row per part, with the same fields a header row uses.
     part_fields: [state_mod.max_body_parts * 2]input_mod.Field = undefined,
     part_ctxs: [state_mod.max_body_parts * 2]PartCtx = undefined,
+
+    // The request's own variables, one field per column of a row of the Vars tab.
+    var_fields: [state_mod.max_vars * 2]input_mod.Field = undefined,
+    var_ctxs: [state_mod.max_vars * 2]VarCtx = undefined,
 
     // The body mode selector and the raw language row: one context per button, so a click knows which one it hit.
     mode_ctxs: [modes.len]ModeCtx = undefined,
@@ -73,6 +89,13 @@ pub const Editor = struct {
         value_side: bool,
     };
 
+    // A row of the Vars tab: this request's own variables, which nothing else resolves.
+    pub const VarCtx = struct {
+        editor: *Editor,
+        index: usize,
+        value_side: bool,
+    };
+
     pub const ModeCtx = struct {
         editor: *Editor,
         mode: postman.BodyMode,
@@ -89,7 +112,9 @@ pub const Editor = struct {
         const node = self.session.nodeAt(path) orelse return self.session.failNow("That selection is gone. Select a request again.");
         if (!postman.isRequest(node.*)) return self.session.failNow("That is a folder or a collection. Select a request to copy as cURL.");
         const arena = self.session.docArena();
-        const text = curl_transfer.command(arena, node.*) catch return self.session.failNow("This request cannot be written as a curl command.");
+        const command = curl_transfer.command(arena, node.*) catch return self.session.failNow("This request cannot be written as a curl command.");
+        // A shell knows nothing about `{{token}}`, so the command carries the values the variables hold.
+        const text = env_mod.expand(arena, command, self.session.variableScope(arena)) catch command;
         glinlandui.clipboard.write(text);
         self.last_curl = text;
         self.session.setStatus(false, "Copied as cURL ({d} bytes). Paste it anywhere a shell runs.", .{text.len});
@@ -138,6 +163,16 @@ pub const Editor = struct {
         }
     }
 
+    pub fn onVarTyped(raw: ?*anyopaque, text: []const u8) void {
+        const ctx: *VarCtx = @ptrCast(@alignCast(raw.?));
+        ctx.editor.session.focus = .none;
+        if (ctx.value_side) {
+            ctx.editor.onVarValueChange(ctx.index, text);
+        } else {
+            ctx.editor.onVarNameChange(ctx.index, text);
+        }
+    }
+
     pub fn start(self: *Editor, session: *Session) void {
         self.session = session;
         const gpa = session.gpa;
@@ -180,6 +215,19 @@ pub const Editor = struct {
             self.part_fields[i * 2 + 1].on_change = .{ .f = onPartTyped, .ctx = &self.part_ctxs[i * 2 + 1] };
         }
 
+        // The Vars tab is the same two-column table again, over the request's own variables.
+        i = 0;
+        while (i < state_mod.max_vars) : (i += 1) {
+            self.var_fields[i * 2] = session.fieldStyle(.at(var_name_prefix, i), @src());
+            self.var_fields[i * 2].bind();
+            self.var_fields[i * 2 + 1] = session.fieldStyle(.at(var_value_prefix, i), @src());
+            self.var_fields[i * 2 + 1].bind();
+            self.var_ctxs[i * 2] = .{ .editor = self, .index = i, .value_side = false };
+            self.var_ctxs[i * 2 + 1] = .{ .editor = self, .index = i, .value_side = true };
+            self.var_fields[i * 2].on_change = .{ .f = onVarTyped, .ctx = &self.var_ctxs[i * 2] };
+            self.var_fields[i * 2 + 1].on_change = .{ .f = onVarTyped, .ctx = &self.var_ctxs[i * 2 + 1] };
+        }
+
         // The selector's contexts are built once: a button's click is dispatched long after the declare.
         for (modes, 0..) |mode, index| self.mode_ctxs[index] = .{ .editor = self, .mode = mode };
         for (state_mod.raw_languages, 0..) |language, index| self.language_ctxs[index] = .{ .editor = self, .language = language };
@@ -197,6 +245,7 @@ pub const Editor = struct {
         self.body_field.deinit();
         for (&self.header_fields) |*field| field.deinit();
         for (&self.part_fields) |*field| field.deinit();
+        for (&self.var_fields) |*field| field.deinit();
     }
 
     // Push the selected node into the fields: on a selection change, never while a field is being typed.
@@ -242,6 +291,16 @@ pub const Editor = struct {
                 header_rows.append(arena, .{ .name = header.key, .value = header.value }) catch break;
             }
             u.headers = header_rows.toOwnedSlice(arena) catch &.{};
+
+            // The request's own variables: the Vars tab edits them, and only this request resolves them.
+            u.request_var_count = postman.varCount(item.*);
+            var var_rows: std.ArrayList(state_mod.PairRow) = .empty;
+            var var_index: usize = 0;
+            while (var_index < u.request_var_count) : (var_index += 1) {
+                const pair = postman.varAt(item.*, var_index);
+                var_rows.append(arena, .{ .name = pair.name, .value = pair.value }) catch break;
+            }
+            u.request_vars = var_rows.toOwnedSlice(arena) catch &.{};
         }
     }
 
@@ -351,6 +410,44 @@ pub const Editor = struct {
         const disabled = postman.headerDisabled(node.*, index);
         postman.setHeaderEnabled(self.session.doc_arena.allocator(), node, index, disabled) catch return;
         self.session.commit();
+    }
+
+    // ---- the request's own variables (the Vars tab) ---------------------------------------------------------
+
+    pub fn addRequestVar(self: *Editor) void {
+        const node = self.session.selectedRequest() orelse return self.session.failNow("Select a request first, then add a variable.");
+        if (postman.varCount(node.*) >= state_mod.max_vars) {
+            return self.session.fail("This request holds at most {d} variables.", .{state_mod.max_vars});
+        }
+        const index = postman.addVar(self.session.docArena(), node) catch return;
+        self.session.commit();
+        frame.setFocus(varFieldName(index, false));
+    }
+
+    pub fn removeRequestVar(self: *Editor, index: usize) void {
+        const node = self.session.selectedRequest() orelse return;
+        postman.removeVar(node, index);
+        self.session.commit();
+    }
+
+    pub fn onVarNameChange(self: *Editor, index: usize, text: []const u8) void {
+        const node = self.session.selectedRequest() orelse return;
+        postman.setVarName(self.session.docArena(), node, index, text) catch return;
+        self.session.commit();
+    }
+
+    pub fn onVarValueChange(self: *Editor, index: usize, text: []const u8) void {
+        const node = self.session.selectedRequest() orelse return;
+        postman.setVarValue(self.session.docArena(), node, index, text) catch return;
+        self.session.commit();
+    }
+
+    // The name of a Vars row's column, so a click and a test can address it.
+    pub fn varFieldName(index: usize, value_side: bool) []const u8 {
+        return if (value_side)
+            glinlandui.props.Id.at(var_value_prefix, index).str()
+        else
+            glinlandui.props.Id.at(var_name_prefix, index).str();
     }
 
     pub fn setBody(self: *Editor, text: []const u8) void {

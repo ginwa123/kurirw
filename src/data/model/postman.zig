@@ -614,6 +614,61 @@ pub fn removeHeader(item: *Value, index: usize) void {
     _ = found.array.orderedRemove(index);
 }
 
+// ---- variables: a request's own, and the collection it lives in ---------------------------------------------
+
+// One `variable` row: the name a request writes in braces, and the value it stands for.
+pub const Var = struct {
+    name: []const u8 = "",
+    value: []const u8 = "",
+};
+
+// The `variable` array of a request or a collection, when it has one at all.
+fn variableArray(item: Value) ?Value {
+    if (item != .object) return null;
+    const list = item.object.get("variable") orelse return null;
+    return if (list == .array) list else null;
+}
+
+pub fn varCount(item: Value) usize {
+    const list = variableArray(item) orelse return 0;
+    return list.array.items.len;
+}
+
+pub fn varAt(item: Value, index: usize) Var {
+    const list = variableArray(item) orelse return .{};
+    if (index >= list.array.items.len) return .{};
+    const row = list.array.items[index];
+    if (row != .object) return .{};
+    return .{ .name = str(row, "name"), .value = str(row, "value") };
+}
+
+pub fn addVar(alloc: Allocator, item: *Value) !usize {
+    const list = try arrayChild(alloc, item, "variable");
+    try list.append(.{ .object = .empty });
+    return list.items.len - 1;
+}
+
+fn ensureVar(alloc: Allocator, item: *Value, index: usize) !*Value {
+    const list = try arrayChild(alloc, item, "variable");
+    while (list.items.len <= index) try list.append(.{ .object = .empty });
+    if (list.items[index] != .object) list.items[index] = .{ .object = .empty };
+    return &list.items[index];
+}
+
+pub fn setVarName(alloc: Allocator, item: *Value, index: usize, name: []const u8) !void {
+    try setString(alloc, try ensureVar(alloc, item, index), "name", name);
+}
+
+pub fn setVarValue(alloc: Allocator, item: *Value, index: usize, value: []const u8) !void {
+    try setString(alloc, try ensureVar(alloc, item, index), "value", value);
+}
+
+pub fn removeVar(item: *Value, index: usize) void {
+    const list = variableArray(item.*) orelse return;
+    if (index >= list.array.items.len) return;
+    _ = item.object.getPtr("variable").?.array.orderedRemove(index);
+}
+
 // ---- writing: the tree --------------------------------------------------------------------------------------
 
 pub fn appendChild(alloc: Allocator, parent: *Value, child_value: Value) !usize {

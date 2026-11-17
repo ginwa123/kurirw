@@ -3,6 +3,8 @@ const glinlandui = @import("glinlandui");
 
 const view_model = @import("../shell/view_model.zig");
 const KurirViewModel = view_model.KurirViewModel;
+const env_vm = @import("../env/view_model.zig");
+const editor_vm = @import("../editor/view_model.zig");
 
 pub fn onRow(ctx: ?*anyopaque, index: usize) void {
     const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
@@ -118,6 +120,64 @@ pub fn onHeadersTab(ctx: ?*anyopaque) void {
 pub fn onBodyTab(ctx: ?*anyopaque) void {
     const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
     vm.setEditorTab(.body);
+}
+
+pub fn onVarsTab(ctx: ?*anyopaque) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.setEditorTab(.vars);
+}
+
+// The environments: the picker at the request's row, and the manager page it opens.
+pub fn onEnvToggle(ctx: ?*anyopaque) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.toggleEnvPicker();
+}
+
+pub fn onEnvPick(ctx: ?*anyopaque, index: usize) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.pickEnvironmentRow(index);
+}
+
+pub fn onEnvClose(ctx: ?*anyopaque) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.closeEnvManager();
+}
+
+pub fn onEnvNew(ctx: ?*anyopaque) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.addEnvironment();
+}
+
+// A name in the manager's left list: an environment, or a collection whose own variables it shows.
+pub fn onEnvSelect(ctx: ?*anyopaque) void {
+    const list: *env_vm.Env.ListCtx = @ptrCast(@alignCast(ctx.?));
+    list.env.select(list.group, list.index);
+}
+
+pub fn onEnvAddVariable(ctx: ?*anyopaque) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.env.addVariable();
+}
+
+pub fn onEnvRemoveVariable(ctx: ?*anyopaque) void {
+    const var_ctx: *env_vm.Env.VarCtx = @ptrCast(@alignCast(ctx.?));
+    var_ctx.env.removeVariable(var_ctx.index);
+}
+
+pub fn onEnvToggleSecret(ctx: ?*anyopaque) void {
+    const var_ctx: *env_vm.Env.VarCtx = @ptrCast(@alignCast(ctx.?));
+    var_ctx.env.toggleSecret(var_ctx.index);
+}
+
+// The request's own variables, which only the Vars tab edits.
+pub fn onAddRequestVar(ctx: ?*anyopaque) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.editor.addRequestVar();
+}
+
+pub fn onRemoveRequestVar(ctx: ?*anyopaque) void {
+    const var_ctx: *editor_vm.Editor.VarCtx = @ptrCast(@alignCast(ctx.?));
+    var_ctx.editor.removeRequestVar(var_ctx.index);
 }
 
 pub fn onResponseBodyTab(ctx: ?*anyopaque) void {

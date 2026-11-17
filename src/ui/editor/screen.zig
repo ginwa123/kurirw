@@ -85,6 +85,19 @@ pub fn nameRowChildren(scope: *Scope) void {
 
     box_mod.spacer(.{ .text = "kurir.name.spacer" });
 
+    // The environment this window sends with. The mockup puts it at the right of the request's own row.
+    text_mod.label(.{ .label = .{ .text = "Environment", .size = t.type_scale.caption, .color = t.colors.text_dim } });
+    button_mod.button(.{
+        .id = .{ .text = editor_vm.env_trigger_id },
+        .label = .{ .text = environmentLabel(scope.state.env_active), .size = t.type_scale.caption, .color = t.colors.text },
+        .bg = t.colors.surface_variant,
+        .hover_bg = t.colors.hover,
+        .pad = props.Pad.axes(4, 10),
+        .radius = props.Radius.all(4),
+        .on_click = .{ .f = actions.onEnvToggle, .ctx = scope.vm },
+    });
+    if (scope.state.env_menu) environmentMenu(scope);
+
     button_mod.button(.{
         .id = .{ .text = "kurir.delete" },
         .label = .{ .text = "Delete", .size = t.type_scale.caption, .color = t.colors.text },
@@ -204,11 +217,14 @@ pub fn editorTabsChildren(scope: *Scope) void {
     const t = scope.theme;
     tabButton(scope, "kurir.tab.headers", "Headers", scope.state.editor_tab == .headers, actions.onHeadersTab);
     tabButton(scope, "kurir.tab.body", "Body", scope.state.editor_tab == .body, actions.onBodyTab);
+    tabButton(scope, "kurir.tab.vars", "Vars (this request only)", scope.state.editor_tab == .vars, actions.onVarsTab);
     box_mod.spacer(.{ .text = "kurir.tabs.spacer" });
     if (scope.state.node_kind == .request and scope.state.editor_tab == .headers) {
         smallButton(scope, "kurir.header.add", "+ Header", 84, actions.onAddHeader);
-    } else if (scope.state.node_kind == .request and scope.state.body_mode.isTable()) {
+    } else if (scope.state.node_kind == .request and scope.state.editor_tab == .body and scope.state.body_mode.isTable()) {
         smallButton(scope, "kurir.body.part.add", "+ Row", 64, actions.onAddBodyPart);
+    } else if (scope.state.node_kind == .request and scope.state.editor_tab == .vars) {
+        smallButton(scope, "kurir.var.add", "+ Variable", 92, actions.onAddRequestVar);
     }
     text_mod.label(.{ .label = .{ .text = "Ctrl/Cmd+Enter sends", .size = t.type_scale.caption, .color = t.colors.text_done } });
 }
@@ -226,10 +242,10 @@ pub fn editorBody(scope: *Scope) void {
         }, scope, editorEmpty);
         return;
     }
-    if (scope.state.editor_tab == .headers) {
-        headersTable(scope);
-    } else {
-        bodyTab(scope);
+    switch (scope.state.editor_tab) {
+        .headers => headersTable(scope),
+        .body => bodyTab(scope),
+        .vars => varsTab(scope),
     }
 }
 
@@ -566,4 +582,156 @@ pub fn bodyField(scope: *Scope) void {
     // Tall enough for the text, and never shorter than the pane, so a long body scrolls instead of clipping.
     field.h = .{ .fixed = @max(body_min_h, lines * field.lineHeight() + 12) };
     input_mod.textField(field);
+}
+
+// ---- the environment picker, and the request's own variables -----------------------------------------------
+
+// What the trigger says: the active environment, or that nothing sends.
+fn environmentLabel(active: []const u8) []const u8 {
+    if (active.len == 0) return editor_vm.no_environment;
+    return frame.formatText("{s}  v", .{active});
+}
+
+// What a row of the picker's card reads: the active environment says so, the two verbs stay plain.
+const EnvMenu = struct {
+    theme: glinlandui.theme.Theme,
+    active: []const u8,
+};
+
+fn renderEnvRow(menu: EnvMenu, item: []const u8, index: usize) void {
+    _ = index;
+    const t = menu.theme;
+    const chosen = menu.active.len > 0 and std.mem.eql(u8, item, menu.active);
+    const label = if (chosen) frame.formatText("{s}   active", .{item}) else item;
+    text_mod.label(.{ .label = .{
+        .text = label,
+        .size = t.type_scale.caption,
+        .color = if (chosen) theme_mod.accent else t.colors.text,
+    } });
+}
+
+// The card under the trigger: the workspace's environments, "No environment", and the way to the manager.
+fn environmentMenu(scope: *Scope) void {
+    const t = scope.theme;
+    var rows: [state_mod.max_environments + 2][]const u8 = undefined;
+    var count: usize = 0;
+    for (scope.state.env_names) |name| {
+        if (count >= state_mod.max_environments) break;
+        rows[count] = name;
+        count += 1;
+    }
+    rows[count] = editor_vm.no_environment;
+    count += 1;
+    rows[count] = editor_vm.manage_environments;
+    count += 1;
+    dropdown_mod.dropdown(.{
+        .src = @src(),
+        .field_id = editor_vm.env_menu_field_id,
+        .list_id = editor_vm.env_menu_list_id,
+        .field = null,
+        .row_h = .{ .px = 28 },
+        .row_bg = t.colors.surface,
+        .row_fg = t.colors.text,
+        .hover_bg = t.colors.hover,
+        .border_width = .{ .px = 0 },
+        .radius = .{ .px = 0 },
+        .gap = .{ .px = 0 },
+        .font_size = t.type_scale.caption,
+        .on_select = .{ .f = actions.onEnvPick, .ctx = scope.vm },
+        .overlay = true,
+        .anchor_text = editor_vm.env_trigger_id,
+        .overlay_id = editor_vm.env_menu_id,
+        .overlay_bg = t.colors.surface,
+        .overlay_pad = .{ .px = 4 },
+        .overlay_border_width = .{ .px = 1 },
+        .overlay_border_color = t.colors.divider,
+        .z_index = 20,
+    }, rows[0..count], EnvMenu{ .theme = t, .active = scope.state.env_active }, renderEnvRow);
+}
+
+// The Vars tab: the variables this request carries itself, which no other request resolves.
+pub fn varsTab(scope: *Scope) void {
+    box_mod.box(.{
+        .src = @src(),
+        .id = .{ .text = "kurir.vars.tab" },
+        .direction = .column,
+        .w = .grow,
+        .h = .grow,
+        .gap = .{ .px = 6 },
+    }, scope, varsTabChildren);
+}
+
+pub fn varsTabChildren(scope: *Scope) void {
+    const t = scope.theme;
+    text_mod.label(.{ .label = .{
+        .text = "These variables apply to this request only. Shared variables live in the Environment.",
+        .size = t.type_scale.caption,
+        .color = t.colors.text_dim,
+    }, .wrap = true });
+    if (scope.state.request_var_count == 0) {
+        text_mod.label(.{ .label = .{ .text = "No variables of its own yet.", .size = t.type_scale.body, .color = t.colors.text_done } });
+        return;
+    }
+    scroll_mod.scroll(.{
+        .id = .{ .text = "kurir.vars" },
+        .direction = .vertical,
+        .w = .grow,
+        .h = .grow,
+        .thumb_bg = t.colors.surface_variant,
+        .thumb_hover_bg = t.colors.primary,
+    }, scope, varsRows);
+}
+
+pub fn varsRows(scope: *Scope) void {
+    const count = @min(scope.state.request_var_count, state_mod.max_vars);
+    var i: usize = 0;
+    while (i < count) : (i += 1) varsRow(scope, i);
+}
+
+const VarScope = struct {
+    scope: *Scope,
+    index: usize,
+};
+
+pub fn varsRow(scope: *Scope, index: usize) void {
+    box_mod.box(.{
+        .src = @src(),
+        .id = .{ .text = frame.elementId("kurir.var.row", index) },
+        .direction = .row,
+        .w = .grow,
+        .gap = .{ .px = 6 },
+        .pad = props.Pad.sides(2, 0, 2, 0),
+        .child_align = .{ .y = .center },
+    }, &VarScope{ .scope = scope, .index = index }, varsRowChildren);
+}
+
+pub fn varsRowChildren(vs: *const VarScope) void {
+    const scope = vs.scope;
+    const t = scope.theme;
+    const index = vs.index;
+    if (index >= scope.state.request_vars.len) return;
+    const row = scope.state.request_vars[index];
+    const editor = &scope.vm.editor;
+
+    const name_field = &editor.var_fields[index * 2];
+    name_field.value = row.name;
+    name_field.h = .{ .fixed = 26 };
+    name_field.w = .{ .clamp = .{ .min = 90, .max = 220, .grow = true } };
+    input_mod.textField(name_field);
+
+    const value_field = &editor.var_fields[index * 2 + 1];
+    value_field.value = row.value;
+    value_field.h = .{ .fixed = 26 };
+    value_field.w = .{ .clamp = .{ .min = 120, .max = 520, .grow = true } };
+    input_mod.textField(value_field);
+
+    button_mod.button(.{
+        .id = .{ .text = frame.elementId("kurir.var.del", index) },
+        .label = .{ .text = "x", .size = t.type_scale.caption, .color = t.colors.text_dim },
+        .bg = t.colors.surface,
+        .hover_bg = t.colors.hover,
+        .pad = props.Pad.axes(3, 8),
+        .radius = props.Radius.all(4),
+        .on_click = .{ .f = actions.onRemoveRequestVar, .ctx = &editor.var_ctxs[index * 2] },
+    });
 }

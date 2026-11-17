@@ -3,6 +3,7 @@ const std = @import("std");
 
 const postman = @import("../../data/model/postman.zig");
 const http_mod = @import("../../data/remote/http_client.zig");
+const env_mod = @import("../env.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -11,6 +12,8 @@ pub const Failure = error{
     NotARequest,
     // A request with no URL is not an error to send, it is a request that cannot be sent.
     NoUrl,
+    // The arena ran out of room while a variable was being replaced.
+    OutOfMemory,
 };
 
 // What actually leaves the process: the method, the URL, the enabled headers and the body.
@@ -25,24 +28,34 @@ pub const Wire = struct {
 pub const BuildOptions = struct {
     // A random ASCII token in the app; a fixed one in a test, so the bytes can be compared.
     boundary: []const u8 = "kurir-boundary",
+    // What `{{name}}` resolves against: the request's own variables, the active environment, its collection.
+    scope: env_mod.Scope = .{},
 };
+
+// The text with every `{{name}}` replaced: a variable is part of the text, so it is resolved before anything is encoded.
+fn expanded(arena: Allocator, text: []const u8, opts: BuildOptions) Allocator.Error![]const u8 {
+    if (std.mem.indexOf(u8, text, "{{") == null) return text;
+    return env_mod.expand(arena, text, opts.scope);
+}
 
 pub fn build(arena: Allocator, node: postman.Value, opts: BuildOptions) Failure!Wire {
     if (!postman.isRequest(node)) return error.NotARequest;
     const request = postman.requestView(arena, node) catch return error.NotARequest;
     if (request.url.len == 0) return error.NoUrl;
+    const url = try expanded(arena, request.url, opts);
 
     var headers: std.ArrayList(http_mod.Header) = .empty;
     var has_content_type = false;
     for (request.headers) |header| {
         // Postman marks a header disabled; sending it anyway would be surprising.
         if (header.disabled or header.key.len == 0) continue;
-        if (std.ascii.eqlIgnoreCase(header.key, "content-type")) has_content_type = true;
-        headers.append(arena, .{ .name = header.key, .value = header.value }) catch break;
+        const name = try expanded(arena, header.key, opts);
+        if (std.ascii.eqlIgnoreCase(name, "content-type")) has_content_type = true;
+        headers.append(arena, .{ .name = name, .value = try expanded(arena, header.value, opts) }) catch break;
     }
 
     const mode = modeOf(node, request);
-    const body = bodyFor(arena, node, mode, opts) catch return error.NotARequest;
+    const body = bodyFor(arena, node, mode, opts) catch return error.OutOfMemory;
     // A mode with bytes of its own names their type, unless the request already said which type to use.
     if (!has_content_type and body.len > 0) {
         if (contentTypeFor(arena, mode, request.body_language, opts)) |value| {
@@ -51,7 +64,7 @@ pub fn build(arena: Allocator, node: postman.Value, opts: BuildOptions) Failure!
     }
     return .{
         .method = request.method,
-        .url = request.url,
+        .url = url,
         .headers = headers.items,
         .body = body,
     };
@@ -63,18 +76,18 @@ fn modeOf(node: postman.Value, request: postman.RequestView) postman.BodyMode {
     return postman.BodyMode.fromPostman(request.body_mode);
 }
 
-fn bodyFor(arena: Allocator, node: postman.Value, mode: postman.BodyMode, opts: BuildOptions) ![]const u8 {
+fn bodyFor(arena: Allocator, node: postman.Value, mode: postman.BodyMode, opts: BuildOptions) Allocator.Error![]const u8 {
     return switch (mode) {
         .none => "",
         // Read from the document, not from the view: an old file's raw text carries no mode beside it.
-        .raw => postman.bodyRawText(node),
-        .urlencoded => try urlencodedBody(arena, node),
-        .formdata => try multipartBody(arena, node, opts.boundary),
+        .raw => try expanded(arena, postman.bodyRawText(node), opts),
+        .urlencoded => try urlencodedBody(arena, node, opts),
+        .formdata => try multipartBody(arena, node, opts),
     };
 }
 
 // `a=1&b=two+words`: the pairs Postman would put on the wire, with the disabled rows left out.
-fn urlencodedBody(arena: Allocator, node: postman.Value) ![]const u8 {
+fn urlencodedBody(arena: Allocator, node: postman.Value, opts: BuildOptions) ![]const u8 {
     var out: std.ArrayList(u8) = .empty;
     var first = true;
     var i: usize = 0;
@@ -83,9 +96,9 @@ fn urlencodedBody(arena: Allocator, node: postman.Value) ![]const u8 {
         if (part.disabled or part.key.len == 0) continue;
         if (!first) try out.append(arena, '&');
         first = false;
-        try appendEncoded(arena, &out, part.key);
+        try appendEncoded(arena, &out, try expanded(arena, part.key, opts));
         try out.append(arena, '=');
-        try appendEncoded(arena, &out, part.value);
+        try appendEncoded(arena, &out, try expanded(arena, part.value, opts));
     }
     return out.items;
 }
@@ -106,22 +119,22 @@ fn appendEncoded(arena: Allocator, out: *std.ArrayList(u8), text: []const u8) !v
 }
 
 // The multipart body a form-data request sends: one part per enabled row, then the closing delimiter.
-fn multipartBody(arena: Allocator, node: postman.Value, boundary: []const u8) ![]const u8 {
+fn multipartBody(arena: Allocator, node: postman.Value, opts: BuildOptions) ![]const u8 {
     var out: std.ArrayList(u8) = .empty;
     var i: usize = 0;
     while (i < postman.bodyPartCount(node)) : (i += 1) {
         const part = postman.bodyPart(node, i);
         if (part.disabled or part.key.len == 0) continue;
         try out.appendSlice(arena, "--");
-        try out.appendSlice(arena, boundary);
+        try out.appendSlice(arena, opts.boundary);
         try out.appendSlice(arena, "\r\nContent-Disposition: form-data; name=\"");
-        try out.appendSlice(arena, part.key);
+        try out.appendSlice(arena, try expanded(arena, part.key, opts));
         try out.appendSlice(arena, "\"\r\n\r\n");
-        try out.appendSlice(arena, part.value);
+        try out.appendSlice(arena, try expanded(arena, part.value, opts));
         try out.appendSlice(arena, "\r\n");
     }
     try out.appendSlice(arena, "--");
-    try out.appendSlice(arena, boundary);
+    try out.appendSlice(arena, opts.boundary);
     try out.appendSlice(arena, "--\r\n");
     return out.items;
 }
@@ -281,4 +294,44 @@ test "an old document with raw text and no mode still sends that text" {
     const wire = try build(arena, node, .{});
     try testing.expectEqualStrings("{\"a\":1}", wire.body);
     try testing.expectEqual(@as(usize, 1), wire.headers.len);
+}
+
+test "a global variable is replaced in the URL, in a header and in the body" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var node = try postman.newRequest(arena, "R", "POST", "{{base}}/v1/charges");
+    try postman.setBodyRaw(arena, &node, "{\"key\":\"{{token}}\"}");
+    try postman.setHeaderKey(arena, &node, 0, "Authorization");
+    try postman.setHeaderValue(arena, &node, 0, "Bearer {{token}}");
+
+    const vars = [_]env_mod.Variable{
+        .{ .name = "base", .initial = "https://api.test" },
+        .{ .name = "token", .initial = "abc123" },
+    };
+    const wire = try build(arena, node, .{ .scope = .{ .environment = &vars } });
+    try testing.expectEqualStrings("https://api.test/v1/charges", wire.url);
+    try testing.expectEqualStrings("Authorization", wire.headers[0].name);
+    try testing.expectEqualStrings("Bearer abc123", wire.headers[0].value);
+    try testing.expectEqualStrings("{\"key\":\"abc123\"}", wire.body);
+}
+
+test "a form field is expanded before it is encoded, and a name nobody defined stays as typed" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var node = try postman.newRequest(arena, "R", "POST", "https://api.test/{{version}}/token");
+    try postman.setBodyMode(arena, &node, "urlencoded");
+    _ = try postman.addBodyPart(arena, &node);
+    try postman.setBodyPartKey(arena, &node, 0, "grant_type");
+    try postman.setBodyPartValue(arena, &node, 0, "{{grant}}");
+
+    const vars = [_]env_mod.Variable{.{ .name = "grant", .initial = "client credentials" }};
+    const wire = try build(arena, node, .{ .scope = .{ .environment = &vars } });
+    // The space is the `+` a form decoder reads: the variable was replaced before the encoding, not after.
+    try testing.expectEqualStrings("grant_type=client+credentials", wire.body);
+    // Nothing defined `version`, so the URL says what the user typed rather than turning into an empty segment.
+    try testing.expectEqualStrings("https://api.test/{{version}}/token", wire.url);
 }

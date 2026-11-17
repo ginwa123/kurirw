@@ -7,6 +7,7 @@ const postman = @import("../../data/model/postman.zig");
 const store = @import("../../data/local/workspace_store.zig");
 const session_store = @import("../../data/local/session_store.zig");
 const domain = @import("../../domain/repository/workspace.zig");
+const env_mod = @import("../../domain/env.zig");
 const state_mod = @import("../../ui/state.zig");
 const theme_mod = @import("../theme/theme.zig");
 
@@ -47,6 +48,8 @@ pub const Session = struct {
     path: []const u8 = "",
     // The working session beside the document: the tabs that were open, and edits nobody has saved.
     session_path: []const u8 = "",
+    // The global variables, borrowed from the Env panel: the send rule and every text field read them here.
+    env_vars: []const env_mod.Variable = &.{},
     // What the previous run left open, so the first frame can put it back.
     restored_tabs: [state_mod.max_tabs]Path = undefined,
     restored_tab_count: usize = 0,
@@ -275,6 +278,50 @@ pub const Session = struct {
         const node = self.selectedNode() orelse return null;
         if (!postman.isRequest(node.*)) return null;
         return node;
+    }
+
+    // The workspace on screen, by its own id: the key the global variables are filed under.
+    pub fn workspaceId(self: *const Session) []const u8 {
+        const workspace = store.workspaceAt(self.doc, self.workspace) orelse return "";
+        return postman.str(workspace, "id");
+    }
+
+    pub fn workspaceName(self: *const Session) []const u8 {
+        return store.workspaceName(self.doc, self.workspace);
+    }
+
+    // ---- what `{{name}}` resolves against -------------------------------------------------------------------
+
+    // Everything a request's braces can mean, walked in order: its own variables, the active environment, its collection.
+    pub fn variableScope(self: *Session, arena: Allocator) env_mod.Scope {
+        return .{
+            .request = self.requestVars(arena),
+            .environment = self.env_vars,
+            .collection = self.collectionVars(arena),
+        };
+    }
+
+    pub fn requestVars(self: *Session, arena: Allocator) []const env_mod.Pair {
+        const node = self.selectedNode() orelse return &.{};
+        return pairsOf(node.*, arena);
+    }
+
+    pub fn collectionVars(self: *Session, arena: Allocator) []const env_mod.Pair {
+        const path = self.selection orelse return &.{};
+        if (path.depth == 0) return &.{};
+        const collection = store.collectionAt(self.doc, self.workspace, path.segments[0]) orelse return &.{};
+        return pairsOf(collection, arena);
+    }
+
+    fn pairsOf(item: postman.Value, arena: Allocator) []const env_mod.Pair {
+        var out: std.ArrayList(env_mod.Pair) = .empty;
+        var index: usize = 0;
+        while (index < postman.varCount(item)) : (index += 1) {
+            const pair = postman.varAt(item, index);
+            if (pair.name.len == 0) continue;
+            out.append(arena, .{ .name = pair.name, .value = pair.value }) catch break;
+        }
+        return out.toOwnedSlice(arena) catch &.{};
     }
 
     pub fn name(node: Value) []const u8 {

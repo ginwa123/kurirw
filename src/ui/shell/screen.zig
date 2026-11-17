@@ -17,6 +17,7 @@ const scope_mod = @import("scope.zig");
 const actions = @import("actions.zig");
 const sidebar_screen = @import("../sidebar/screen.zig");
 const editor_screen = @import("../editor/screen.zig");
+const env_screen = @import("../env/screen.zig");
 const response_screen = @import("../response/screen.zig");
 
 pub const Scope = scope_mod.Scope;
@@ -58,10 +59,14 @@ fn mainArea(scope: *Scope) void {
 fn mainChildren(scope: *Scope) void {
     // The tab bar is the editor's row, not the window's: one tab per open endpoint, above the request.
     tabBar(scope);
-    // The editor takes whatever the response does not; the line between them is what decides that.
-    editor_screen.requestEditor(scope);
-    splitGrip(scope);
-    response_screen.responsePane(scope, scope.vm.responseHeight());
+    // The manager takes the main area the request and its answer were using: it is a page, not a second window.
+    if (scope.state.env_manager) {
+        env_screen.managerPage(scope);
+    } else {
+        editor_screen.requestEditor(scope);
+        splitGrip(scope);
+        response_screen.responsePane(scope, scope.vm.responseHeight());
+    }
     statusBar(scope);
     quitPrompt(scope);
 }

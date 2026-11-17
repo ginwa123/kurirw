@@ -8,6 +8,7 @@ const tabs_mod = glinlandui.components.tabs;
 const postman = @import("../../data/model/postman.zig");
 const store = @import("../../data/local/workspace_store.zig");
 const local_session = @import("../../data/local/session_store.zig");
+const env_mod = @import("../../domain/env.zig");
 const http_mod = @import("../../data/remote/http_client.zig");
 const state_mod = @import("../state.zig");
 const theme_mod = @import("../theme/theme.zig");
@@ -17,6 +18,8 @@ const session_mod = @import("session.zig");
 const sidebar_mod = @import("../sidebar/view_model.zig");
 const editor_mod = @import("../editor/view_model.zig");
 const response_mod = @import("../response/view_model.zig");
+const env_vm = @import("../env/view_model.zig");
+const Env = env_vm.Env;
 const pump_mod = @import("pump.zig");
 
 const file_picker = @import("../../data/local/file_picker.zig");
@@ -72,6 +75,8 @@ pub const Deps = struct {
     path: []const u8,
     // The working session beside the document: the tabs, and the edits nobody has saved.
     session_path: []const u8 = "",
+    // The global variables, shared by every workspace and every request.
+    env_path: []const u8 = "",
     workspace: domain.Workspace,
     remote: *http_mod.Real,
     dialogs: *file_picker.Dialogs,
@@ -90,6 +95,9 @@ pub const KurirViewModel = struct {
     sidebar: Sidebar = .{},
     editor: Editor = .{},
     response: Response = .{},
+
+    // The global variables: owned by their own panel, read by every text field and by the send rule.
+    env: Env = .{},
 
     // The frame's snapshot, rebuilt once per frame while `session.dirty`.
     view: UiState = .{},
@@ -164,6 +172,8 @@ pub const KurirViewModel = struct {
         self.editor.body_field.on_submit = .{ .f = onBodySubmit, .ctx = self };
 
         const loaded = self.session.load();
+        // The variables belong to a workspace, so the panel starts after the document says which one is open.
+        self.env.start(&self.session, deps.env_path);
         self.sidebar.restore();
         // The tabs the last run had open, and the one it was looking at: the window looks the same.
         for (self.session.restored_tabs[0..self.session.restored_tab_count]) |path| self.openTab(path);
@@ -190,6 +200,7 @@ pub const KurirViewModel = struct {
         self.response.deinit();
         self.editor.deinit();
         self.sidebar.deinit();
+        self.env.deinit();
         self.session.deinit();
         self.* = undefined;
     }
@@ -221,7 +232,10 @@ pub const KurirViewModel = struct {
         var view = UiState{};
         self.sidebar.snapshot(&view, arena);
         self.editor.snapshot(&view, arena);
+        self.env.snapshot(&view, arena);
         self.response.snapshot(&view, arena);
+        // Every panel reads the same variables, so the editor's completion and the send rule never disagree.
+        self.session.env_vars = self.env.activeVars();
         // Each row's context names the result behind it, so a click survives the list shifting under it.
         for (view.history, 0..) |row, i| self.history_ctxs[i].serial = row.serial;
         view.tabs = self.tabRows(arena);
@@ -620,6 +634,25 @@ pub const KurirViewModel = struct {
         self.editor.setTab(tab);
     }
 
+    // ---- the global variables ---------------------------------------------------------------------------
+
+    // The environments: the picker at the request's row and the manager page it opens.
+    pub fn toggleEnvPicker(self: *KurirViewModel) void {
+        self.env.togglePicker();
+    }
+
+    pub fn pickEnvironmentRow(self: *KurirViewModel, row: usize) void {
+        self.env.pickRow(row);
+    }
+
+    pub fn closeEnvManager(self: *KurirViewModel) void {
+        self.env.closeManager();
+    }
+
+    pub fn addEnvironment(self: *KurirViewModel) void {
+        self.env.addEnvironment();
+    }
+
     pub fn setResponseTab(self: *KurirViewModel, tab: state_mod.ResponseTab) void {
         self.response.setTab(tab);
     }
@@ -652,11 +685,16 @@ pub const KurirViewModel = struct {
         const gpa = self.session.gpa;
         const job = request_job.Job.create(gpa, self.session.io) catch
             return self.session.failNow("Could not start the request.");
-        const wire = send_request.build(job.arena(), node.*, .{ .boundary = self.formBoundary(job.arena()) }) catch |err| {
+        // The globals are read here, on the frame's thread, so the job never touches the panel that owns them.
+        const wire = send_request.build(job.arena(), node.*, .{
+            .boundary = self.formBoundary(job.arena()),
+            .scope = self.session.variableScope(job.arena()),
+        }) catch |err| {
             job.destroy(gpa);
             return switch (err) {
                 error.NotARequest => self.session.failNow("Could not read that request."),
                 error.NoUrl => self.session.failNow("This request has no URL. Paste one in the URL field, then send."),
+                error.OutOfMemory => self.session.failNow("Not enough memory to expand this request's variables."),
             };
         };
         job.request = .{ .method = wire.method, .url = wire.url, .headers = wire.headers, .body = wire.body };
