@@ -110,20 +110,6 @@ pub fn nameRowChildren(scope: *Scope) void {
     });
 }
 
-// What the URL field may take: a text field is never narrower than its own value, so an uncapped one widens the row and pushes Send past the window's edge.
-fn urlWidth(scope: *Scope) props.Size {
-    const send_w: f32 = if (frame.bounds((props.Id{ .text = "kurir.send" }).clay())) |b| b.width else 70;
-    const curl_w: f32 = if (frame.bounds((props.Id{ .text = editor_vm.curl_copy_id }).clay())) |b| b.width else 0;
-    // Everything the row spends before the field: the method button, its 4 pt gaps, the panel's grip and the editor's own padding.
-    const fixed: f32 = 96 + send_w + curl_w + (if (curl_w > 0) @as(f32, 12) else 8) + 7 + 24;
-    const avail = scope.vm.viewport_w - scope.state.sidebar_width - fixed;
-    if (std.c.getenv("KURIR_DEBUG_WIDTH") != null) {
-        std.debug.print("urlwd win={d:.1} sidebar={d:.1} send={d:.1} curl={d:.1} fixed={d:.1} avail={d:.1}\n", .{ scope.vm.viewport_w, scope.state.sidebar_width, send_w, curl_w, fixed, avail });
-    }
-    if (avail < 160) return .grow;
-    return .{ .clamp = .{ .min = 160, .max = avail, .grow = true } };
-}
-
 pub fn methodRow(scope: *Scope) void {
     box_mod.box(.{
         .src = @src(),
@@ -184,7 +170,8 @@ pub fn methodRowChildren(scope: *Scope) void {
     const field = &scope.vm.editor.url_field;
     field.value = scope.state.url;
     field.disabled = !enabled;
-    field.w = urlWidth(scope);
+    // The weight: the room the row has left after the method button, Send and cURL; 160 pt is the floor.
+    field.w = .{ .clamp = .{ .min = 160, .grow = true } };
     input_mod.textField(field);
 
     button_mod.button(.{
@@ -383,20 +370,6 @@ const HeaderScope = struct {
     index: usize,
 };
 
-// A header's value may take what its row has left: the window, minus the panel, the editor, the on button, the name column, the delete button and the scroll gutter.
-fn headerValueWidth(scope: *Scope, index: usize) props.Size {
-    const key_w: f32 = if (frame.bounds(glinlandui.props.Id.at(editor_vm.header_key_prefix, index).clay())) |b| b.width else 220;
-    const del_w: f32 = if (frame.bounds((props.Id{ .text = frame.elementId("kurir.header.del", index) }).clay())) |b| b.width else 24;
-    const fixed: f32 = 7 + 24 + 34 + key_w + del_w + 18 + 16;
-    const avail = scope.vm.viewport_w - scope.state.sidebar_width - fixed;
-    if (std.c.getenv("KURIR_DEBUG_WIDTH") != null and index == 0) {
-        const root_w: f32 = if (frame.bounds((props.Id{ .text = "kurir.root" }).clay())) |b| b.width else 0;
-        std.debug.print("hdrwin root={d:.1} key={d:.1} del={d:.1} fixed={d:.1} avail={d:.1}\n", .{ root_w, key_w, del_w, fixed, avail });
-    }
-    if (avail < 120) return .grow;
-    return .{ .clamp = .{ .min = 120, .max = avail, .grow = true } };
-}
-
 pub fn headerRow(scope: *Scope, index: usize) void {
     box_mod.box(.{
         .src = @src(),
@@ -431,13 +404,14 @@ pub fn headerRowChildren(hs: *const HeaderScope) void {
     const key_field = &scope.vm.editor.header_fields[index * 2];
     key_field.value = row.name;
     key_field.h = .{ .fixed = 26 };
-    key_field.w = .{ .clamp = .{ .min = 90, .max = 220, .grow = true } };
+    key_field.w = .{ .clamp = .{ .min = 90, .max = 220 } };
     input_mod.textField(key_field);
 
     const value_field = &scope.vm.editor.header_fields[index * 2 + 1];
     value_field.value = row.value;
     value_field.h = .{ .fixed = 26 };
-    value_field.w = headerValueWidth(scope, index);
+    // The row has one weight: the value takes what the key and the buttons leave.
+    value_field.w = .{ .clamp = .{ .min = 120, .grow = true } };
     input_mod.textField(value_field);
 
     button_mod.button(.{
@@ -521,16 +495,6 @@ pub fn partRow(scope: *Scope, index: usize) void {
     }, &PartScope{ .scope = scope, .index = index }, partRowChildren);
 }
 
-// A part's value may take what its row has left: the window, minus the panel, the editor, the on button, the key column, the delete button and the gutter.
-fn partValueWidth(scope: *Scope, index: usize) props.Size {
-    const key_w: f32 = if (frame.bounds(glinlandui.props.Id.at(editor_vm.part_key_prefix, index).clay())) |b| b.width else 220;
-    const del_w: f32 = if (frame.bounds((props.Id{ .text = frame.elementId("kurir.body.part.del", index) }).clay())) |b| b.width else 24;
-    const fixed: f32 = 7 + 24 + 34 + key_w + del_w + 18 + 16;
-    const avail = scope.vm.viewport_w - scope.state.sidebar_width - fixed;
-    if (avail < 120) return .grow;
-    return .{ .clamp = .{ .min = 120, .max = avail, .grow = true } };
-}
-
 pub fn partRowChildren(ps: *const PartScope) void {
     const scope = ps.scope;
     const t = scope.theme;
@@ -553,13 +517,14 @@ pub fn partRowChildren(ps: *const PartScope) void {
     const key_field = &scope.vm.editor.part_fields[index * 2];
     key_field.value = row.key;
     key_field.h = .{ .fixed = 26 };
-    key_field.w = .{ .clamp = .{ .min = 90, .max = 220, .grow = true } };
+    key_field.w = .{ .clamp = .{ .min = 90, .max = 220 } };
     input_mod.textField(key_field);
 
     const value_field = &scope.vm.editor.part_fields[index * 2 + 1];
     value_field.value = row.value;
     value_field.h = .{ .fixed = 26 };
-    value_field.w = partValueWidth(scope, index);
+    // The row has one weight: the value takes what the key and the buttons leave.
+    value_field.w = .{ .clamp = .{ .min = 120, .grow = true } };
     input_mod.textField(value_field);
 
     button_mod.button(.{

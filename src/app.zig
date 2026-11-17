@@ -58,8 +58,9 @@ pub const App = struct {
     pub fn content(ctx: ?*anyopaque, w: u32, h: u32) void {
         const self: *App = @ptrCast(@alignCast(ctx.?));
         const model = self.vm();
-        // The split's ceiling follows the window's height and a field's cap follows its width, so a resized window cannot squeeze the editor out.
-        model.setViewport(w, h);
+        // The engine keeps the window's size and the zoom; a weight takes the room its row has, so nothing here needs either.
+        _ = w;
+        _ = h;
         // A Host forgets the focus an Activity claimed before it existed, so the first frame claims it again.
         if (!frame.focusKnown() and model.uiState().node_kind == .request) frame.setFocus(view_model.url_field_id);
         var scope = view.Scope{

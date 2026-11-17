@@ -479,6 +479,17 @@ test "the response pane resizes by dragging the line above it, and clamps at bot
     // And the pane the frame drew is the height the state says, not a stale one.
     const shrunk = glinlandui.frame.bounds(glinlandui.frame.clayId("kurir.response")) orelse return error.PaneMissing;
     try testing.expectApproxEqAbs(@as(f32, 120), shrunk.height, 0.51);
+
+    // The other end: dragged far up, the pane stops where the editor's own floor begins, which is the engine's cap.
+    const up = glinlandui.frame.bounds(glinlandui.frame.clayId("kurir.split")) orelse return error.SplitMissing;
+    h.driver.pressAt(up.x + up.width * 0.5, up.y + up.height * 0.5);
+    h.driver.move(up.x + up.width * 0.5, up.y - 900);
+    h.driver.releaseAt(up.x + up.width * 0.5, up.y - 900);
+    const main = h.driver.box("kurir.work") orelse return error.MainMissing;
+    const tall = glinlandui.frame.bounds(glinlandui.frame.clayId("kurir.response")) orelse return error.PaneMissing;
+    const rest = glinlandui.frame.bounds(glinlandui.frame.clayId("kurir.editor")) orelse return error.EditorMissing;
+    try testing.expectApproxEqAbs(main.height - 6 - kurirw.state.editor_min_h, tall.height, 0.51);
+    try testing.expect(rest.height >= kurirw.state.editor_min_h - 0.51);
 }
 
 test "the empty state itself is a button: clicking it creates the first collection" {
@@ -1814,4 +1825,38 @@ test "the environment picker drives what a send resolves, and a request's own Va
     const after_delete = try std.Io.Dir.cwd().readFileAlloc(testing.io, env_path, gpa, .limited(1 << 20));
     defer gpa.free(after_delete);
     try testing.expect(std.mem.indexOf(u8, after_delete, "from-environment") == null);
+}
+
+// The row that used to widen the whole window: a method button, a URL field and Send, with a URL far wider than the pane.
+test "a URL longer than the window cannot push Send off the edge" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
+    try h.driver.click(view_model.url_field_id);
+    try h.driver.typeText("https://api.example.com/v1/organizations/8f14e45fceea167a5a36dedd4bea2543/projects/9c1185a5c5e9fc54612808977ee8f548/members/roles");
+    h.driver.frame();
+
+    const root = h.driver.box("kurir.root") orelse return error.NoRoot;
+    const field = h.driver.box(view_model.url_field_id) orelse return error.NoField;
+    const send = h.driver.box("kurir.send") orelse return error.NoSend;
+    // The window keeps its width: a field clips its own value instead of laying it out past the row.
+    try testing.expect(root.width <= viewport.width);
+    // Send is fully inside the row, which is the button that used to vanish.
+    try testing.expect(send.x + send.width <= viewport.width);
+    try testing.expect(send.width > 0);
+    // The field is the row's weight, and it keeps its floor.
+    try testing.expect(field.width >= 160);
+    // The row still fills the editor pane: the field ends where the buttons begin, not where its text does.
+    try testing.expect(field.x + field.width <= send.x);
+
+    // A narrower window gives the field less room, and the weight still holds its 160 pt floor.
+    try h.driver.resize(1000, 840);
+    const narrow = h.driver.box(view_model.url_field_id) orelse return error.NoField;
+    try testing.expect(narrow.width >= 160);
 }

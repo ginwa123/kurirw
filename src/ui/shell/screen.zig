@@ -24,6 +24,7 @@ pub const Scope = scope_mod.Scope;
 
 // The tab bar and the question it asks before the window closes: the two ids a test addresses them by.
 pub const tabs_id = "kurir.tabs";
+pub const work_id = "kurir.work";
 pub const quit_id = "kurir.quit";
 
 pub fn KurirScreen(scope: *Scope) void {
@@ -63,12 +64,23 @@ fn mainChildren(scope: *Scope) void {
     if (scope.state.env_manager) {
         env_screen.managerPage(scope);
     } else {
-        editor_screen.requestEditor(scope);
-        splitGrip(scope);
-        response_screen.responsePane(scope, scope.vm.responseHeight());
+        // The request and its answer share one box, so the split divides exactly the room these two panes have.
+        box_mod.box(.{
+            .src = @src(),
+            .id = .{ .text = work_id },
+            .direction = .column,
+            .w = .grow,
+            .h = .grow,
+        }, scope, workChildren);
     }
     statusBar(scope);
     quitPrompt(scope);
+}
+
+fn workChildren(scope: *Scope) void {
+    editor_screen.requestEditor(scope);
+    splitGrip(scope);
+    response_screen.responsePane(scope, scope.vm.responseHeight());
 }
 
 // The open endpoints: the tab on screen is the brightest one, and a tab with unsaved edits wears a dot where its close box sits.
@@ -130,8 +142,6 @@ fn quitPrompt(scope: *Scope) void {
         .message = "This endpoint is not saved yet. Save it before the window closes?",
         .actions = &answers,
         .on_action = .{ .f = actions.onQuitAction, .ctx = scope.vm },
-        .window_w = scope.vm.viewport_w,
-        .window_h = scope.vm.viewport_h,
         .bg = t.colors.surface,
         .border = t.colors.divider,
         .title_fg = t.colors.text,

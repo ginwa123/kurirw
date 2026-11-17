@@ -104,11 +104,6 @@ pub const KurirViewModel = struct {
 
     // The line between the editor and the response: the response's height is what it drags.
     split: split_mod.State = .{ .size = 320 },
-    // The window's height, so the split knows how much room there is; `App.content` hands it over every frame.
-    viewport_h: f32 = 840,
-    // The window's width, so a panel can cap a field to the room its row really has.
-    viewport_w: f32 = 1280,
-
     // Borrowed, not owned: the container built them and outlives the view.
     dialogs: *Dialogs = undefined,
     real: ?*http_mod.Real = null,
@@ -254,12 +249,6 @@ pub const KurirViewModel = struct {
 
     // ---- the facade: one line per intent, so the view and the tests never reach into a panel -------
 
-    // The window changed size: the split's ceiling follows it, so a smaller window cannot squeeze the editor out.
-    pub fn setViewport(self: *KurirViewModel, w: u32, h: u32) void {
-        self.viewport_w = @floatFromInt(w);
-        self.viewport_h = @floatFromInt(h);
-    }
-
     // The line between the editor and the response. A pane BELOW a horizontal line grows as the line goes up.
     pub fn splitProps(self: *KurirViewModel) split_mod.Props {
         const t = self.session.theme;
@@ -269,7 +258,9 @@ pub const KurirViewModel = struct {
             .axis = .horizontal,
             .side = .after,
             .min = state_mod.response_min_h,
-            .max = @max(state_mod.response_min_h, self.viewport_h - state_mod.editor_min_h),
+            // The engine caps the pane from the column it divides, keeping this much for the editor above it.
+            .within = .{ .text = "kurir.work" },
+            .other_min = state_mod.editor_min_h,
             .thickness = 6,
             // A step lighter than both panes, so the line reads as a divider before the pointer ever touches it.
             .bg = t.colors.surface_variant,
