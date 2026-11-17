@@ -10,8 +10,8 @@
     // To work on a dependency locally, point its entry at a path (`.path = "../glinlandui"`).
     .dependencies = .{
         .glinlandui = .{
-            .url = "git+https://github.com/ginwa123/glinlandui#16848aa070ee840e446e200c069ca681c5e0a360",
-            .hash = "glinlandui-0.0.0-ngP3RohDNgDfv4bwCZSG_g4uHoZ3TGMMRvDgnClCilKy",
+            .url = "git+https://github.com/ginwa123/glinlandui#5925613c9ef44d9c6cae49d6466a14d36d27de01",
+            .hash = "glinlandui-0.0.0-ngP3RiX1NgBlw_hto6KgcgIg3eZH9I24rwI5qRFdL6hq",
         },
         .kabelweb = .{
             .url = "git+https://github.com/ginwa123/kabelweb.git#1726a5786b49f0c9469d99219232eb52f4766339",
@@ -20,6 +20,10 @@
         .zginlint = .{
             .url = "git+https://github.com/ginwa123/zglint.git#7e1faeba4d75640c7ae37efe2987f6be85fa2a89",
             .hash = "zginlint-0.0.0-0kYHpg4dAQARigMlrQ54kyJUpbIlGU0fYVNhFMDuUvah",
+        },
+        .@"./glinlandui-dep-dummy" = .{
+            .url = "git+https://github.com/ginwa123/glinlandui#94b60811a35def1f28f215cc626e37048129118c",
+            .hash = "glinlandui-0.0.0-ngP3RkroNgD918AOFsLkHmiblSxG24Rp0WjDlAk61zk_",
         },
     },
 

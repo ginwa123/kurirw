@@ -1268,7 +1268,7 @@ fn rightClickAt(h: *Harness, x: f32, y: f32) void {
     h.driver.frame();
 }
 
-test "a right click on the URL field offers Cut, Copy, Paste and Select All" {
+test "a right click on the URL field offers Undo, Redo, Cut, Copy, Paste and Select All" {
     const gpa = std.heap.page_allocator;
     var scratch = try Scratch.make(gpa);
     defer scratch.deinit(gpa);
@@ -1283,14 +1283,16 @@ test "a right click on the URL field offers Cut, Copy, Paste and Select All" {
 
     const bb = h.driver.box(view_model.url_field_id).?;
     rightClickAt(&h, bb.x + 40, bb.y + bb.height * 0.5);
-    // A field is never a place where a right click does nothing.
+    // A field is never a place where a right click does nothing, and the history rows come first.
+    try h.driver.expectText("Undo");
+    try h.driver.expectText("Redo");
     try h.driver.expectText("Cut");
     try h.driver.expectText("Copy");
     try h.driver.expectText("Paste");
     try h.driver.expectText("Select All");
 
-    // Select All is the card's fourth row: the whole URL is selected, ready to copy.
-    try clickMenuRow(&h, 3);
+    // Select All is the card's sixth row: the whole URL is selected, ready to copy.
+    try clickMenuRow(&h, 5);
     h.driver.frame();
     const field = &h.app.vm().editor.url_field;
     const span = field.editor.caret.selection() orelse return error.NoSelection;
@@ -1317,15 +1319,15 @@ test "the body's card copies a selection, and cannot paste into a response" {
     // Select All from the card, then Copy: the body's text is what lands on the clipboard.
     const bb = h.driver.box(kurirw.response_vm.body_text_id).?;
     rightClickAt(&h, bb.x + 30, bb.y + 8);
-    for ([_][]const u8{ "Cut", "Copy", "Paste", "Select All" }) |label| try h.driver.expectText(label);
-    try clickMenuRow(&h, 3);
+    for ([_][]const u8{ "Undo", "Redo", "Cut", "Copy", "Paste", "Select All" }) |label| try h.driver.expectText(label);
+    try clickMenuRow(&h, 5);
     h.driver.frame();
     const body = h.app.vm().uiState().response.body;
     try testing.expectEqual(body.len, h.app.vm().response.body_field.editor.caret.selection().?.end);
 
     // Paste is drawn but dimmed: a response is not something you edit, so the row does nothing at all.
     rightClickAt(&h, bb.x + 30, bb.y + 8);
-    try clickMenuRow(&h, 2);
+    try clickMenuRow(&h, 4);
     h.driver.frame();
     try testing.expectEqualStrings(body, h.app.vm().response.body_field.text());
 }
@@ -1859,4 +1861,33 @@ test "a URL longer than the window cannot push Send off the edge" {
     try h.driver.resize(1000, 840);
     const narrow = h.driver.box(view_model.url_field_id) orelse return error.NoField;
     try testing.expect(narrow.width >= 160);
+}
+
+test "Cmd/Ctrl+Z takes a typed URL back, the model hears it, and redo puts it back" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
+    try h.driver.click(view_model.url_field_id);
+    try h.driver.typeText("https://api.example.com/v1");
+    try testing.expectEqualStrings("https://api.example.com/v1", h.app.vm().uiState().url);
+
+    // The field's own history takes the run back, and the app is told: the address bar is not a separate copy.
+    _ = try h.driver.shortcut(glinlandui.keyboard.KEY_Z);
+    try testing.expectEqualStrings("", h.app.vm().uiState().url);
+    try testing.expectEqualStrings("", h.app.vm().editor.url_field.text());
+
+    // Ctrl/Cmd+Shift+Z is the other half, and Ctrl+Y is what Windows and Linux also take.
+    _ = h.driver.host.onKeyEvent(glinlandui.keyboard.KEY_LEFTCTRL, true);
+    _ = h.driver.host.onKeyEvent(glinlandui.keyboard.KEY_LEFTSHIFT, true);
+    _ = try h.driver.key(glinlandui.keyboard.KEY_Z);
+    _ = h.driver.host.onKeyEvent(glinlandui.keyboard.KEY_LEFTSHIFT, false);
+    _ = h.driver.host.onKeyEvent(glinlandui.keyboard.KEY_LEFTCTRL, false);
+    h.driver.frame();
+    try testing.expectEqualStrings("https://api.example.com/v1", h.app.vm().uiState().url);
 }
