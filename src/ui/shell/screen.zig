@@ -3,14 +3,16 @@ const std = @import("std");
 const glinlandui = @import("glinlandui");
 
 const box = glinlandui.components.box.box;
-const frame = glinlandui.frame;
-const modal = glinlandui.components.modal.modal;
-const ModalAction = glinlandui.components.modal.Action;
-const props = glinlandui.props;
-const sidebar = glinlandui.components.sidebar.sidebar;
 const grip = glinlandui.components.split.grip;
-const tabs = glinlandui.components.tabs.tabs;
 const label = glinlandui.components.text.label;
+const modal = glinlandui.components.modal.modal;
+const sidebar = glinlandui.components.sidebar.sidebar;
+const tabs = glinlandui.components.tabs.tabs;
+
+const ModalAction = glinlandui.components.modal.Action;
+
+const frame = glinlandui.frame;
+const props = glinlandui.props;
 
 const theme_mod = @import("../theme/theme.zig");
 const state_mod = @import("../state.zig");
