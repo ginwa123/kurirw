@@ -1584,6 +1584,48 @@ test "prettify re-indents the body in place, and says so when the body is not JS
     try testing.expect(h.app.vm().uiState().status_is_error);
 }
 
+// The three keys a browser zooms with, in the evdev numbering every backend reports.
+const key_zoom_0: u32 = 11;
+const key_zoom_minus: u32 = 12;
+const key_zoom_equal: u32 = 13;
+
+test "Ctrl/Cmd + and - zoom the content, and 0 puts it back" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+    // The zoom is the engine's own process-wide state, so a test that moves it hands it back.
+    defer glinlandui.frame.setZoom(1);
+
+    try newMenu(&h, 0);
+    const one = h.driver.box("kurir.root") orelse return error.NoRoot;
+    try testing.expectApproxEqAbs(@as(f32, 1280), one.width, 0.5);
+
+    // `Ctrl/Cmd =`: the engine raises the zoom, and the app declares into a box 110% smaller, with no code for it.
+    _ = try h.driver.shortcut(key_zoom_equal);
+    try testing.expectApproxEqAbs(@as(f32, 1.1), glinlandui.frame.zoom(), 0.001);
+    const raised = h.driver.box("kurir.root") orelse return error.NoRoot;
+    try testing.expectApproxEqAbs(1280.0 / 1.1, raised.width, 1.5);
+    // And the status bar says so, the way a browser's zoom chip does.
+    try h.driver.expectText("Zoom 110%");
+
+    // One more rung, then `0`: the chip goes and the layout gets its room back.
+    _ = try h.driver.shortcut(key_zoom_equal);
+    try h.driver.expectText("Zoom 125%");
+    _ = try h.driver.shortcut(key_zoom_0);
+    try testing.expectEqual(@as(f32, 1), glinlandui.frame.zoom());
+    try h.driver.expectNoText("Zoom 125%");
+    const back = h.driver.box("kurir.root") orelse return error.NoRoot;
+    try testing.expectApproxEqAbs(one.width, back.width, 0.5);
+
+    // `-` walks the other way, from the rung `0` left it on.
+    _ = try h.driver.shortcut(key_zoom_minus);
+    try testing.expectApproxEqAbs(@as(f32, 0.9), glinlandui.frame.zoom(), 0.001);
+    try h.driver.expectText("Zoom 90%");
+}
+
 test "endpoints open as tabs, an edit marks its row, and Cmd/Ctrl+S is what clears the dot" {
     const gpa = std.heap.page_allocator;
     var scratch = try Scratch.make(gpa);

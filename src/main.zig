@@ -32,10 +32,10 @@ pub fn main(init: std.process.Init) !void {
         .min_width = 900,
         .min_height = 560,
     });
+    // The engine zooms for Ctrl/Cmd `+`/`-`/`0`; the app only says how small its layout may get, so a zoom that would not fit stops early.
+    host.min_content = .{ .w = 900, .h = 560 };
     // While a request is in flight the window keeps presenting frames, so `uiState()` can collect it.
     app.pump = .{ .ctx = &window, .set_fn = setAnimating };
-    // Ctrl/Cmd `+` / `-` / `0` zoom the content, so the Activity needs the window the keys act on.
-    app.window = &window;
     window.delegate = host.delegate();
     try window.run();
 }
@@ -48,11 +48,6 @@ fn setAnimating(ctx: ?*anyopaque, on: bool) void {
 
 // `s` in the evdev numbering every backend reports, which is what the key chain hands an app.
 const key_s: u32 = 31;
-// `0`, `-` and `=` in the same numbering: the three keys a browser zooms with.
-const key_0: u32 = 11;
-const key_minus: u32 = 12;
-const key_equal: u32 = 13;
-
 // The window is closing: with unsaved edits the app holds it open and asks, and the answer calls requestQuit.
 fn onCloseRequested(ctx: ?*anyopaque) bool {
     const app: *kurirw.app.App = @ptrCast(@alignCast(ctx.?));
@@ -64,14 +59,11 @@ fn onQuit(ctx: ?*anyopaque) void {
     host.requestQuit();
 }
 
-// Ctrl/Cmd+S saves the document, and Ctrl/Cmd `+`, `-`, `0` zoom it like a browser — all before the focused field sees the key.
+// Ctrl/Cmd+S saves the document, before the focused field sees the key; Ctrl/Cmd `+`, `-`, `0` zoom is the engine's own.
 fn onShortcut(ctx: ?*anyopaque, mods: glinlandui.components.input.Mods, keycode: u32) bool {
     if (!mods.shortcut()) return false;
     const app: *kurirw.app.App = @ptrCast(@alignCast(ctx.?));
     switch (keycode) {
-        key_equal => app.zoomIn(),
-        key_minus => app.zoomOut(),
-        key_0 => app.zoomReset(),
         key_s => app.vm().save(),
         else => return false,
     }

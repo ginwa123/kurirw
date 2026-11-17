@@ -8,7 +8,6 @@ const view_model = @import("ui/shell/view_model.zig");
 const theme_mod = @import("ui/theme/theme.zig");
 const container_mod = @import("di/container.zig");
 const pump_mod = @import("ui/shell/pump.zig");
-const zoom_mod = @import("zoom.zig");
 
 pub const App = struct {
     // `ViewModelStoreOwner`: one screen, one store, one ViewModel for the life of the window.
@@ -19,11 +18,6 @@ pub const App = struct {
     container: container_mod.Container = .{},
     // The window's frame pump: `main` points it at the window it creates, a headless test leaves it a no-op.
     pump: pump_mod.Pump = .{},
-
-    // The window this Activity draws into, so a shortcut can ask it to zoom. Null in a headless test.
-    window: ?*glinlandui.Window = null,
-    // Browser-style content zoom, per run: 1.0 until Ctrl/Cmd `+` or `-` moves it.
-    zoom_factor: f32 = zoom_mod.reset,
 
     gpa: std.mem.Allocator = undefined,
     io: std.Io = undefined,
@@ -53,34 +47,6 @@ pub const App = struct {
     pub fn deinit(self: *App) void {
         self.store.clear();
         self.container.deinit();
-    }
-
-    // Ctrl/Cmd `+`: one rung up the zoom ladder.
-    pub fn zoomIn(self: *App) void {
-        self.applyZoom(zoom_mod.next(self.zoom_factor, 1));
-    }
-
-    // Ctrl/Cmd `-`: one rung down.
-    pub fn zoomOut(self: *App) void {
-        self.applyZoom(zoom_mod.next(self.zoom_factor, -1));
-    }
-
-    // Ctrl/Cmd `0`: back to 100%.
-    pub fn zoomReset(self: *App) void {
-        self.applyZoom(zoom_mod.reset);
-    }
-
-    // Push a factor into the window's content scale and say so in the status line, the way a browser's zoom chip does.
-    fn applyZoom(self: *App, factor: f32) void {
-        const next = zoom_mod.clamp(factor);
-        if (next == self.zoom_factor) return;
-        self.zoom_factor = next;
-        // A backend without zoom (the headless window) simply ignores it; Windows, macOS and Wayland all have one.
-        if (self.window) |window| {
-            if (@hasDecl(glinlandui.Window, "setZoom")) window.setZoom(next);
-        }
-        var buffer: [16]u8 = undefined;
-        self.vm().session.setStatus(false, "Zoom {s}.", .{zoom_mod.percentLabel(&buffer, next)});
     }
 
     // `viewModel()`: the store's instance, created on first use and kept for the life of the screen.

@@ -21,7 +21,6 @@ pub const container = @import("di/container.zig");
 pub const env = @import("domain/env.zig");
 pub const env_view_model = @import("ui/env/view_model.zig");
 pub const editor_view_model = @import("ui/editor/view_model.zig");
-pub const zoom = @import("zoom.zig");
 
 // Every file's own tests, collected without adding an anonymous one, so the suite counts real tests.
 comptime {
@@ -59,5 +58,4 @@ comptime {
     _ = @import("data/local/env_store.zig");
     _ = @import("ui/env/view_model.zig");
     _ = @import("ui/env/screen.zig");
-    _ = @import("zoom.zig");
 }

@@ -174,4 +174,25 @@ fn statusChildren(scope: *Scope) void {
         .size = t.type_scale.caption,
         .color = if (scope.state.status_is_error) theme_mod.danger else t.colors.text_dim,
     }, .wrap = true });
+    // A zoom the engine is applying says so, the way a browser's zoom chip does; 100% is not worth a word.
+    const factor = frame.zoom();
+    if (factor == 1) return;
+    box_mod.box(.{
+        .src = @src(),
+        .id = .{ .text = "kurir.status.gap" },
+        .direction = .row,
+        .w = .grow,
+        .h = .{ .fixed = 1 },
+    }, scope, statusSpacer);
+    var buffer: [16]u8 = undefined;
+    text_mod.label(.{
+        .label = .{
+            // The frame's own scratch, because Clay keeps the pointer until it paints: a stack slice would be dead by then.
+            .text = frame.formatText("Zoom {s}", .{glinlandui.zoom.percentLabel(&buffer, factor)}),
+            .size = t.type_scale.caption,
+            .color = t.colors.text_dim,
+        },
+    });
 }
+
+fn statusSpacer(_: *Scope) void {}
