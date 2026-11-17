@@ -653,6 +653,10 @@ pub const KurirViewModel = struct {
         self.env.addEnvironment();
     }
 
+    pub fn removeEnvironment(self: *KurirViewModel) void {
+        self.env.removeSelected();
+    }
+
     pub fn setResponseTab(self: *KurirViewModel, tab: state_mod.ResponseTab) void {
         self.response.setTab(tab);
     }

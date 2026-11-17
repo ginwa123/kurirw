@@ -155,13 +155,14 @@ fn variablePaneChildren(scope: *Scope) void {
     const t = scope.theme;
     const environment_group = scope.state.env_group == .environment;
     if (environment_group) {
-        // The pane's title is the environment's own name: typing here renames it, it does not make a new one.
-        const field = &scope.vm.env.name_field;
-        field.value = groupTitle(scope);
-        field.h = .{ .fixed = 30 };
-        field.w = .{ .fixed = 260 };
-        field.pad = props.Pad.axes(4, 9);
-        input_mod.textField(field);
+        box_mod.box(.{
+            .src = @src(),
+            .id = .{ .text = "kurir.env.manager.title" },
+            .direction = .row,
+            .w = .grow,
+            .gap = .{ .px = 8 },
+            .child_align = .{ .y = .center },
+        }, scope, paneTitleRow);
     } else {
         text_mod.label(.{ .label = .{ .text = groupTitle(scope), .size = t.type_scale.body, .color = t.colors.text } });
     }
@@ -176,6 +177,20 @@ fn variablePaneChildren(scope: *Scope) void {
 
     if (environment_group) environmentHeader(scope) else collectionHeader(scope);
     if (environment_group) environmentRows(scope) else collectionRows(scope);
+}
+
+// The pane's title is the environment's own name, so a rename is typing; Delete removes the environment itself.
+fn paneTitleRow(scope: *Scope) void {
+    const t = scope.theme;
+    const field = &scope.vm.env.name_field;
+    field.value = groupTitle(scope);
+    field.h = .{ .fixed = 30 };
+    field.w = .{ .fixed = 260 };
+    field.pad = props.Pad.axes(4, 9);
+    input_mod.textField(field);
+    box_mod.spacer(.{ .text = "kurir.env.manager.title.spacer" });
+    text_mod.label(.{ .label = .{ .text = "Rename it here.", .size = t.type_scale.caption, .color = t.colors.text_done } });
+    smallButton(scope, env_vm.delete_id, "Delete", 64, actions.onEnvRemove);
 }
 
 fn groupTitle(scope: *Scope) []const u8 {

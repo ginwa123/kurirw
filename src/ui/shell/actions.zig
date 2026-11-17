@@ -148,6 +148,12 @@ pub fn onEnvNew(ctx: ?*anyopaque) void {
     vm.addEnvironment();
 }
 
+// The pane's Delete: the environment itself goes, and the workspace keeps the rest.
+pub fn onEnvRemove(ctx: ?*anyopaque) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.removeEnvironment();
+}
+
 // A name in the manager's left list: an environment, or a collection whose own variables it shows.
 pub fn onEnvSelect(ctx: ?*anyopaque) void {
     const list: *env_vm.Env.ListCtx = @ptrCast(@alignCast(ctx.?));

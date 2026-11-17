@@ -1752,4 +1752,19 @@ test "the environment picker drives what a send resolves, and a request's own Va
     try h.driver.click("kurir.send");
     try settle(&h);
     try testing.expectEqualStrings("https://api.example.com/{{token}}/charges", h.fake.last_url);
+
+    // The manager can delete the environment itself: it goes, its variables go with it, the file agrees.
+    const manager_row = h.app.vm().uiState().env_names.len + 1;
+    try h.driver.click(editor_vm.env_trigger_id);
+    try pickCardRow(&h, editor_vm.env_menu_list_id, manager_row);
+    try testing.expect(h.app.vm().uiState().env_manager);
+    try h.driver.click(env_vm.delete_id);
+    const deleted = h.app.vm().uiState();
+    try testing.expectEqual(@as(usize, 0), deleted.env_names.len);
+    try testing.expectEqualStrings("", deleted.env_active);
+    try testing.expectEqual(@as(usize, 0), deleted.env_count);
+    try h.driver.expectText("No environment yet");
+    const after_delete = try std.Io.Dir.cwd().readFileAlloc(testing.io, env_path, gpa, .limited(1 << 20));
+    defer gpa.free(after_delete);
+    try testing.expect(std.mem.indexOf(u8, after_delete, "from-environment") == null);
 }

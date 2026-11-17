@@ -25,6 +25,7 @@ pub const picker_menu_id = "kurir.env.picker.menu";
 pub const manager_id = "kurir.env.manager";
 pub const close_id = "kurir.env.close";
 pub const new_id = "kurir.env.new";
+pub const delete_id = "kurir.env.delete";
 pub const add_variable_id = "kurir.env.addvar";
 pub const name_prefix = "kurir.env.name";
 pub const initial_prefix = "kurir.env.initial";
@@ -388,6 +389,25 @@ pub const Env = struct {
         if (index >= environment.vars.items.len) return;
         environment.vars.items[index].secret = !environment.vars.items[index].secret;
         self.save();
+        self.session.touch();
+    }
+
+    // Deleting the environment the manager shows: the workspace keeps the rest, and nothing else sends with it.
+    pub fn removeSelected(self: *Env) void {
+        const set = self.live() orelse return;
+        if (self.selected >= set.environments.items.len) return;
+        const gpa = self.session.gpa;
+        const environment = &set.environments.items[self.selected];
+        // The environment that sent is the one going, so the window sends with none until another is picked.
+        if (set.active.len > 0 and std.mem.eql(u8, set.active, environment.name)) {
+            gpa.free(set.active);
+            set.active = "";
+        }
+        freeEnvironment(gpa, environment);
+        _ = set.environments.orderedRemove(self.selected);
+        if (self.selected >= set.environments.items.len and self.selected > 0) self.selected -= 1;
+        self.save();
+        self.session.setStatus(false, "Environment deleted. The others are untouched.", .{});
         self.session.touch();
     }
 
