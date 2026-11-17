@@ -686,6 +686,8 @@ pub const Sidebar = struct {
 
     pub fn start(self: *Sidebar, session: *Session) void {
         self.session = session;
+        // One allocator for every field: the name and workspace boxes grow with it, so neither is capped at 256 bytes.
+        input_mod.setTextAllocator(session.gpa);
         self.name_field = session.fieldStyle(.{ .text = name_field_id }, @src());
         self.name_field.bind();
         self.workspace_field = session.fieldStyle(.{ .text = workspace_field_id }, @src());
@@ -693,6 +695,7 @@ pub const Sidebar = struct {
 
         // The filter box: quieter than an editor field, and its hint is the only thing it says when empty.
         self.filter_field = session.fieldStyle(.{ .text = filter_field_id }, @src());
+        // Bound to the panel's own buffer, because `filterText` reads that array back: this one keeps its 256 bytes.
         self.filter_field.bindTo(&self.filter_buf);
         self.filter_field.placeholder = "Filter requests";
         self.filter_field.placeholder_fg = session.theme.colors.text_done;
@@ -716,6 +719,10 @@ pub const Sidebar = struct {
     pub fn deinit(self: *Sidebar) void {
         self.expanded.deinit(self.session.gpa);
         self.rows.deinit(self.session.gpa);
+        // A field that grew past its inline buffer owns that run, so it goes with the panel.
+        self.name_field.deinit();
+        self.workspace_field.deinit();
+        self.filter_field.deinit();
     }
 
     // The left panel's props: the limits and tones live here, so the view only adds its own call site.

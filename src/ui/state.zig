@@ -18,8 +18,6 @@ pub const max_depth: usize = 8;
 pub const max_tree_rows: usize = 512;
 pub const max_headers: usize = 32;
 pub const max_body_parts: usize = 32;
-pub const max_body: usize = 64 * 1024;
-pub const max_url: usize = 2048;
 pub const max_name: usize = 128;
 // How many results a session keeps: the newest this many sends are the whole history.
 pub const max_history: usize = 20;

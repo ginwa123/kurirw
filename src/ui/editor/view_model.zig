@@ -35,12 +35,10 @@ pub const line_height: f32 = 20;
 pub const Editor = struct {
     session: *Session = undefined,
 
-    url_buf: []u8 = &.{},
     url_field: input_mod.Field = undefined,
     header_fields: [state_mod.max_headers * 2]input_mod.Field = undefined,
     header_ctxs: [state_mod.max_headers * 2]HeaderCtx = undefined,
 
-    body_buf: []u8 = &.{},
     // The body is the toolkit's multiline field: Enter types a line, Ctrl/Cmd+Enter sends.
     body_field: input_mod.Field = undefined,
 
@@ -144,18 +142,18 @@ pub const Editor = struct {
         self.session = session;
         const gpa = session.gpa;
 
-        self.url_buf = gpa.alloc(u8, state_mod.max_url) catch gpa.alloc(u8, 1) catch return;
-        self.body_buf = gpa.alloc(u8, state_mod.max_body) catch gpa.alloc(u8, 1) catch return;
+        // One allocator for every field in this app: none of them is bound to a fixed size, so none has a length limit.
+        input_mod.setTextAllocator(gpa);
 
         self.url_field = session.fieldStyle(.{ .text = url_field_id }, @src());
-        self.url_field.bindTo(self.url_buf);
-        // The body is one multiline field bound to the big buffer; the toolkit draws its own lines and caret.
+        self.url_field.bind();
+        // The body is one multiline field; the toolkit draws its own lines and caret, and grows the text as it is typed.
         self.body_field = session.fieldStyle(.{ .text = body_id }, @src());
         self.body_field.multiline = true;
         // The body scrolls with its caret: typing past the bottom edge follows the line, it does not hide it.
         self.body_field.scroll_id = body_scroll_id;
         self.body_field.pad = glinlandui.props.Pad.all(body_pad);
-        self.body_field.bindTo(self.body_buf);
+        self.body_field.bind();
 
         var i: usize = 0;
         while (i < state_mod.max_headers) : (i += 1) {
@@ -194,8 +192,11 @@ pub const Editor = struct {
     }
 
     pub fn deinit(self: *Editor) void {
-        if (self.url_buf.len > 0) self.session.gpa.free(self.url_buf);
-        if (self.body_buf.len > 0) self.session.gpa.free(self.body_buf);
+        // A field that grew past its inline buffer owns that run, so it goes with the panel.
+        self.url_field.deinit();
+        self.body_field.deinit();
+        for (&self.header_fields) |*field| field.deinit();
+        for (&self.part_fields) |*field| field.deinit();
     }
 
     // Push the selected node into the fields: on a selection change, never while a field is being typed.

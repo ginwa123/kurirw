@@ -1343,3 +1343,17 @@ test "a long label is clipped with two dots, never inside a codepoint" {
     // "aaa" + a two-byte "e acute": the clip backs off to a boundary instead of writing half a glyph.
     try testing.expectEqualStrings("aa..", sidebar_mod.clip("aaa\xc3\xa9", &small));
 }
+
+test "a body longer than any fixed buffer is kept whole, and reaches the document" {
+    var h = try Harness.boot();
+    defer h.stop();
+    const vm = h.firstRequest();
+    // A hundred thousand bytes: past the 64 KiB the panel used to bind, and past every 256-byte inline buffer.
+    var long: [100_000]u8 = undefined;
+    @memset(&long, 'x');
+    vm.editor.body_field.setText(&long);
+    try testing.expectEqual(@as(usize, 100_000), vm.editor.body_field.text().len);
+    // The edit reaches the document rather than stopping at a buffer's end.
+    editor_mod.Editor.onBodyTyped(&vm.editor, vm.editor.body_field.text());
+    try testing.expectEqual(@as(usize, 100_000), h.state().body.len);
+}
