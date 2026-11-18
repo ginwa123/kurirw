@@ -168,8 +168,14 @@ jobs:
       # PRODUCTION BUILD. ReleaseFast, not the `Debug` default and not ReleaseSafe: this is the
       # binary users download, so it is the fast one with runtime safety checks off. Every other
       # `zig build` in this file is a test/verification build and stays at the default.
+      #
+      # `-Dcpu=baseline` is load-bearing: without it Zig compiles for the RUNNER's own CPU, and a
+      # runner with newer vector instructions than the machine that downloads the archive produces
+      # a binary that dies at startup with 0xC000001D (illegal instruction). That is exactly what
+      # the 0.1.19 Windows zip did on a developer machine. A release is built for the oldest CPU the
+      # platform promises, not for the machine that happened to compile it.
       - name: Build the release binary (ReleaseFast)
-        run: zig build -Doptimize=ReleaseFast -Drequire-real-curl=true
+        run: zig build -Doptimize=ReleaseFast -Drequire-real-curl=true -Dcpu=baseline
 
       # One binary per platform, packaged the way the installer expects to find it.
       - name: Package
