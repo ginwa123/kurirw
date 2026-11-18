@@ -20,6 +20,45 @@ irm https://raw.githubusercontent.com/ginwa123/kurirw/main/install.ps1 | iex
 
 Or download the archive for your machine from the assets below and run the binary inside it.
 
+## New: a Pre-req and a Post-res script on every request
+
+The request editor has a **Scripts** tab with two phases, the way Postman's does, in a small Lua-flavoured
+language written for this app — no JavaScript engine, no browser, no download:
+
+```lua
+local jsonData = pm.response.json()
+-- Set the token as a variable
+pm.environment.set("token", jsonData.access_token)
+print("Access Token: " .. jsonData.access_token)
+```
+
+- `local`, `if … then … elseif … else … end`, `..` to join text, `a.b` / `a["k"]` / `a[0]` into the answer,
+  `+ - * /` and the usual comparisons.
+- `pm.response.json()`, `.text()`, `.code`, `.headers.get(name)`; `pm.environment.get/.set`,
+  `pm.variables.get`, and `pm.globals` (the same store); `print()` and `console.log()`.
+- A variable lands in the **active workspace environment**, is created when it is new, and is written to
+  `environment.json` at once — so the next request can send `{{token}}`.
+- **Pre-req** runs before the request leaves; if it cannot run, the send stops with the line that failed.
+  **Post-res** runs on the answer and never hides it; what `print` said sits under the field, and the
+  status line says what the run did ("Post-res script set 1 variable in Dev.").
+- Loops and function definitions are out of scope on purpose, and a script that uses them says so on its
+  own line instead of quietly doing nothing.
+
+## Fixed: the installer now says which version it installed, and a release always matches its tag
+
+`releases/latest` had been pointing at **v0.1.13** while the code kept moving, because one platform leg of a
+tag run went past the job's 30-minute limit and the publish job was skipped — so `curl … | sh` kept
+reinstalling an old build and nothing said so. Now:
+
+- The release legs have an hour, Homebrew's slow self-update is off, and a tag whose binary disagrees with
+  the tag number fails the build instead of shipping.
+- Both installers resolve the tag **before** downloading and print it, and then run
+  `<install dir>/kurirw --version` — so the last line of an install is the version you actually have.
+- `kurirw --version` answers without opening a window, which is what that check reads.
+- On Windows the installer refuses to unpack over a running `kurirw.exe` (a locked file) instead of
+  leaving a half-installed folder behind.
+
+
 ## Assets
 
 | platform | file | notes |

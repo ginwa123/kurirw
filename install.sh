@@ -40,10 +40,19 @@ if [ "$platform" = "linux" ] && [ "$arch" != "x86_64" ]; then
 fi
 
 asset="kurirw-$platform-$arch.tar.gz"
+# `latest` is turned into a tag first: a run that cannot name the version it installed is a run nobody can check.
 if [ "$version" = "latest" ]; then
-    url="https://github.com/$repo/releases/latest/download/$asset"
-else
+    tag=$(curl -fsSL "https://api.github.com/repos/$repo/releases/latest" 2>/dev/null |
+        sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1)
+    version="$tag"
+fi
+if [ -n "$version" ]; then
     url="https://github.com/$repo/releases/download/$version/$asset"
+    say "Kurir: installing $version"
+else
+    # The API is rate-limited for anonymous callers; GitHub's redirect still points at the newest release.
+    url="https://github.com/$repo/releases/latest/download/$asset"
+    say "Kurir: installing the latest release"
 fi
 
 tmp=$(mktemp -d 2>/dev/null || mktemp -d -t kurir)
@@ -68,6 +77,10 @@ fi
 
 say ""
 say "installed  $dest/kurirw"
+# The binary answers for itself, so the run ends by naming what actually landed.
+if installed=$("$dest/kurirw" --version 2>/dev/null); then
+    say "version    $installed"
+fi
 
 case ":$PATH:" in
     *":$dest:"*) ;;

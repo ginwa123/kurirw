@@ -3,9 +3,16 @@ const std = @import("std");
 const builtin = @import("builtin");
 const glinlandui = @import("glinlandui");
 const kurirw = @import("kurirw");
+const version = @import("version.zig");
 
 pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
+
+    // `kurirw --version` answers without a window, which is how the installer says what it installed.
+    if (wantsVersion(init.minimal.args, gpa)) {
+        std.debug.print("kurirw {s}\n", .{version.text});
+        return;
+    }
 
     var app = kurirw.app.App{};
     try app.start(gpa, init.io, init.environ_map);
@@ -70,4 +77,16 @@ fn onShortcut(ctx: ?*anyopaque, mods: glinlandui.components.input.Mods, keycode:
         else => return false,
     }
     return true;
+}
+
+// The one argument the app answers: `--version` (or `-V`), so a script can ask a binary what it is.
+fn wantsVersion(args: std.process.Args, gpa: std.mem.Allocator) bool {
+    // Windows keeps its command line in UTF-16, so the iterator needs an allocator on every platform here.
+    var it = std.process.Args.Iterator.initAllocator(args, gpa) catch return false;
+    defer it.deinit();
+    _ = it.skip();
+    while (it.next()) |arg| {
+        if (std.mem.eql(u8, arg, "--version") or std.mem.eql(u8, arg, "-V")) return true;
+    }
+    return false;
 }
