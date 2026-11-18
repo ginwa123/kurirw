@@ -44,6 +44,22 @@ print("Access Token: " .. jsonData.access_token)
 - Loops and function definitions are out of scope on purpose, and a script that uses them says so on its
   own line instead of quietly doing nothing.
 
+## Fixed: Shift+click extends a selection in every text field
+
+Clicking in a field placed the caret, and a second click **with Shift held** replaced it instead of
+extending the run — so the one gesture everyone uses to select up to another point did nothing. Both
+halves of a click had to learn about Shift:
+
+- The press keeps the caret's anchor when Shift is held and the field already owns the keyboard,
+  instead of re-anchoring at the new point.
+- The release (the click itself) extends to the clicked point instead of collapsing the run it had
+  just made.
+- Shift+arrows, Shift+Home/End and Shift+Ctrl+arrow already worked, and are now pinned by tests so
+  they stay working.
+
+A plain click still collapses the selection, and a Shift+click on a field that does not yet have the
+keyboard just places the caret.
+
 ## Fixed: the installer now says which version it installed, and a release always matches its tag
 
 `releases/latest` had been pointing at **v0.1.13** while the code kept moving, because one platform leg of a
