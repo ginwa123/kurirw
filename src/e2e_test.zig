@@ -1973,3 +1973,42 @@ test "a Pre-req script that cannot run stops the send before it leaves" {
     try testing.expect(std.mem.indexOf(u8, h.app.vm().uiState().status, "Pre-req script: line 1") != null);
     try testing.expect(std.mem.indexOf(u8, h.app.vm().uiState().script_error, "line 1") != null);
 }
+
+test "shift-click in the URL field extends the run the first click placed the caret in" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
+    try h.driver.click(view_model.url_field_id);
+    try h.driver.typeText("https://api.example.com/v1/items");
+
+    const field = &h.app.vm().editor.url_field;
+    const bb = h.driver.box(view_model.url_field_id).?;
+    const y = bb.y + bb.height * 0.5;
+    const pad = field.pad_lr.pts();
+    const size = field.font_size.whole();
+
+    // One plain click places the caret; the run it starts is what Shift grows.
+    h.driver.clickAt(bb.x + pad + field.measure("https", size) + 2, y);
+    const anchor = field.editor.caret.offset;
+    try testing.expect(anchor > 0);
+    try testing.expect(!field.editor.caret.hasSelection());
+
+    // Shift held across the second click: the same field, further along, is selected from that anchor.
+    h.driver.keyDown(glinlandui.keyboard.KEY_LEFTSHIFT);
+    h.driver.clickAt(bb.x + pad + field.measure("https://api", size) + 2, y);
+    h.driver.keyUp(glinlandui.keyboard.KEY_LEFTSHIFT);
+
+    const span = field.editor.caret.selection() orelse return error.NoSelection;
+    try testing.expectEqual(anchor, span.start);
+    try testing.expect(span.end > span.start);
+
+    // A plain click after it collapses the band again, which is what a text field has always done.
+    h.driver.clickAt(bb.x + pad + field.measure("https://api.example", size) + 2, y);
+    try testing.expect(!field.editor.caret.hasSelection());
+}
