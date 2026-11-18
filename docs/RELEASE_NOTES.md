@@ -44,6 +44,18 @@ print("Access Token: " .. jsonData.access_token)
 - Loops and function definitions are out of scope on purpose, and a script that uses them says so on its
   own line instead of quietly doing nothing.
 
+## New: colour emoji
+
+An emoji the UI font does not carry — 😀 👍 🎉 — is now drawn as the **colour image** its font has, instead of an empty
+box. The toolkit reads all three ways a font stores one (Segoe UI Emoji's COLR/CPAL layers, Noto Color Emoji's embedded
+PNGs, Apple Color Emoji's sbix records), falls back to the platform's emoji face only for a codepoint the text face has
+no glyph for, and measures it at its own width so nothing overlaps.
+
+- A request named `grin 😀 party 🎉` shows both emoji in colour in the sidebar, the tab and the title field.
+- Text that the app's face *does* have stays monochrome: `→`, `·` and a plain `❤` are not hijacked by the emoji font.
+- Windows draws them today (D3D11, one untinted quad per emoji). macOS and Linux still draw the mask path — their text
+  paths rasterise a whole run rather than per glyph — so there the box stays until that backend lands.
+
 ## Fixed: a Windows-pasted body no longer ends every line in an empty box
 
 A body pasted from Windows ends its lines `\r\n`, and the editor drew the carriage return along with the text. The
