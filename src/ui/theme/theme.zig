@@ -25,6 +25,33 @@ pub const warn = Color.hexC("#c4b28a");
 // The sidebar's accent: the badge, the "+ New" button and the selected row's bar are one colour.
 pub const accent = success;
 
+// The text selection's band and ink: a saturated step of the accent's own hue, so a selected run reads as selected on any field tone.
+pub const select_bg = Color.hexC("#356f8f");
+pub const select_fg = Color.hexC("#f4f7f4");
+
+// One sRGB channel as a linear-light fraction, which is the space a contrast ratio is computed in.
+fn linearChannel(v: u8) f32 {
+    const s = @as(f32, @floatFromInt(v)) / 255;
+    return if (s <= 0.04045) s / 12.92 else std.math.pow(f32, (s + 0.055) / 1.055, 2.4);
+}
+
+// WCAG relative luminance: 0 for black, 1 for white, and the one number both contrast checks rest on.
+pub fn luminance(c: Color) f32 {
+    return 0.2126 * linearChannel(c.r()) + 0.7152 * linearChannel(c.g()) + 0.0722 * linearChannel(c.b());
+}
+
+// The WCAG contrast ratio of two colours: 1:1 for the same tone, 21:1 for black on white.
+pub fn contrast(a: Color, b: Color) f32 {
+    const la = luminance(a);
+    const lb = luminance(b);
+    return (@max(la, lb) + 0.05) / (@min(la, lb) + 0.05);
+}
+
+// How far apart a colour's brightest and dimmest channels are: a grey sits at 0, and a colour a person can see does not.
+fn channelSpread(c: Color) u8 {
+    return @max(c.r(), @max(c.g(), c.b())) - @min(c.r(), @min(c.g(), c.b()));
+}
+
 // The tab strip's three fills: the bar is the page, a hovered tab one step up, the open tab the brightest of the three.
 pub const tab_hover = Color.lerp(app_theme.colors.background, app_theme.colors.surface_variant, 0.6);
 pub const tab_active = app_theme.colors.surface_variant;
@@ -84,4 +111,27 @@ test "a status code picks its tone by class" {
     try testing.expect(same(danger, statusColor(500)));
     try testing.expect(same(method_other, statusColor(301)));
     try testing.expect(same(method_other, statusColor(0)));
+}
+
+test "a selected run reads as selected, and its ink stays readable" {
+    // AA for body text: a selected run is never harder to read than the field around it.
+    try testing.expect(contrast(select_fg, select_bg) >= 4.5);
+    // The band is a band: three times the field surface, which the old grey-on-grey did not reach.
+    try testing.expect(contrast(select_bg, app_theme.colors.surface) >= 3.0);
+    try testing.expect(contrast(select_bg, app_theme.colors.surface_variant) >= 3.0);
+    // A selection is a COLOUR: no grey can pass the spread, and the ink is a light neutral rather than a hue.
+    try testing.expect(channelSpread(select_bg) >= 60);
+    try testing.expect(channelSpread(select_fg) < 40);
+    // The caret keeps a tone of its own on top of it, so the two signs of a selection do not merge.
+    try testing.expect(!same(select_bg, app_theme.colors.primary));
+}
+
+test "contrast is the WCAG ratio, and luminance orders black under white" {
+    try testing.expect(luminance(Color.hexC("#000000")) < 0.001);
+    try testing.expect(luminance(Color.hexC("#ffffff")) > 0.99);
+    // The two fixed ends of the ratio the formula promises.
+    try testing.expectApproxEqAbs(@as(f32, 21.0), contrast(Color.hexC("#000000"), Color.hexC("#ffffff")), 0.01);
+    try testing.expectApproxEqAbs(@as(f32, 1.0), contrast(select_bg, select_bg), 0.001);
+    // The ratio is symmetric: swapping the two colours cannot change it.
+    try testing.expectApproxEqAbs(contrast(select_fg, select_bg), contrast(select_bg, select_fg), 0.001);
 }
