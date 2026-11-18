@@ -432,7 +432,7 @@ test "typing past the bottom of the body scrolls it: the caret never leaves the 
     h.driver.frame();
 
     // The caret's own line is inside the viewport, not below it.
-    const line = h.app.vm().editor.body_field.caretLine();
+    const line = h.app.views.?.editor.body.caretLine();
     try testing.expectEqual(@as(usize, 40), line);
     const row = glinlandui.frame.bounds(glinlandui.components.input.lineBoxId(view_model.body_id, line)) orelse
         return error.LineBoxMissing;
@@ -598,7 +598,7 @@ test "paste goes through the field's clipboard and lands in the model, newlines 
     try h.driver.click(view_model.body_id);
 
     // A scripted pasteboard: the real one belongs to the machine running the test.
-    h.app.vm().editor.body_field.clipboard = .{ .read_fn = clipRead, .write_fn = clipWrite };
+    h.app.views.?.editor.body.clipboard = .{ .read_fn = clipRead, .write_fn = clipWrite };
     clipSet("{\n  \"a\": 1\n}");
 
     _ = h.driver.host.onKeyEvent(29, true);
@@ -607,7 +607,7 @@ test "paste goes through the field's clipboard and lands in the model, newlines 
 
     try testing.expectEqualStrings("{\n  \"a\": 1\n}", h.app.vm().uiState().body);
     // And the draft the field shows is the same text.
-    try testing.expectEqualStrings("{\n  \"a\": 1\n}", h.app.vm().editor.body_field.text());
+    try testing.expectEqualStrings("{\n  \"a\": 1\n}", h.app.views.?.editor.body.text());
 }
 
 var clip_buf: [512]u8 = undefined;
@@ -835,7 +835,7 @@ test "the response body is one text surface: select all, copy, and typing cannot
 
     // Click into the body: it is a field, so it takes the caret and the keyboard like any other.
     try h.driver.click(kurirw.response_vm.body_text_id);
-    h.app.vm().response.body_field.clipboard = .{ .write_fn = clipWrite };
+    h.app.views.?.response.body.clipboard = .{ .write_fn = clipWrite };
     clipSet("");
 
     // Select all, copy: the whole body reaches the pasteboard.
@@ -850,7 +850,7 @@ test "the response body is one text surface: select all, copy, and typing cannot
     _ = try h.driver.key(28);
     _ = try h.driver.key(14);
     try testing.expectEqualStrings(shown, h.app.vm().uiState().response.body);
-    try testing.expectEqualStrings(shown, h.app.vm().response.body_field.text());
+    try testing.expectEqualStrings(shown, h.app.views.?.response.body.text());
 }
 
 // The right-click card is drawn by the engine, so a test addresses its rows by their own ids.
@@ -1152,7 +1152,7 @@ test "dragging inside the response body selects text and leaves the pane where i
     h.driver.frame();
 
     // The drag selected text, and the pane did NOT scroll with the pointer.
-    try testing.expect(h.app.vm().response.body_field.editor.caret.anchor != null);
+    try testing.expect(h.app.views.?.response.body.editor.caret.anchor != null);
     const after = glinlandui.components.scroll.view(kurirw.response_vm.body_scroll_id);
     try testing.expectEqual(before.y, after.y);
 }
@@ -1294,7 +1294,7 @@ test "a right click on the URL field offers Undo, Redo, Cut, Copy, Paste and Sel
     // Select All is the card's sixth row: the whole URL is selected, ready to copy.
     try clickMenuRow(&h, 5);
     h.driver.frame();
-    const field = &h.app.vm().editor.url_field;
+    const field = &h.app.views.?.editor.url;
     const span = field.editor.caret.selection() orelse return error.NoSelection;
     try testing.expectEqual(@as(usize, 0), span.start);
     try testing.expectEqual("https://api.example.com/v1/items".len, span.end);
@@ -1323,13 +1323,13 @@ test "the body's card copies a selection, and cannot paste into a response" {
     try clickMenuRow(&h, 5);
     h.driver.frame();
     const body = h.app.vm().uiState().response.body;
-    try testing.expectEqual(body.len, h.app.vm().response.body_field.editor.caret.selection().?.end);
+    try testing.expectEqual(body.len, h.app.views.?.response.body.editor.caret.selection().?.end);
 
     // Paste is drawn but dimmed: a response is not something you edit, so the row does nothing at all.
     rightClickAt(&h, bb.x + 30, bb.y + 8);
     try clickMenuRow(&h, 4);
     h.driver.frame();
-    try testing.expectEqualStrings(body, h.app.vm().response.body_field.text());
+    try testing.expectEqualStrings(body, h.app.views.?.response.body.text());
 }
 
 test "a wheel scroll survives a selection in the body" {
@@ -1356,7 +1356,7 @@ test "a wheel scroll survives a selection in the body" {
     h.driver.frame();
     h.driver.releaseAt(bb.x + 120, bb.y + 40);
     h.driver.frame();
-    try testing.expect(h.app.vm().response.body_field.editor.caret.anchor != null);
+    try testing.expect(h.app.views.?.response.body.editor.caret.anchor != null);
 
     // The hand scrolls away from it: the box must stay where the wheel put it, not snap back to the caret.
     h.driver.move(bb.x + 60, bb.y + 20);
@@ -1880,7 +1880,7 @@ test "Cmd/Ctrl+Z takes a typed URL back, the model hears it, and redo puts it ba
     // The field's own history takes the run back, and the app is told: the address bar is not a separate copy.
     _ = try h.driver.shortcut(glinlandui.keyboard.KEY_Z);
     try testing.expectEqualStrings("", h.app.vm().uiState().url);
-    try testing.expectEqualStrings("", h.app.vm().editor.url_field.text());
+    try testing.expectEqualStrings("", h.app.views.?.editor.url.text());
 
     // Ctrl/Cmd+Shift+Z is the other half, and Ctrl+Y is what Windows and Linux also take.
     _ = h.driver.host.onKeyEvent(glinlandui.keyboard.KEY_LEFTCTRL, true);
@@ -1987,7 +1987,7 @@ test "shift-click in the URL field extends the run the first click placed the ca
     try h.driver.click(view_model.url_field_id);
     try h.driver.typeText("https://api.example.com/v1/items");
 
-    const field = &h.app.vm().editor.url_field;
+    const field = &h.app.views.?.editor.url;
     const bb = h.driver.box(view_model.url_field_id).?;
     const y = bb.y + bb.height * 0.5;
     const pad = field.pad_lr.pts();
@@ -2027,8 +2027,8 @@ test "the body editor colours JSON as it is typed, and stops when the body is no
     try h.driver.click(view_model.body_id);
     try h.driver.typeText("{\"a\": 1, \"ok\": true}");
 
-    const code = &h.app.vm().editor.body_code;
-    const field = &h.app.vm().editor.body_field;
+    const code = &h.app.views.?.editor.body_code;
+    const field = &h.app.views.?.editor.body;
     try testing.expectEqual(kurirw.code_editor.Language.json, code.language);
     try testing.expect(code.spans.items.len >= 7);
     // The field is drawing those runs: the CodeEditor hands them over and the toolkit paints them.
@@ -2036,7 +2036,7 @@ test "the body editor colours JSON as it is typed, and stops when the body is no
     try testing.expectEqual(code.spans.items.len, field.syntax.?.len);
 
     // A key is one tone and its value another, which is the whole point of the colouring.
-    const key = h.app.vm().editor.body_code.spans.items[1];
+    const key = h.app.views.?.editor.body_code.spans.items[1];
     try testing.expectEqual(kurirw.theme.json_key.toClay(), key.color.toClay());
     var saw_key = false;
     for (h.driver.commands()) |cmd| {
@@ -2072,8 +2072,8 @@ test "a JSON answer is coloured in the response pane, and an HTML one is left pl
     try h.driver.click("kurir.send");
     try settle(&h);
 
-    const code = &h.app.vm().response.body_code;
-    const field = &h.app.vm().response.body_field;
+    const code = &h.app.views.?.response.body_code;
+    const field = &h.app.views.?.response.body;
     try testing.expectEqual(kurirw.code_editor.Language.json, code.language);
     try testing.expect(code.spans.items.len > 0);
     try testing.expect(field.syntax != null);

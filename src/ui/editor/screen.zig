@@ -16,6 +16,8 @@ const postman = @import("../../data/model/postman.zig");
 const state_mod = @import("../../ui/state.zig");
 const theme_mod = @import("../theme/theme.zig");
 const scope_mod = @import("../shell/scope.zig");
+const views_mod = @import("../shell/views.zig");
+const shell_vm = @import("../shell/view_model.zig");
 const editor_vm = @import("view_model.zig");
 const widgets = @import("../shell/widgets.zig");
 const actions = @import("../shell/actions.zig");
@@ -26,6 +28,98 @@ const tabButton = widgets.tabButton;
 const Scope = scope_mod.Scope;
 const body_min_h = scope_mod.body_min_h;
 const max_body_lines = scope_mod.max_body_lines;
+
+// The request's name box renames the node the sidebar has selected, so its intent is the sidebar's.
+fn onNameTyped(raw: ?*anyopaque, text: []const u8) void {
+    const vm: *shell_vm.KurirViewModel = @ptrCast(@alignCast(raw.?));
+    vm.sidebar.typedName(text);
+}
+
+fn onNameFocused(raw: ?*anyopaque) void {
+    const vm: *shell_vm.KurirViewModel = @ptrCast(@alignCast(raw.?));
+    vm.sidebar.focusName();
+}
+
+// Ctrl/Cmd+Enter: the field asks whether the intent took the draft. It did not, so the body stays where it is.
+fn onBodySubmit(raw: ?*anyopaque, text: []const u8) bool {
+    const vm: *shell_vm.KurirViewModel = @ptrCast(@alignCast(raw.?));
+    _ = text;
+    vm.send();
+    return false;
+}
+
+// The panel's widgets: styled and bound on the first frame that declares them, and only handed values after that.
+fn views(scope: *Scope) *views_mod.Views.Editor {
+    const v = &scope.views.editor;
+    if (v.started) return v;
+    const session = &scope.vm.session;
+    const vm = scope.vm;
+    v.name = session.fieldStyle(.{ .text = shell_vm.name_field_id }, @src());
+    v.name.bind();
+    v.name.on_change = .{ .f = onNameTyped, .ctx = vm };
+    v.name.on_focus = .{ .f = onNameFocused, .ctx = vm };
+    v.url = session.fieldStyle(.{ .text = editor_vm.url_field_id }, @src());
+    v.url.bind();
+    v.url.on_change = .{ .f = editor_vm.Editor.onUrlTyped, .ctx = &vm.editor };
+    v.url.on_focus = .{ .f = editor_vm.Editor.onUrlFocused, .ctx = &vm.editor };
+    // The body is one multiline field; the toolkit draws its own lines and caret, and grows the text as it is typed.
+    v.body = session.fieldStyle(.{ .text = editor_vm.body_id }, @src());
+    v.body.multiline = true;
+    // The body scrolls with its caret: typing past the bottom edge follows the line, it does not hide it.
+    v.body.scroll_id = editor_vm.body_scroll_id;
+    v.body.pad = props.Pad.all(editor_vm.body_pad);
+    v.body.bind();
+    v.body.on_change = .{ .f = editor_vm.Editor.onBodyTyped, .ctx = &vm.editor };
+    v.body.on_focus = .{ .f = editor_vm.Editor.onBodyFocused, .ctx = &vm.editor };
+    v.body.on_submit = .{ .f = onBodySubmit, .ctx = vm };
+    // The body's colouring: a CodeEditor owns the JSON runs the field paints, and nothing else about the editing.
+    v.body_code = @import("../code_editor.zig").CodeEditor.init(session.gpa);
+    // The scripts: one multiline field per phase, each scrolling with its caret.
+    v.pre = session.fieldStyle(.{ .text = editor_vm.pre_field_id }, @src());
+    v.pre.multiline = true;
+    v.pre.scroll_id = editor_vm.script_scroll_id;
+    v.pre.pad = props.Pad.all(editor_vm.body_pad);
+    v.pre.bind();
+    v.pre.on_change = .{ .f = editor_vm.Editor.onPreTyped, .ctx = &vm.editor };
+    v.post = session.fieldStyle(.{ .text = editor_vm.post_field_id }, @src());
+    v.post.multiline = true;
+    v.post.scroll_id = editor_vm.script_scroll_id;
+    v.post.pad = props.Pad.all(editor_vm.body_pad);
+    v.post.bind();
+    v.post.on_change = .{ .f = editor_vm.Editor.onPostTyped, .ctx = &vm.editor };
+
+    var i: usize = 0;
+    while (i < state_mod.max_headers) : (i += 1) {
+        v.headers[i * 2] = session.fieldStyle(.at(editor_vm.header_key_prefix, i), @src());
+        v.headers[i * 2].bind();
+        v.headers[i * 2 + 1] = session.fieldStyle(.at(editor_vm.header_value_prefix, i), @src());
+        v.headers[i * 2 + 1].bind();
+        v.headers[i * 2].on_change = .{ .f = editor_vm.Editor.onHeaderTyped, .ctx = &vm.editor.header_ctxs[i * 2] };
+        v.headers[i * 2 + 1].on_change = .{ .f = editor_vm.Editor.onHeaderTyped, .ctx = &vm.editor.header_ctxs[i * 2 + 1] };
+    }
+    // The part table is a header table over a different array: same fields, same two columns.
+    i = 0;
+    while (i < state_mod.max_body_parts) : (i += 1) {
+        v.parts[i * 2] = session.fieldStyle(.at(editor_vm.part_key_prefix, i), @src());
+        v.parts[i * 2].bind();
+        v.parts[i * 2 + 1] = session.fieldStyle(.at(editor_vm.part_value_prefix, i), @src());
+        v.parts[i * 2 + 1].bind();
+        v.parts[i * 2].on_change = .{ .f = editor_vm.Editor.onPartTyped, .ctx = &vm.editor.part_ctxs[i * 2] };
+        v.parts[i * 2 + 1].on_change = .{ .f = editor_vm.Editor.onPartTyped, .ctx = &vm.editor.part_ctxs[i * 2 + 1] };
+    }
+    // The Vars tab is the same two-column table again, over the request's own variables.
+    i = 0;
+    while (i < state_mod.max_vars) : (i += 1) {
+        v.vars[i * 2] = session.fieldStyle(.at(editor_vm.var_name_prefix, i), @src());
+        v.vars[i * 2].bind();
+        v.vars[i * 2 + 1] = session.fieldStyle(.at(editor_vm.var_value_prefix, i), @src());
+        v.vars[i * 2 + 1].bind();
+        v.vars[i * 2].on_change = .{ .f = editor_vm.Editor.onVarTyped, .ctx = &vm.editor.var_ctxs[i * 2] };
+        v.vars[i * 2 + 1].on_change = .{ .f = editor_vm.Editor.onVarTyped, .ctx = &vm.editor.var_ctxs[i * 2 + 1] };
+    }
+    v.started = true;
+    return v;
+}
 
 // The Scripts tab's code field never shrinks below this, so an empty script still reads as an editor.
 const script_min_h: f32 = 150;
@@ -75,10 +169,15 @@ pub fn nameRow(scope: *Scope) void {
 
 pub fn nameRowChildren(scope: *Scope) void {
     const t = scope.theme;
-    const field = &scope.vm.sidebar.name_field;
+    const v = views(scope);
+    const field = &v.name;
     field.value = scope.state.node_name;
     field.disabled = !scope.state.has_selection;
     field.w = .{ .clamp = .{ .min = 160, .max = 360, .grow = true } };
+    // A name box that GAINS the keyboard selects the whole name, so the first keystroke replaces it.
+    const focused = frame.isFocused(shell_vm.name_field_id);
+    if (focused and !v.name_focused) field.editor.selectAll();
+    v.name_focused = focused;
     textField(field);
 
     if (!scope.state.has_selection) {
@@ -171,7 +270,7 @@ pub fn methodRowChildren(scope: *Scope) void {
         }, postman.methods[0..], MethodMenu{ .theme = t }, renderMethodRow);
     }
 
-    const field = &scope.vm.editor.url_field;
+    const field = &views(scope).url;
     field.value = scope.state.url;
     field.disabled = !enabled;
     // The weight: the room the row has left after the method button, Send and cURL; 160 pt is the floor.
@@ -407,13 +506,13 @@ pub fn headerRowChildren(hs: *const HeaderScope) void {
         .on_click = .{ .f = actions.onToggleHeader, .ctx = &scope.vm.editor.header_ctxs[index * 2] },
     });
 
-    const key_field = &scope.vm.editor.header_fields[index * 2];
+    const key_field = &views(scope).headers[index * 2];
     key_field.value = row.name;
     key_field.h = .{ .fixed = 26 };
     key_field.w = .{ .clamp = .{ .min = 90, .max = 220 } };
     textField(key_field);
 
-    const value_field = &scope.vm.editor.header_fields[index * 2 + 1];
+    const value_field = &views(scope).headers[index * 2 + 1];
     value_field.value = row.value;
     value_field.h = .{ .fixed = 26 };
     // The row has one weight: the value takes what the key and the buttons leave.
@@ -520,13 +619,13 @@ pub fn partRowChildren(ps: *const PartScope) void {
         .on_click = .{ .f = actions.onToggleBodyPart, .ctx = &scope.vm.editor.part_ctxs[index * 2] },
     });
 
-    const key_field = &scope.vm.editor.part_fields[index * 2];
+    const key_field = &views(scope).parts[index * 2];
     key_field.value = row.key;
     key_field.h = .{ .fixed = 26 };
     key_field.w = .{ .clamp = .{ .min = 90, .max = 220 } };
     textField(key_field);
 
-    const value_field = &scope.vm.editor.part_fields[index * 2 + 1];
+    const value_field = &views(scope).parts[index * 2 + 1];
     value_field.value = row.value;
     value_field.h = .{ .fixed = 26 };
     // The row has one weight: the value takes what the key and the buttons leave.
@@ -546,14 +645,15 @@ pub fn partRowChildren(ps: *const PartScope) void {
 
 // The body is the toolkit's multiline field: it draws its own lines, its own caret, and takes its own clicks.
 pub fn bodyField(scope: *Scope) void {
-    const field = &scope.vm.editor.body_field;
+    const v = views(scope);
+    const field = &v.body;
     const lines: f32 = @floatFromInt(@max(field.editor.lineCount(), 1));
     field.value = scope.state.body;
     field.w = .grow;
     // Tall enough for the text, and never shorter than the pane, so a long body scrolls instead of clipping.
     field.h = .{ .fixed = @max(body_min_h, lines * field.lineHeight() + 12) };
     // The CodeEditor declares the field and hands it the JSON runs; clicking, typing and the caret stay the field's.
-    scope.vm.editor.body_code.textField(field);
+    v.body_code.textField(field);
 }
 
 // ---- the environment picker, and the request's own variables -----------------------------------------------
@@ -685,13 +785,13 @@ pub fn varsRowChildren(vs: *const VarScope) void {
     const row = scope.state.request_vars[index];
     const editor = &scope.vm.editor;
 
-    const name_field = &editor.var_fields[index * 2];
+    const name_field = &views(scope).vars[index * 2];
     name_field.value = row.name;
     name_field.h = .{ .fixed = 26 };
     name_field.w = .{ .clamp = .{ .min = 90, .max = 220, .grow = true } };
     textField(name_field);
 
-    const value_field = &editor.var_fields[index * 2 + 1];
+    const value_field = &views(scope).vars[index * 2 + 1];
     value_field.value = row.value;
     value_field.h = .{ .fixed = 26 };
     value_field.w = .{ .clamp = .{ .min = 120, .max = 520, .grow = true } };
@@ -801,7 +901,8 @@ fn scriptPane(scope: *Scope) void {
 
 // The code field: the multiline editor the toolkit owns, sized to its own line count.
 fn scriptField(scope: *Scope) void {
-    const field = if (scope.state.script_phase == .pre) &scope.vm.editor.pre_field else &scope.vm.editor.post_field;
+    const v = views(scope);
+    const field = if (scope.state.script_phase == .pre) &v.pre else &v.post;
     field.value = scope.state.script_code;
     const lines: f32 = @floatFromInt(@max(field.editor.lineCount(), 1));
     field.w = .grow;

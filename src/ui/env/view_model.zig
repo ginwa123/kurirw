@@ -1,7 +1,6 @@
 //! The Env panel: the workspace's environments, which one is active, and the manager that edits them.
 const std = @import("std");
 const glinlandui = @import("glinlandui");
-const InputField = glinlandui.components.input.Field;
 const props = glinlandui.props;
 
 const env = @import("../../domain/env.zig");
@@ -62,12 +61,7 @@ pub const Env = struct {
     collection: usize = 0,
     // The picker under its trigger.
     picker: bool = false,
-    name_fields: [state_mod.max_env_vars]InputField = undefined,
-    initial_fields: [state_mod.max_env_vars]InputField = undefined,
-    current_fields: [state_mod.max_env_vars]InputField = undefined,
     var_ctxs: [state_mod.max_env_vars * 3]VarCtx = undefined,
-    // The name of the environment the right pane is editing, drawn as the pane's title.
-    name_field: InputField = undefined,
     name_ctx: NameCtx = undefined,
     env_ctxs: [max_list]ListCtx = undefined,
     collection_ctxs: [max_list]ListCtx = undefined,
@@ -97,29 +91,18 @@ pub const Env = struct {
         self.session = session;
         self.path = path;
         var i: usize = 0;
+        // The column contexts are built ONCE; the view styles and binds its own fields.
         while (i < state_mod.max_env_vars) : (i += 1) {
-            self.name_fields[i] = session.fieldStyle(.at(name_prefix, i), @src());
-            self.name_fields[i].bind();
-            self.initial_fields[i] = session.fieldStyle(.at(initial_prefix, i), @src());
-            self.initial_fields[i].bind();
-            self.current_fields[i] = session.fieldStyle(.at(current_prefix, i), @src());
-            self.current_fields[i].bind();
             self.var_ctxs[i * 3] = .{ .env = self, .index = i, .field = .name };
             self.var_ctxs[i * 3 + 1] = .{ .env = self, .index = i, .field = .initial };
             self.var_ctxs[i * 3 + 2] = .{ .env = self, .index = i, .field = .current };
-            self.name_fields[i].on_change = .{ .f = onTyped, .ctx = &self.var_ctxs[i * 3] };
-            self.initial_fields[i].on_change = .{ .f = onTyped, .ctx = &self.var_ctxs[i * 3 + 1] };
-            self.current_fields[i].on_change = .{ .f = onTyped, .ctx = &self.var_ctxs[i * 3 + 2] };
         }
         i = 0;
         while (i < max_list) : (i += 1) {
             self.env_ctxs[i] = .{ .env = self, .index = i, .group = .environment };
             self.collection_ctxs[i] = .{ .env = self, .index = i, .group = .collection };
         }
-        self.name_field = session.fieldStyle(.{ .text = env_name_id }, @src());
-        self.name_field.bind();
         self.name_ctx = .{ .env = self };
-        self.name_field.on_change = .{ .f = onNameTyped, .ctx = &self.name_ctx };
         self.restore();
         self.follow();
     }
@@ -168,10 +151,6 @@ pub const Env = struct {
             if (set.active.len > 0) gpa.free(set.active);
         }
         self.sets.deinit(gpa);
-        for (&self.name_fields) |*field| field.deinit();
-        for (&self.initial_fields) |*field| field.deinit();
-        for (&self.current_fields) |*field| field.deinit();
-        self.name_field.deinit();
         self.* = undefined;
     }
 
@@ -607,12 +586,12 @@ fn freeEnvironment(gpa: Allocator, environment: *Environment) void {
     gpa.free(environment.name);
 }
 
-fn onTyped(raw: ?*anyopaque, text: []const u8) void {
+pub fn onTyped(raw: ?*anyopaque, text: []const u8) void {
     const ctx: *Env.VarCtx = @ptrCast(@alignCast(raw.?));
     ctx.env.setVariable(ctx.index, ctx.field, text);
 }
 
-fn onNameTyped(raw: ?*anyopaque, text: []const u8) void {
+pub fn onNameTyped(raw: ?*anyopaque, text: []const u8) void {
     const ctx: *Env.NameCtx = @ptrCast(@alignCast(raw.?));
     ctx.env.renameSelected(text);
 }

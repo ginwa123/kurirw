@@ -1,8 +1,6 @@
 //! The request editor's ViewModel: method, URL, headers, body. Edits land in the document, never in a copy.
 const std = @import("std");
 const glinlandui = @import("glinlandui");
-const Field = glinlandui.components.input.Field;
-const setTextAllocator = glinlandui.components.input.setTextAllocator;
 const frame = glinlandui.frame;
 
 const postman = @import("../../data/model/postman.zig");
@@ -10,7 +8,6 @@ const env_mod = @import("../../domain/env.zig");
 const curl_transfer = @import("../../domain/usecase/curl_transfer.zig");
 const state_mod = @import("../../ui/state.zig");
 const session_mod = @import("../shell/session.zig");
-const code_editor = @import("../code_editor.zig");
 
 const Allocator = std.mem.Allocator;
 const UiState = state_mod.UiState;
@@ -55,26 +52,15 @@ pub const line_height: f32 = 20;
 pub const Editor = struct {
     session: *Session = undefined,
 
-    url_field: Field = undefined,
-    header_fields: [state_mod.max_headers * 2]Field = undefined,
     header_ctxs: [state_mod.max_headers * 2]HeaderCtx = undefined,
 
-    // The body is the toolkit's multiline field: Enter types a line, Ctrl/Cmd+Enter sends.
-    body_field: Field = undefined,
-    // The body's colouring: a CodeEditor owns the JSON runs the field paints, and nothing else about the editing.
-    body_code: code_editor.CodeEditor = undefined,
-
     // The two table modes edit one key/value row per part, with the same fields a header row uses.
-    part_fields: [state_mod.max_body_parts * 2]Field = undefined,
     part_ctxs: [state_mod.max_body_parts * 2]PartCtx = undefined,
 
     // The request's own variables, one field per column of a row of the Vars tab.
-    var_fields: [state_mod.max_vars * 2]Field = undefined,
     var_ctxs: [state_mod.max_vars * 2]VarCtx = undefined,
 
-    // The Scripts tab: Pre-req and Post-res code, one multiline field each, and the phase the rail shows.
-    pre_field: Field = undefined,
-    post_field: Field = undefined,
+    // The Scripts tab's phase, and the rail's two buttons.
     script_phase: state_mod.ScriptPhase = .pre,
     phase_ctxs: [2]PhaseCtx = undefined,
     // What the last run said: its print lines merged onto one, and the line that stopped it when there was one.
@@ -200,122 +186,43 @@ pub const Editor = struct {
 
     pub fn start(self: *Editor, session: *Session) void {
         self.session = session;
-        const gpa = session.gpa;
-
-        // One allocator for every field in this app: none of them is bound to a fixed size, so none has a length limit.
-        setTextAllocator(gpa);
-
-        self.url_field = session.fieldStyle(.{ .text = url_field_id }, @src());
-        self.url_field.bind();
-        // The body is one multiline field; the toolkit draws its own lines and caret, and grows the text as it is typed.
-        self.body_field = session.fieldStyle(.{ .text = body_id }, @src());
-        self.body_field.multiline = true;
-        // The body scrolls with its caret: typing past the bottom edge follows the line, it does not hide it.
-        self.body_field.scroll_id = body_scroll_id;
-        self.body_field.pad = glinlandui.props.Pad.all(body_pad);
-        self.body_field.bind();
-        self.body_code = code_editor.CodeEditor.init(gpa);
 
         var i: usize = 0;
+        // The intents' contexts are built ONCE: a click is dispatched long after the frame that registered it.
         while (i < state_mod.max_headers) : (i += 1) {
-            self.header_fields[i * 2] = session.fieldStyle(.at(header_key_prefix, i), @src());
-            self.header_fields[i * 2].bind();
-            self.header_fields[i * 2 + 1] = session.fieldStyle(.at(header_value_prefix, i), @src());
-            self.header_fields[i * 2 + 1].bind();
             self.header_ctxs[i * 2] = .{ .editor = self, .index = i, .value_side = false };
             self.header_ctxs[i * 2 + 1] = .{ .editor = self, .index = i, .value_side = true };
-            self.header_fields[i * 2].on_change = .{ .f = onHeaderTyped, .ctx = &self.header_ctxs[i * 2] };
-            self.header_fields[i * 2 + 1].on_change = .{ .f = onHeaderTyped, .ctx = &self.header_ctxs[i * 2 + 1] };
         }
 
-        // The part table is a header table over a different array: same fields, same two columns.
+        // The part table is a header table over a different array: same columns, same contexts.
         i = 0;
         while (i < state_mod.max_body_parts) : (i += 1) {
-            self.part_fields[i * 2] = session.fieldStyle(.at(part_key_prefix, i), @src());
-            self.part_fields[i * 2].bind();
-            self.part_fields[i * 2 + 1] = session.fieldStyle(.at(part_value_prefix, i), @src());
-            self.part_fields[i * 2 + 1].bind();
             self.part_ctxs[i * 2] = .{ .editor = self, .index = i, .value_side = false };
             self.part_ctxs[i * 2 + 1] = .{ .editor = self, .index = i, .value_side = true };
-            self.part_fields[i * 2].on_change = .{ .f = onPartTyped, .ctx = &self.part_ctxs[i * 2] };
-            self.part_fields[i * 2 + 1].on_change = .{ .f = onPartTyped, .ctx = &self.part_ctxs[i * 2 + 1] };
         }
 
         // The Vars tab is the same two-column table again, over the request's own variables.
         i = 0;
         while (i < state_mod.max_vars) : (i += 1) {
-            self.var_fields[i * 2] = session.fieldStyle(.at(var_name_prefix, i), @src());
-            self.var_fields[i * 2].bind();
-            self.var_fields[i * 2 + 1] = session.fieldStyle(.at(var_value_prefix, i), @src());
-            self.var_fields[i * 2 + 1].bind();
             self.var_ctxs[i * 2] = .{ .editor = self, .index = i, .value_side = false };
             self.var_ctxs[i * 2 + 1] = .{ .editor = self, .index = i, .value_side = true };
-            self.var_fields[i * 2].on_change = .{ .f = onVarTyped, .ctx = &self.var_ctxs[i * 2] };
-            self.var_fields[i * 2 + 1].on_change = .{ .f = onVarTyped, .ctx = &self.var_ctxs[i * 2 + 1] };
         }
 
         // The selector's contexts are built once: a button's click is dispatched long after the declare.
         for (modes, 0..) |mode, index| self.mode_ctxs[index] = .{ .editor = self, .mode = mode };
         for (state_mod.raw_languages, 0..) |language, index| self.language_ctxs[index] = .{ .editor = self, .language = language };
 
-        // The Scripts tab: one multiline field per phase, each a small code editor that scrolls with its caret.
-        self.pre_field = session.fieldStyle(.{ .text = pre_field_id }, @src());
-        self.pre_field.multiline = true;
-        self.pre_field.scroll_id = script_scroll_id;
-        self.pre_field.pad = glinlandui.props.Pad.all(body_pad);
-        self.pre_field.bind();
-        self.post_field = session.fieldStyle(.{ .text = post_field_id }, @src());
-        self.post_field.multiline = true;
-        self.post_field.scroll_id = script_scroll_id;
-        self.post_field.pad = glinlandui.props.Pad.all(body_pad);
-        self.post_field.bind();
         self.phase_ctxs = .{ .{ .editor = self, .phase = .pre }, .{ .editor = self, .phase = .post } };
-        self.pre_field.on_change = .{ .f = onPreTyped, .ctx = self };
-        self.post_field.on_change = .{ .f = onPostTyped, .ctx = self };
-
-        // The intents are set ONCE: a frame only hands each field the model's value.
-        self.url_field.on_change = .{ .f = onUrlTyped, .ctx = self };
-        self.url_field.on_focus = .{ .f = onUrlFocused, .ctx = self };
-        self.body_field.on_change = .{ .f = onBodyTyped, .ctx = self };
-        self.body_field.on_focus = .{ .f = onBodyFocused, .ctx = self };
     }
 
     pub fn deinit(self: *Editor) void {
-        // A field that grew past its inline buffer owns that run, so it goes with the panel.
-        self.url_field.deinit();
-        self.body_field.deinit();
-        self.body_code.deinit();
-        self.pre_field.deinit();
-        self.post_field.deinit();
-        for (&self.header_fields) |*field| field.deinit();
-        for (&self.part_fields) |*field| field.deinit();
-        for (&self.var_fields) |*field| field.deinit();
         self.clearScriptRun();
     }
 
-    // Push the selected node into the fields: on a selection change, never while a field is being typed.
+    // Nothing is pushed into a field: the view declares the state's value every frame, and the field adopts it.
     pub fn load(self: *Editor) void {
-        self.url_field.setText("");
-        self.body_field.setText("");
-        self.pre_field.setText("");
-        self.post_field.setText("");
         // A run belonged to the request that is no longer on screen.
         self.clearScriptRun();
-
-        const node = if (self.session.selection) |path| self.session.nodeAt(path) else null;
-        if (node) |item| {
-            if (Session.isRequest(item.*)) {
-                const request = postman.requestView(self.session.gpa, item.*) catch postman.RequestView{};
-                defer self.session.gpa.free(request.headers);
-                defer self.session.gpa.free(request.parts);
-                self.url_field.setText(request.url);
-                // The raw text is loaded whichever mode is selected, so switching to raw keeps what was typed.
-                self.body_field.setText(postman.bodyRawText(item.*));
-                // Both scripts are loaded whichever phase the rail shows, so a click between them keeps what was typed.
-                self.pre_field.setText(postman.scriptOf(item.*, .pre));
-                self.post_field.setText(postman.scriptOf(item.*, .post));
-            }
-        }
     }
 
     // The editor's slice of the frame: what the selected request holds.

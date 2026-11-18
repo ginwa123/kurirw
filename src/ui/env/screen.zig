@@ -13,12 +13,39 @@ const props = glinlandui.props;
 
 const state_mod = @import("../state.zig");
 const scope_mod = @import("../shell/scope.zig");
+const views_mod = @import("../shell/views.zig");
 const widgets = @import("../shell/widgets.zig");
 const actions = @import("../shell/actions.zig");
 const env_vm = @import("view_model.zig");
 
 const smallButton = widgets.smallButton;
 const Scope = scope_mod.Scope;
+
+// The manager's widgets: styled and bound on the first frame that declares them.
+fn views(scope: *Scope) *views_mod.Views.Env {
+    const v = &scope.views.env;
+    if (v.started) return v;
+    const session = &scope.vm.session;
+    const vm = scope.vm;
+    var i: usize = 0;
+    while (i < state_mod.max_env_vars) : (i += 1) {
+        v.names[i] = session.fieldStyle(.at(env_vm.name_prefix, i), @src());
+        v.names[i].bind();
+        v.initial[i] = session.fieldStyle(.at(env_vm.initial_prefix, i), @src());
+        v.initial[i].bind();
+        v.current[i] = session.fieldStyle(.at(env_vm.current_prefix, i), @src());
+        v.current[i].bind();
+        v.names[i].on_change = .{ .f = env_vm.onTyped, .ctx = &vm.env.var_ctxs[i * 3] };
+        v.initial[i].on_change = .{ .f = env_vm.onTyped, .ctx = &vm.env.var_ctxs[i * 3 + 1] };
+        v.current[i].on_change = .{ .f = env_vm.onTyped, .ctx = &vm.env.var_ctxs[i * 3 + 2] };
+    }
+    // The right pane's title IS the environment's name field, so a rename is typing.
+    v.name = session.fieldStyle(.{ .text = env_vm.env_name_id }, @src());
+    v.name.bind();
+    v.name.on_change = .{ .f = env_vm.onNameTyped, .ctx = &vm.env.name_ctx };
+    v.started = true;
+    return v;
+}
 
 // The whole page: the mockup's card, drawn in the main area because the engine's modal has no room for a table.
 pub fn managerPage(scope: *Scope) void {
@@ -183,7 +210,7 @@ fn variablePaneChildren(scope: *Scope) void {
 // The pane's title is the environment's own name, so a rename is typing; Delete removes the environment itself.
 fn paneTitleRow(scope: *Scope) void {
     const t = scope.theme;
-    const field = &scope.vm.env.name_field;
+    const field = &views(scope).name;
     field.value = groupTitle(scope);
     field.h = .{ .fixed = 30 };
     field.w = .{ .fixed = 260 };
@@ -317,19 +344,20 @@ fn environmentRowChildren(rs: *const RowScope) void {
     // A secret is never drawn: the columns show dots, whatever the value is.
     const dots = "••••••••";
 
-    const name_field = &env.name_fields[index];
+    const v = views(scope);
+    const name_field = &v.names[index];
     name_field.value = row.name;
     name_field.h = .{ .fixed = 26 };
     name_field.w = nameWidth();
     textField(name_field);
 
-    const initial_field = &env.initial_fields[index];
+    const initial_field = &v.initial[index];
     initial_field.value = if (row.secret) dots else row.initial;
     initial_field.h = .{ .fixed = 26 };
     initial_field.w = valueWidth();
     textField(initial_field);
 
-    const current_field = &env.current_fields[index];
+    const current_field = &v.current[index];
     current_field.value = if (row.secret) dots else row.current;
     current_field.h = .{ .fixed = 26 };
     current_field.w = valueWidth();
@@ -404,13 +432,13 @@ fn collectionRowChildren(rs: *const RowScope) void {
     const row = scope.state.pair_rows[index];
     const env = &scope.vm.env;
 
-    const name_field = &env.name_fields[index];
+    const name_field = &views(scope).names[index];
     name_field.value = row.name;
     name_field.h = .{ .fixed = 26 };
     name_field.w = nameWidth();
     textField(name_field);
 
-    const value_field = &env.initial_fields[index];
+    const value_field = &views(scope).initial[index];
     value_field.value = row.value;
     value_field.h = .{ .fixed = 26 };
     value_field.w = valueWidth();

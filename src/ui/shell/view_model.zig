@@ -172,8 +172,6 @@ pub const KurirViewModel = struct {
         // The history's click contexts are built once; a snapshot only fills in which result each row carries.
         for (&self.history_ctxs) |*click| click.* = .{ .vm = self, .serial = 0 };
         for (&self.tabs) |*open| open.* = Path.empty;
-        // The one intent that crosses panels: Ctrl/Cmd+Enter while the body has the keyboard sends.
-        self.editor.body_field.on_submit = .{ .f = onBodySubmit, .ctx = self };
 
         const loaded = self.session.load();
         // The variables belong to a workspace, so the panel starts after the document says which one is open.
@@ -873,14 +871,6 @@ pub const KurirViewModel = struct {
         const token = self.session.randomId(arena);
         return std.fmt.allocPrint(arena, "kurir-{s}", .{token}) catch "kurir-boundary";
     }
-
-    // Ctrl/Cmd+Enter: the field asks whether the intent took the draft. It did not, so the body stays where it is.
-    fn onBodySubmit(raw: ?*anyopaque, text: []const u8) bool {
-        const self: *KurirViewModel = @ptrCast(@alignCast(raw.?));
-        _ = text;
-        self.send();
-        return false;
-    }
 };
 
 // ---- tests: they drive the ViewModel the way the view does, with a real temp file and no socket ---------------
@@ -1489,9 +1479,7 @@ test "a body longer than any fixed buffer is kept whole, and reaches the documen
     // A hundred thousand bytes: past the 64 KiB the panel used to bind, and past every 256-byte inline buffer.
     var long: [100_000]u8 = undefined;
     @memset(&long, 'x');
-    vm.editor.body_field.setText(&long);
-    try testing.expectEqual(@as(usize, 100_000), vm.editor.body_field.text().len);
-    // The edit reaches the document rather than stopping at a buffer's end.
-    editor_mod.Editor.onBodyTyped(&vm.editor, vm.editor.body_field.text());
+    // The intent a typed body raises, which is all the ViewModel is given: the text, never a widget.
+    editor_mod.Editor.onBodyTyped(&vm.editor, &long);
     try testing.expectEqual(@as(usize, 100_000), h.state().body.len);
 }

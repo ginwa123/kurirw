@@ -16,6 +16,8 @@ const props = glinlandui.props;
 const theme_mod = @import("../theme/theme.zig");
 const state_mod = @import("../state.zig");
 const scope_mod = @import("../shell/scope.zig");
+const views_mod = @import("../shell/views.zig");
+const view_model = @import("../shell/view_model.zig");
 const sidebar_vm = @import("view_model.zig");
 const actions = @import("../shell/actions.zig");
 
@@ -24,6 +26,56 @@ const Color = glinlandui.Color;
 const row_h = scope_mod.row_h;
 const indent = scope_mod.indent;
 const tree_id = "kurir.tree";
+
+// The widget callbacks: the toolkit hands over a raw context and a run, the view turns that into a ViewModel intent.
+fn onWorkspaceTyped(raw: ?*anyopaque, text: []const u8) void {
+    const vm: *view_model.KurirViewModel = @ptrCast(@alignCast(raw.?));
+    vm.sidebar.typedWorkspace(text);
+}
+
+fn onWorkspaceFocused(raw: ?*anyopaque) void {
+    const vm: *view_model.KurirViewModel = @ptrCast(@alignCast(raw.?));
+    vm.sidebar.focusWorkspace();
+}
+
+fn onFilterTyped(raw: ?*anyopaque, text: []const u8) void {
+    const vm: *view_model.KurirViewModel = @ptrCast(@alignCast(raw.?));
+    vm.sidebar.typedFilter(text);
+}
+
+fn onFilterFocused(raw: ?*anyopaque) void {
+    const vm: *view_model.KurirViewModel = @ptrCast(@alignCast(raw.?));
+    vm.sidebar.focusFilter();
+}
+
+// The panel's widgets: styled and bound on the first frame that declares them, and only handed values after that.
+fn widgets(scope: *Scope) *views_mod.Views.Sidebar {
+    const v = &scope.views.sidebar;
+    if (v.started) return v;
+    const session = &scope.vm.session;
+    const t = scope.theme;
+    v.workspace = session.fieldStyle(.{ .text = sidebar_vm.workspace_field_id }, @src());
+    v.workspace.bind();
+    // The filter box: quieter than an editor field, and its hint is the only thing it says when empty.
+    v.filter = session.fieldStyle(.{ .text = sidebar_vm.filter_field_id }, @src());
+    // Bound to the state's own buffer, because `filterText` reads that array back: this one keeps its 256 bytes.
+    v.filter.bindTo(scope.vm.sidebar.filterBuffer());
+    v.filter.placeholder = "Filter requests";
+    v.filter.placeholder_fg = t.colors.text_done;
+    v.filter.font_size = t.type_scale.caption;
+    v.filter.bg = t.colors.surface_variant;
+    v.filter.sel_bg = t.colors.hover;
+    v.filter.border = .{};
+    v.filter.h = .{ .fixed = 28 };
+    v.filter.pad = props.Pad.axes(0, 8);
+    // The intents are set ONCE: a frame only hands each field the model's value.
+    v.workspace.on_change = .{ .f = onWorkspaceTyped, .ctx = scope.vm };
+    v.workspace.on_focus = .{ .f = onWorkspaceFocused, .ctx = scope.vm };
+    v.filter.on_change = .{ .f = onFilterTyped, .ctx = scope.vm };
+    v.filter.on_focus = .{ .f = onFilterFocused, .ctx = scope.vm };
+    v.started = true;
+    return v;
+}
 
 pub fn sidebarChildren(scope: *Scope) void {
     // Pinned to the panel's own width: text metrics must never widen the panel past the line the pointer holds.
@@ -105,8 +157,13 @@ pub fn workspaceHead(scope: *Scope) void {
         .child_align = .{ .x = .center, .y = .center },
     }, scope, badgeChildren);
 
-    const field = &scope.vm.sidebar.workspace_field;
+    const v = widgets(scope);
+    const field = &v.workspace;
     field.value = scope.state.workspace_name;
+    // A name box that GAINS the keyboard selects the whole name, so the first keystroke replaces it.
+    const focused = frame.isFocused(sidebar_vm.workspace_field_id);
+    if (focused and !v.workspace_focused) field.editor.selectAll();
+    v.workspace_focused = focused;
     // The name may not eat the row either: a field is never narrower than its value, so it is capped to what the header has left.
     const panel_w = sidebarWidth(scope.vm.sidebar.props());
     field.w = .{ .clamp = .{ .min = 80, .max = @max(80, panel_w - 170), .grow = true } };
@@ -150,7 +207,7 @@ pub fn searchRow(scope: *Scope) void {
 pub fn searchRowChildren(scope: *Scope) void {
     const t = scope.theme;
 
-    const field = &scope.vm.sidebar.filter_field;
+    const field = &widgets(scope).filter;
     field.value = scope.state.filter;
     // A step above the panel, so the filter reads as a control sitting on the sidebar and not as a hole in it.
     field.bg = t.colors.surface_variant;

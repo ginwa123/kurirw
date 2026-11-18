@@ -1,8 +1,6 @@
 //! The left panel's ViewModel: the rows, which folders are open, the workspace strip, and node create/delete.
 const std = @import("std");
 const glinlandui = @import("glinlandui");
-const Field = glinlandui.components.input.Field;
-const setTextAllocator = glinlandui.components.input.setTextAllocator;
 const sidebar = glinlandui.components.sidebar;
 const TreeRow = glinlandui.components.tree.Row;
 const TreeZone = glinlandui.components.tree.Zone;
@@ -127,10 +125,7 @@ pub const Sidebar = struct {
     // The toolkit's panel state: its width and whether it is collapsed. The app owns it, the widget drags it.
     state: sidebar.State = .{ .width = 300, .expanded_width = 300 },
 
-    // Renaming a node, naming a workspace, and narrowing the tree: the panel's three fields.
-    name_field: Field = undefined,
-    workspace_field: Field = undefined,
-    filter_field: Field = undefined,
+    // What narrows the tree. The bytes are STATE, and the view binds its filter field to them.
     filter_buf: [256]u8 = undefined,
     filter_len: usize = 0,
 
@@ -147,29 +142,27 @@ pub const Sidebar = struct {
         index: usize,
     };
 
-    pub fn onNameTyped(raw: ?*anyopaque, text: []const u8) void {
-        const self: *Sidebar = @ptrCast(@alignCast(raw.?));
+    // A keystroke in the name box: the panel's state only, because the view owns the widget.
+    pub fn typedName(self: *Sidebar, text: []const u8) void {
         self.session.focus = .name;
         self.onNameChange(text);
     }
 
-    pub fn onNameFocused(raw: ?*anyopaque) void {
-        const self: *Sidebar = @ptrCast(@alignCast(raw.?));
+    // The name box took the keyboard.
+    pub fn focusName(self: *Sidebar) void {
         self.session.focus = .name;
-        self.name_field.editor.selectAll();
     }
 
-    pub fn onWorkspaceTyped(raw: ?*anyopaque, text: []const u8) void {
-        const self: *Sidebar = @ptrCast(@alignCast(raw.?));
+    // Same pair for the workspace's name, which is a workspace field rather than a node's.
+    pub fn typedWorkspace(self: *Sidebar, text: []const u8) void {
         self.session.focus = .workspace;
         self.onWorkspaceNameChange(text);
     }
 
-    pub fn onWorkspaceFocused(raw: ?*anyopaque) void {
-        const self: *Sidebar = @ptrCast(@alignCast(raw.?));
+    pub fn focusWorkspace(self: *Sidebar) void {
         self.session.focus = .workspace;
-        self.workspace_field.editor.selectAll();
     }
+
     pub fn isExpanded(self: *const Sidebar, path: Path) bool {
         for (self.expanded.items) |item| {
             if (Path.eql(item, path)) return true;
@@ -273,14 +266,18 @@ pub const Sidebar = struct {
         return self.filter_buf[0..self.filter_len];
     }
 
-    pub fn onFilterTyped(raw: ?*anyopaque, text: []const u8) void {
-        const self: *Sidebar = @ptrCast(@alignCast(raw.?));
+    // The storage the filter's field edits in place, so the widget and this state are one buffer.
+    pub fn filterBuffer(self: *Sidebar) []u8 {
+        return self.filter_buf[0..];
+    }
+
+    // A keystroke in the filter box, and the box taking the keyboard: state only.
+    pub fn typedFilter(self: *Sidebar, text: []const u8) void {
         self.session.focus = .filter;
         self.setFilter(text);
     }
 
-    pub fn onFilterFocused(raw: ?*anyopaque) void {
-        const self: *Sidebar = @ptrCast(@alignCast(raw.?));
+    pub fn focusFilter(self: *Sidebar) void {
         self.session.focus = .filter;
     }
 
@@ -292,8 +289,8 @@ pub const Sidebar = struct {
     }
 
     pub fn clearFilter(self: *Sidebar) void {
+        // The state only: the field adopts the empty value on the next declare, because the value it holds CHANGED.
         self.filter_len = 0;
-        self.filter_field.setText("");
         self.session.touch();
     }
 
@@ -531,9 +528,8 @@ pub const Sidebar = struct {
     // Rename: select the row and hand the keyboard to the name field, which is where a name is typed.
     pub fn renameAt(self: *Sidebar, path: Path) void {
         self.select(path);
+        // The view selects the whole name when the field gains the keyboard, so the first keystroke replaces it.
         frame.setFocus(name_field_id);
-        // The whole name is selected, so the first keystroke replaces it instead of landing inside it.
-        self.name_field.editor.selectAll();
         self.session.setStatus(false, "Type a new name, then press Enter.", .{});
     }
 
@@ -688,43 +684,13 @@ pub const Sidebar = struct {
 
     pub fn start(self: *Sidebar, session: *Session) void {
         self.session = session;
-        // One allocator for every field: the name and workspace boxes grow with it, so neither is capped at 256 bytes.
-        setTextAllocator(session.gpa);
-        self.name_field = session.fieldStyle(.{ .text = name_field_id }, @src());
-        self.name_field.bind();
-        self.workspace_field = session.fieldStyle(.{ .text = workspace_field_id }, @src());
-        self.workspace_field.bind();
-
-        // The filter box: quieter than an editor field, and its hint is the only thing it says when empty.
-        self.filter_field = session.fieldStyle(.{ .text = filter_field_id }, @src());
-        // Bound to the panel's own buffer, because `filterText` reads that array back: this one keeps its 256 bytes.
-        self.filter_field.bindTo(&self.filter_buf);
-        self.filter_field.placeholder = "Filter requests";
-        self.filter_field.placeholder_fg = session.theme.colors.text_done;
-        self.filter_field.font_size = session.theme.type_scale.caption;
-        self.filter_field.bg = session.theme.colors.surface_variant;
-        self.filter_field.sel_bg = session.theme.colors.hover;
-        self.filter_field.border = .{};
-        self.filter_field.h = .{ .fixed = 28 };
-        self.filter_field.pad = glinlandui.props.Pad.axes(0, 8);
         // A click context per row: one fixed array, so a registered click never points at freed memory.
         for (&self.row_ctxs, 0..) |*ctx, i| ctx.* = .{ .sidebar = self, .index = i };
-        // The intents are set ONCE: a frame only hands each field the model's value.
-        self.name_field.on_change = .{ .f = onNameTyped, .ctx = self };
-        self.name_field.on_focus = .{ .f = onNameFocused, .ctx = self };
-        self.workspace_field.on_change = .{ .f = onWorkspaceTyped, .ctx = self };
-        self.workspace_field.on_focus = .{ .f = onWorkspaceFocused, .ctx = self };
-        self.filter_field.on_change = .{ .f = onFilterTyped, .ctx = self };
-        self.filter_field.on_focus = .{ .f = onFilterFocused, .ctx = self };
     }
 
     pub fn deinit(self: *Sidebar) void {
         self.expanded.deinit(self.session.gpa);
         self.rows.deinit(self.session.gpa);
-        // A field that grew past its inline buffer owns that run, so it goes with the panel.
-        self.name_field.deinit();
-        self.workspace_field.deinit();
-        self.filter_field.deinit();
     }
 
     // The left panel's props: the limits and tones live here, so the view only adds its own call site.

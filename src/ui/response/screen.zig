@@ -13,14 +13,40 @@ const props = glinlandui.props;
 const state_mod = @import("../../ui/state.zig");
 const theme_mod = @import("../theme/theme.zig");
 const scope_mod = @import("../shell/scope.zig");
+const views_mod = @import("../shell/views.zig");
 const widgets = @import("../shell/widgets.zig");
 const actions = @import("../shell/actions.zig");
+const code_editor = @import("../code_editor.zig");
+const response_vm = @import("view_model.zig");
 
 const smallButton = widgets.smallButton;
 const tabButton = widgets.tabButton;
 
 const Scope = scope_mod.Scope;
-const response_vm = @import("view_model.zig");
+
+// The pane's widgets: styled and bound on the first frame that declares them.
+fn views(scope: *Scope) *views_mod.Views.Response {
+    const v = &scope.views.response;
+    if (v.started) return v;
+    const session = &scope.vm.session;
+    v.body = session.fieldStyle(.{ .text = response_vm.body_text_id }, @src());
+    v.body.multiline = true;
+    // Read-only: a response is something you read, select and copy — never something you type into.
+    v.body.readonly = true;
+    v.body.scroll_id = response_vm.body_scroll_id;
+    v.body.pad = glinlandui.props.Pad.all(10);
+    // The pane already draws the frame around the body: the field itself is seamless, so the text is the content.
+    v.body.border = .{};
+    // And no focus ring either: an outline around a page of printed JSON reads as a defect, and the caret shows the focus.
+    v.body.focus_ring_w = .{ .px = 0 };
+    v.body.radius = glinlandui.props.Radius.all(0);
+    v.body.h = .{ .fixed = 30 };
+    // The answer's colouring: a CodeEditor over the same field, so a JSON response reads like JSON.
+    v.body_code = code_editor.CodeEditor.init(session.gpa);
+    v.started = true;
+    return v;
+}
+
 const Theme = glinlandui.theme.Theme;
 const Color = glinlandui.Color;
 
@@ -171,7 +197,8 @@ pub fn responseBodyLines(scope: *Scope) void {
         label(.{ .label = .{ .text = "(empty body)", .size = t.type_scale.body, .color = t.colors.text_dim } });
         return;
     }
-    const field = &scope.vm.response.body_field;
+    const v = views(scope);
+    const field = &v.body;
     // The document is the field's buffer, so a megabyte body is drawn, not copied.
     field.show(scope.state.response.body);
     // The app already knows where every line starts, and the field's window arithmetic is a read of that index.
@@ -181,7 +208,7 @@ pub fn responseBodyLines(scope: *Scope) void {
     const total = if (scope.state.response.lines.len > 1) scope.state.response.lines.len - 1 else 0;
     field.h = .{ .fixed = @as(f32, @floatFromInt(total)) * field.lineHeight() + 2 * field.pad.top.pts() + 4 };
     // A JSON answer is coloured from the same rules the body editor uses; HTML or plain text is left alone.
-    scope.vm.response.body_code.textField(field);
+    v.body_code.textField(field);
 }
 
 // ---- the history tab ------------------------------------------------------------------------------------------

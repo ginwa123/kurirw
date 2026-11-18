@@ -5,6 +5,7 @@ const frame = glinlandui.frame;
 
 const view = @import("ui/shell/screen.zig");
 const view_model = @import("ui/shell/view_model.zig");
+const views_mod = @import("ui/shell/views.zig");
 const theme_mod = @import("ui/theme/theme.zig");
 const container_mod = @import("di/container.zig");
 const pump_mod = @import("ui/shell/pump.zig");
@@ -18,6 +19,8 @@ pub const App = struct {
     container: container_mod.Container = .{},
     // The window's frame pump: `main` points it at the window it creates, a headless test leaves it a no-op.
     pump: pump_mod.Pump = .{},
+    // The widgets the screen declares, heap-held: the view state is as large as the model's, and neither belongs on a stack.
+    views: ?*views_mod.Views = null,
 
     gpa: std.mem.Allocator = undefined,
     io: std.Io = undefined,
@@ -26,6 +29,9 @@ pub const App = struct {
     pub fn start(self: *App, gpa: std.mem.Allocator, io: std.Io, environ: anytype) !void {
         self.gpa = gpa;
         self.io = io;
+        // The widgets last longer than any frame and are addressed by pointer, so they live where nothing moves them.
+        self.views = try gpa.create(views_mod.Views);
+        self.views.?.* = .{};
         try self.container.init(gpa, io, environ);
         const model = self.vm();
         model.start(.{
@@ -47,6 +53,12 @@ pub const App = struct {
     pub fn deinit(self: *App) void {
         self.store.clear();
         self.container.deinit();
+        // The widgets go last: a panel's fields were bound against the engine, not against the document.
+        if (self.views) |views| {
+            views.deinit();
+            self.gpa.destroy(views);
+        }
+        self.views = null;
     }
 
     // `viewModel()`: the store's instance, created on first use and kept for the life of the screen.
@@ -67,6 +79,7 @@ pub const App = struct {
             .theme = self.theme,
             .vm = model,
             .state = model.uiState(),
+            .views = self.views orelse return,
         };
         view.KurirScreen(&scope);
     }
