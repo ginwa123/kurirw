@@ -1,4 +1,4 @@
-# Kurir — install the latest release on Windows, no admin required.
+# Kurir - install the latest release on Windows, no admin required.
 #
 #   irm https://raw.githubusercontent.com/ginwa123/kurirw/main/install.ps1 | iex
 #
@@ -60,7 +60,14 @@ try {
     Write-Host ""
     Write-Host "installed  $target"
     # The binary answers for itself, so the run ends by naming what actually landed.
-    $reported = try { (& $target --version 2>&1 | Out-String).Trim() } catch { "" }
+    # stdout only, and no `2>&1`: an error record under $ErrorActionPreference = "Stop" would be thrown away.
+    # Written as a statement, not `$x = try { ... }`: the one-liner runs in Windows PowerShell 5.1 too.
+    $reported = ""
+    try {
+        $reported = (& $target --version | Out-String).Trim()
+    } catch {
+        $reported = ""
+    }
     if ($reported) { Write-Host "version    $reported" }
 
     # The app goes on the USER PATH, so no elevation is needed to install it.
@@ -71,7 +78,7 @@ try {
         $joined = if ($userPath.Trim().Length -eq 0) { $dest } else { ($userPath.TrimEnd(";") + ";" + $dest) }
         [Environment]::SetEnvironmentVariable("Path", $joined, "User")
         Write-Host ""
-        Write-Host "note: added $dest to your user PATH — open a new terminal to pick it up."
+        Write-Host "note: added $dest to your user PATH - open a new terminal to pick it up."
     }
 
     Write-Host ""

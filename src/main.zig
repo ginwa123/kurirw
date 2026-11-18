@@ -10,7 +10,10 @@ pub fn main(init: std.process.Init) !void {
 
     // `kurirw --version` answers without a window, which is how the installer says what it installed.
     if (wantsVersion(init.minimal.args, gpa)) {
-        std.debug.print("kurirw {s}\n", .{version.text});
+        // stdout, because a version is output: a script captures it without touching its error handling.
+        var buffer: [64]u8 = undefined;
+        const line = std.fmt.bufPrint(&buffer, "kurirw {s}\n", .{version.text}) catch "kurirw\n";
+        std.Io.File.stdout().writeStreamingAll(init.io, line) catch {};
         return;
     }
 
