@@ -22,6 +22,12 @@ pub const method_list_id = "kurir.method.options";
 pub const method_menu_id = "kurir.method.menu";
 pub const body_id = "kurir.body";
 pub const body_scroll_id = "kurir.body.scroll";
+// The Scripts tab: one multiline field per phase, the clip they scroll in, and the rail's two buttons.
+pub const pre_field_id = "kurir.script.pre";
+pub const post_field_id = "kurir.script.post";
+pub const script_scroll_id = "kurir.script.scroll";
+pub const phase_pre_id = "kurir.script.phase.pre";
+pub const phase_post_id = "kurir.script.phase.post";
 pub const header_key_prefix = "kurir.header.key";
 pub const header_value_prefix = "kurir.header.value";
 pub const part_key_prefix = "kurir.body.part.key";
@@ -62,6 +68,15 @@ pub const Editor = struct {
     // The request's own variables, one field per column of a row of the Vars tab.
     var_fields: [state_mod.max_vars * 2]Field = undefined,
     var_ctxs: [state_mod.max_vars * 2]VarCtx = undefined,
+
+    // The Scripts tab: Pre-req and Post-res code, one multiline field each, and the phase the rail shows.
+    pre_field: Field = undefined,
+    post_field: Field = undefined,
+    script_phase: state_mod.ScriptPhase = .pre,
+    phase_ctxs: [2]PhaseCtx = undefined,
+    // What the last run said: its print lines merged onto one, and the line that stopped it when there was one.
+    script_log: []const u8 = "",
+    script_error: []const u8 = "",
 
     // The body mode selector and the raw language row: one context per button, so a click knows which one it hit.
     mode_ctxs: [modes.len]ModeCtx = undefined,
@@ -105,6 +120,12 @@ pub const Editor = struct {
     pub const LanguageCtx = struct {
         editor: *Editor,
         language: []const u8,
+    };
+
+    // One of the Scripts tab's two phases: the rail's button and the field it shows.
+    pub const PhaseCtx = struct {
+        editor: *Editor,
+        phase: state_mod.ScriptPhase,
     };
 
     // "Copy as cURL": the selected request as a command that reproduces it in a terminal.
@@ -233,6 +254,21 @@ pub const Editor = struct {
         for (modes, 0..) |mode, index| self.mode_ctxs[index] = .{ .editor = self, .mode = mode };
         for (state_mod.raw_languages, 0..) |language, index| self.language_ctxs[index] = .{ .editor = self, .language = language };
 
+        // The Scripts tab: one multiline field per phase, each a small code editor that scrolls with its caret.
+        self.pre_field = session.fieldStyle(.{ .text = pre_field_id }, @src());
+        self.pre_field.multiline = true;
+        self.pre_field.scroll_id = script_scroll_id;
+        self.pre_field.pad = glinlandui.props.Pad.all(body_pad);
+        self.pre_field.bind();
+        self.post_field = session.fieldStyle(.{ .text = post_field_id }, @src());
+        self.post_field.multiline = true;
+        self.post_field.scroll_id = script_scroll_id;
+        self.post_field.pad = glinlandui.props.Pad.all(body_pad);
+        self.post_field.bind();
+        self.phase_ctxs = .{ .{ .editor = self, .phase = .pre }, .{ .editor = self, .phase = .post } };
+        self.pre_field.on_change = .{ .f = onPreTyped, .ctx = self };
+        self.post_field.on_change = .{ .f = onPostTyped, .ctx = self };
+
         // The intents are set ONCE: a frame only hands each field the model's value.
         self.url_field.on_change = .{ .f = onUrlTyped, .ctx = self };
         self.url_field.on_focus = .{ .f = onUrlFocused, .ctx = self };
@@ -244,15 +280,22 @@ pub const Editor = struct {
         // A field that grew past its inline buffer owns that run, so it goes with the panel.
         self.url_field.deinit();
         self.body_field.deinit();
+        self.pre_field.deinit();
+        self.post_field.deinit();
         for (&self.header_fields) |*field| field.deinit();
         for (&self.part_fields) |*field| field.deinit();
         for (&self.var_fields) |*field| field.deinit();
+        self.clearScriptRun();
     }
 
     // Push the selected node into the fields: on a selection change, never while a field is being typed.
     pub fn load(self: *Editor) void {
         self.url_field.setText("");
         self.body_field.setText("");
+        self.pre_field.setText("");
+        self.post_field.setText("");
+        // A run belonged to the request that is no longer on screen.
+        self.clearScriptRun();
 
         const node = if (self.session.selection) |path| self.session.nodeAt(path) else null;
         if (node) |item| {
@@ -263,6 +306,9 @@ pub const Editor = struct {
                 self.url_field.setText(request.url);
                 // The raw text is loaded whichever mode is selected, so switching to raw keeps what was typed.
                 self.body_field.setText(postman.bodyRawText(item.*));
+                // Both scripts are loaded whichever phase the rail shows, so a click between them keeps what was typed.
+                self.pre_field.setText(postman.scriptOf(item.*, .pre));
+                self.post_field.setText(postman.scriptOf(item.*, .post));
             }
         }
     }
@@ -271,9 +317,14 @@ pub const Editor = struct {
     pub fn snapshot(self: *Editor, u: *UiState, arena: Allocator) void {
         u.editor_tab = self.tab;
         u.method_open = self.menu_open;
+        u.script_phase = self.script_phase;
+        u.script_log = self.script_log;
+        u.script_error = self.script_error;
         const node = if (self.session.selection) |path| self.session.nodeAt(path) else null;
         if (node) |item| {
             if (Session.kind(item.*) != .request) return;
+            // The Scripts tab edits one phase at a time, so only that phase's text reaches the field.
+            u.script_code = postman.scriptOf(item.*, if (self.script_phase == .pre) .pre else .post);
             const request = postman.requestView(arena, item.*) catch postman.RequestView{};
             u.method = request.method;
             u.url = request.url;
@@ -352,6 +403,49 @@ pub const Editor = struct {
         self.tab = tab;
         self.session.focus = .none;
         self.session.touch();
+    }
+
+    // The Scripts tab's rail: which phase the code field edits.
+    pub fn setPhase(self: *Editor, phase: state_mod.ScriptPhase) void {
+        self.script_phase = phase;
+        self.session.focus = .none;
+        self.session.touch();
+    }
+
+    // Typing writes the script into the request: a script is document data, saved with Ctrl/Cmd+S like the body.
+    pub fn setScript(self: *Editor, phase: state_mod.ScriptPhase, source: []const u8) void {
+        const node = self.session.selectedRequest() orelse return;
+        const kind: postman.ScriptKind = if (phase == .pre) .pre else .post;
+        postman.setScript(self.session.doc_arena.allocator(), node, kind, source) catch return;
+        self.session.commit();
+    }
+
+    // What a run said: one line of print output, and the line that stopped it when there was one.
+    pub fn recordScriptRun(self: *Editor, log: []const u8, failure: []const u8) void {
+        const gpa = self.session.gpa;
+        self.clearScriptRun();
+        self.script_log = if (log.len > 0) gpa.dupe(u8, log) catch "" else "";
+        self.script_error = if (failure.len > 0) gpa.dupe(u8, failure) catch "" else "";
+        self.session.touch();
+    }
+
+    // The record belongs to the request on screen: a new selection, or a new run, starts from nothing.
+    pub fn clearScriptRun(self: *Editor) void {
+        const gpa = self.session.gpa;
+        if (self.script_log.len > 0) gpa.free(self.script_log);
+        if (self.script_error.len > 0) gpa.free(self.script_error);
+        self.script_log = "";
+        self.script_error = "";
+    }
+
+    pub fn onPreTyped(raw: ?*anyopaque, text: []const u8) void {
+        const self: *Editor = @ptrCast(@alignCast(raw.?));
+        self.setScript(.pre, text);
+    }
+
+    pub fn onPostTyped(raw: ?*anyopaque, text: []const u8) void {
+        const self: *Editor = @ptrCast(@alignCast(raw.?));
+        self.setScript(.post, text);
     }
 
     // The name of a header field, so a click and a test can address one column of one row.

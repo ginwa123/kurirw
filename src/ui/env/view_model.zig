@@ -219,6 +219,12 @@ pub const Env = struct {
         return environment.vars.items;
     }
 
+    // The name of the environment the window sends with, so a message can say where a variable landed.
+    pub fn activeName(self: *Env) ?[]const u8 {
+        const environment = self.active() orelse return null;
+        return environment.name;
+    }
+
     pub fn count(self: *Env) usize {
         const set = self.live() orelse return 0;
         return set.environments.items.len;
@@ -390,6 +396,45 @@ pub const Env = struct {
         environment.vars.items[index].secret = !environment.vars.items[index].secret;
         self.save();
         self.session.touch();
+    }
+
+    // A script's read: the ACTIVE environment's value for `name`, or null when nothing defines it.
+    pub fn lookupCurrent(self: *Env, name: []const u8) ?[]const u8 {
+        const environment = self.active() orelse return null;
+        for (environment.vars.items) |variable| {
+            if (std.mem.eql(u8, variable.name, name)) return env.value(variable);
+        }
+        return null;
+    }
+
+    // A script's write: the value becomes the active environment's current one, and the variable is created when it is new.
+    pub fn setCurrent(self: *Env, name: []const u8, value: []const u8) bool {
+        if (name.len == 0) return false;
+        const environment = self.active() orelse return false;
+        const gpa = self.session.gpa;
+        for (environment.vars.items) |*variable| {
+            if (!std.mem.eql(u8, variable.name, name)) continue;
+            const copy = gpa.dupe(u8, value) catch return false;
+            gpa.free(variable.current);
+            variable.current = copy;
+            self.save();
+            self.session.touch();
+            return true;
+        }
+        if (environment.vars.items.len >= state_mod.max_env_vars) return false;
+        const variable_name = gpa.dupe(u8, name) catch return false;
+        const copy = gpa.dupe(u8, value) catch {
+            gpa.free(variable_name);
+            return false;
+        };
+        environment.vars.append(gpa, .{ .name = variable_name, .current = copy }) catch {
+            gpa.free(variable_name);
+            gpa.free(copy);
+            return false;
+        };
+        self.save();
+        self.session.touch();
+        return true;
     }
 
     // Deleting the environment the manager shows: the workspace keeps the rest, and nothing else sends with it.

@@ -39,6 +39,22 @@ account, the cloud, or the browser tab.
 - **It speaks curl.** Copy a `curl …` command anywhere and press **+ New → From cURL**: method, URL,
   headers and body come across, and the request is named after its own URL. The **cURL** button next
   to Send goes the other way — the request as a command you can paste into any terminal.
+- **Scripts, before and after the send.** The request's **Scripts** tab carries a **Pre-req** and a
+  **Post-res** script in a small Lua-flavoured language: `local`, `if … then … else … end`, `..` to join
+  text, `pm.response.json()` / `.text()` / `.code` / `.headers.get(name)`, and
+  `pm.environment.set(name, value)` (Postman's `pm.globals` means the same here). So a login answer's
+  token becomes a variable the next request sends:
+
+  ```lua
+  local jsonData = pm.response.json()
+  pm.environment.set("token", jsonData.access_token)
+  print("Access Token: " .. jsonData.access_token)
+  ```
+
+  `print()` and `console.log()` land under the field; a script that cannot run says which line, and a
+  failing Pre-req stops the send instead of sending a request it could not prepare. No loops, no
+  function definitions — anything else is a line and a sentence, never a crash.
+
 
 ## Install
 

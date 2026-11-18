@@ -27,6 +27,9 @@ const Scope = scope_mod.Scope;
 const body_min_h = scope_mod.body_min_h;
 const max_body_lines = scope_mod.max_body_lines;
 
+// The Scripts tab's code field never shrinks below this, so an empty script still reads as an editor.
+const script_min_h: f32 = 150;
+
 // What a menu row reads: the theme, so each verb keeps its colour inside the card too.
 const MethodMenu = struct {
     theme: glinlandui.theme.Theme,
@@ -206,6 +209,7 @@ pub fn editorTabsChildren(scope: *Scope) void {
     tabButton(scope, "kurir.tab.headers", "Headers", scope.state.editor_tab == .headers, actions.onHeadersTab);
     tabButton(scope, "kurir.tab.body", "Body", scope.state.editor_tab == .body, actions.onBodyTab);
     tabButton(scope, "kurir.tab.vars", "Vars (this request only)", scope.state.editor_tab == .vars, actions.onVarsTab);
+    tabButton(scope, "kurir.tab.scripts", "Scripts", scope.state.editor_tab == .scripts, actions.onScriptsTab);
     spacer(.{ .text = "kurir.tabs.spacer" });
     if (scope.state.node_kind == .request and scope.state.editor_tab == .headers) {
         smallButton(scope, "kurir.header.add", "+ Header", 84, actions.onAddHeader);
@@ -234,6 +238,7 @@ pub fn editorBody(scope: *Scope) void {
         .headers => headersTable(scope),
         .body => bodyTab(scope),
         .vars => varsTab(scope),
+        .scripts => scriptsTab(scope),
     }
 }
 
@@ -700,4 +705,106 @@ pub fn varsRowChildren(vs: *const VarScope) void {
         .radius = props.Radius.all(4),
         .on_click = .{ .f = actions.onRemoveRequestVar, .ctx = &editor.var_ctxs[index * 2] },
     });
+}
+
+// ---- the Scripts tab: a phase rail, one code field, and what the last run said -----------------------------
+
+// The Scripts tab: the two phases on the left, the code field on the right, and the last run under it.
+pub fn scriptsTab(scope: *Scope) void {
+    box(.{
+        .src = @src(),
+        .id = .{ .text = "kurir.scripts.tab" },
+        .direction = .row,
+        .w = .grow,
+        .h = .grow,
+        .gap = .{ .px = 10 },
+    }, scope, scriptsTabChildren);
+}
+
+pub fn scriptsTabChildren(scope: *Scope) void {
+    box(.{
+        .src = @src(),
+        .id = .{ .text = "kurir.scripts.rail" },
+        .direction = .column,
+        .w = .{ .fixed = 96 },
+        .gap = .{ .px = 6 },
+    }, scope, phaseRail);
+    box(.{
+        .src = @src(),
+        .id = .{ .text = "kurir.scripts.pane" },
+        .direction = .column,
+        .w = .grow,
+        .h = .grow,
+        .gap = .{ .px = 6 },
+    }, scope, scriptPane);
+}
+
+fn phaseRail(scope: *Scope) void {
+    phaseButton(scope, .pre, editor_vm.phase_pre_id, "Pre-req");
+    phaseButton(scope, .post, editor_vm.phase_post_id, "Post-res");
+}
+
+// One phase: a button whose context was built once on the panel, because a click lands frames later.
+fn phaseButton(scope: *Scope, phase: state_mod.ScriptPhase, id: []const u8, text: []const u8) void {
+    const t = scope.theme;
+    const active = scope.state.script_phase == phase;
+    const index: usize = if (phase == .pre) 0 else 1;
+    button(.{
+        .src = @src(),
+        .id = .{ .text = id },
+        .label = .{ .text = text, .size = t.type_scale.caption, .color = if (active) t.colors.text else t.colors.text_dim },
+        .bg = if (active) t.colors.surface_variant else t.colors.surface,
+        .hover_bg = t.colors.hover,
+        .w = .grow,
+        .h = .{ .fixed = 28 },
+        .pad = props.Pad.axes(0, 8),
+        .radius = props.Radius.all(4),
+        .on_click = .{ .f = actions.onScriptPhase, .ctx = &scope.vm.editor.phase_ctxs[index] },
+    });
+}
+
+fn scriptPane(scope: *Scope) void {
+    const t = scope.theme;
+    scroll(.{
+        .id = .{ .text = editor_vm.script_scroll_id },
+        .direction = .both,
+        .w = .grow,
+        .h = .grow,
+        .bg = t.colors.background,
+        .border_width = .{ .px = 1 },
+        .border_color = t.colors.divider,
+        .radius = .{ .px = 6 },
+        .thumb_bg = t.colors.surface_variant,
+        .thumb_hover_bg = t.colors.primary,
+    }, scope, scriptField);
+    // What the language offers: a Postman snippet is pasted almost as it was, and this is the whole of it.
+    label(.{ .label = .{
+        .text = "local x = value  ·  if cond then ... else ... end  ·  .. joins text  ·  pm.response.json(), .text(), .code, .headers.get(name)  ·  pm.environment.set(name, value), and pm.globals is the same  ·  print() and console.log() land below",
+        .size = t.type_scale.caption,
+        .color = t.colors.text_dim,
+    }, .wrap = true });
+    if (scope.state.script_error.len > 0) {
+        label(.{ .label = .{
+            .text = scope.state.script_error,
+            .size = t.type_scale.caption,
+            .color = theme_mod.danger,
+        }, .wrap = true });
+    } else if (scope.state.script_log.len > 0) {
+        label(.{ .label = .{
+            .text = scope.state.script_log,
+            .size = t.type_scale.caption,
+            .color = t.colors.text,
+        }, .wrap = true });
+    }
+}
+
+// The code field: the multiline editor the toolkit owns, sized to its own line count.
+fn scriptField(scope: *Scope) void {
+    const field = if (scope.state.script_phase == .pre) &scope.vm.editor.pre_field else &scope.vm.editor.post_field;
+    field.value = scope.state.script_code;
+    const lines: f32 = @floatFromInt(@max(field.editor.lineCount(), 1));
+    field.w = .grow;
+    // Tall enough for the code, never shorter than the pane, so a long script scrolls instead of clipping.
+    field.h = .{ .fixed = @max(script_min_h, lines * field.lineHeight() + 12) };
+    textField(field);
 }

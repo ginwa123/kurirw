@@ -127,6 +127,17 @@ pub fn onVarsTab(ctx: ?*anyopaque) void {
     vm.setEditorTab(.vars);
 }
 
+pub fn onScriptsTab(ctx: ?*anyopaque) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.setEditorTab(.scripts);
+}
+
+// The Scripts tab's rail: the context is the button's own, built once on the panel.
+pub fn onScriptPhase(ctx: ?*anyopaque) void {
+    const phase_ctx: *KurirViewModel.PhaseCtx = @ptrCast(@alignCast(ctx.?));
+    phase_ctx.editor.setPhase(phase_ctx.phase);
+}
+
 // The environments: the picker at the request's row, and the manager page it opens.
 pub fn onEnvToggle(ctx: ?*anyopaque) void {
     const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));

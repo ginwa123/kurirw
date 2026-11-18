@@ -669,6 +669,31 @@ pub fn removeVar(item: *Value, index: usize) void {
     _ = item.object.getPtr("variable").?.array.orderedRemove(index);
 }
 
+// ---- the two scripts a request can carry ---------------------------------------------------------------------
+
+// Which of a request's scripts is meant: the one before the send, or the one after the answer.
+pub const ScriptKind = enum { pre, post };
+
+// The document key a script lives under, inside the request object beside method/url/body.
+fn scriptKey(kind: ScriptKind) []const u8 {
+    return switch (kind) {
+        .pre => "pre_script",
+        .post => "post_script",
+    };
+}
+
+// A request's script as the document holds it; "" for a document saved before scripts existed. The slice is the document's.
+pub fn scriptOf(item: Value, kind: ScriptKind) []const u8 {
+    if (item != .object) return "";
+    const request = item.object.get("request") orelse return "";
+    return str(request, scriptKey(kind));
+}
+
+// Write a script into the request; the text is copied, because a field's buffer does not outlive the frame.
+pub fn setScript(alloc: Allocator, item: *Value, kind: ScriptKind, source: []const u8) !void {
+    try setString(alloc, try requestChild(alloc, item), scriptKey(kind), source);
+}
+
 // ---- writing: the tree --------------------------------------------------------------------------------------
 
 pub fn appendChild(alloc: Allocator, parent: *Value, child_value: Value) !usize {
@@ -1088,4 +1113,24 @@ test "switching to raw keeps the table, and typing the raw text does not change 
     try setBodyMode(arena, &item, "none");
     try std.testing.expectEqualStrings("none", bodyMode(item));
     try std.testing.expectEqual(@as(usize, 1), item.object.get("request").?.object.get("body").?.object.get("formdata").?.array.items.len);
+}
+
+test "a request's two scripts survive the file, and a request without them reads as empty" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var item = try newRequest(arena, "R", "GET", "https://api.test/x");
+    // A document written before scripts existed has neither key, and reads as the empty script.
+    try std.testing.expectEqualStrings("", scriptOf(item, .pre));
+    try std.testing.expectEqualStrings("", scriptOf(item, .post));
+
+    try setScript(arena, &item, .pre, "local a = 1");
+    try setScript(arena, &item, .post, "pm.environment.set(\"t\", pm.response.code)");
+    try std.testing.expectEqualStrings("local a = 1", scriptOf(item, .pre));
+
+    const bytes = try write(arena, item, true);
+    const again = try parseTree(arena, bytes);
+    try std.testing.expectEqualStrings("local a = 1", scriptOf(again, .pre));
+    try std.testing.expectEqualStrings("pm.environment.set(\"t\", pm.response.code)", scriptOf(again, .post));
 }

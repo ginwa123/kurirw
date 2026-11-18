@@ -8,6 +8,7 @@ const postman = @import("../../data/model/postman.zig");
 const store = @import("../../data/local/workspace_store.zig");
 const local_session = @import("../../data/local/session_store.zig");
 const env_mod = @import("../../domain/env.zig");
+const script_mod = @import("../../domain/script.zig");
 const http_mod = @import("../../data/remote/http_client.zig");
 const state_mod = @import("../state.zig");
 const theme_mod = @import("../theme/theme.zig");
@@ -42,6 +43,11 @@ pub const name_field_id = sidebar_mod.name_field_id;
 pub const workspace_field_id = sidebar_mod.workspace_field_id;
 pub const body_id = editor_mod.body_id;
 pub const body_scroll_id = editor_mod.body_scroll_id;
+pub const pre_field_id = editor_mod.pre_field_id;
+pub const post_field_id = editor_mod.post_field_id;
+pub const script_scroll_id = editor_mod.script_scroll_id;
+pub const phase_pre_id = editor_mod.phase_pre_id;
+pub const phase_post_id = editor_mod.phase_post_id;
 pub const header_key_prefix = editor_mod.header_key_prefix;
 pub const header_value_prefix = editor_mod.header_value_prefix;
 pub const body_pad = editor_mod.body_pad;
@@ -65,6 +71,7 @@ pub const HeaderCtx = Editor.HeaderCtx;
 pub const BodyPartCtx = Editor.PartCtx;
 pub const BodyModeCtx = Editor.ModeCtx;
 pub const BodyLanguageCtx = Editor.LanguageCtx;
+pub const PhaseCtx = Editor.PhaseCtx;
 
 // Everything the screen needs from outside, built once by `di/container.zig`.
 pub const Deps = struct {
@@ -88,6 +95,7 @@ pub const KurirViewModel = struct {
     pub const BodyPartCtx = Editor.PartCtx;
     pub const BodyModeCtx = Editor.ModeCtx;
     pub const BodyLanguageCtx = Editor.LanguageCtx;
+    pub const PhaseCtx = Editor.PhaseCtx;
 
     // The three panels plus the document they share.
     session: Session = .{},
@@ -138,6 +146,8 @@ pub const KurirViewModel = struct {
         key: response_mod.Key,
         // What the send was, so its history row can name it after the job that fetched it is gone.
         meta: response_mod.Meta,
+        // The request's Post-res code, copied into the job's arena: the answer and the script die together.
+        post_script: []const u8 = "",
     };
 
     pub const HistoryClick = struct {
@@ -671,6 +681,9 @@ pub const KurirViewModel = struct {
         if (self.job != null) return self.session.failNow("A request is already in flight. Wait for it to answer.");
         const node = self.session.selectedRequest() orelse
             return self.session.failNow("Select a request to send. The tree on the left holds them.");
+        // A Pre-req script runs before anything leaves: an error stops the send, the way Postman stops it.
+        const pre_script = postman.scriptOf(node.*, .pre);
+        if (pre_script.len > 0 and !self.runScript(.pre, pre_script, null)) return;
         // The result belongs to the endpoint that is selected now, so it is keyed before the request runs.
         const key = self.response.begin() orelse
             return self.session.failNow("Select a request to send. The tree on the left holds them.");
@@ -691,11 +704,18 @@ pub const KurirViewModel = struct {
             };
         };
         job.request = .{ .method = wire.method, .url = wire.url, .headers = wire.headers, .body = wire.body };
+        // The Post-res code rides in the job's arena: it runs on the answer, whichever request is selected by then.
+        const post_script = job.arena().dupe(u8, postman.scriptOf(node.*, .post)) catch "";
         // The transport writes into the job's arena, on the job's thread: the frame never waits for it.
         job.start(self.transport(job.arena()));
 
         // The row this answer will get is named while the request is still the selected one.
-        self.job = .{ .job = job, .key = key, .meta = .{ .method = wire.method, .name = Session.name(node.*), .url = wire.url } };
+        self.job = .{
+            .job = job,
+            .key = key,
+            .meta = .{ .method = wire.method, .name = Session.name(node.*), .url = wire.url },
+            .post_script = post_script,
+        };
         self.pump.set(true);
         self.session.setStatus(false, "Sending {s}...", .{wire.method});
         self.session.touch();
@@ -710,7 +730,94 @@ pub const KurirViewModel = struct {
         self.pump.set(false);
         // Store FIRST: the result and the formatted body point into the job's arena, and `store` copies them out.
         self.response.store(pending.key, pending.meta, result, pending.job.shown);
+        // Then the Post-res script reads the answer while the job that holds it is still alive.
+        if (pending.post_script.len > 0) _ = self.runScript(.post, pending.post_script, result);
         pending.job.destroy(self.session.gpa);
+    }
+
+    // ---- the request's scripts ------------------------------------------------------------------------
+
+    // The script's window on the environment: a read sees the active one, a write lands in it.
+    const ScriptHost = struct {
+        env: *Env,
+    };
+
+    fn scriptGet(ctx: ?*anyopaque, name: []const u8) ?[]const u8 {
+        const host: *ScriptHost = @ptrCast(@alignCast(ctx.?));
+        return host.env.lookupCurrent(name);
+    }
+
+    fn scriptSet(ctx: ?*anyopaque, name: []const u8, value: []const u8) bool {
+        const host: *ScriptHost = @ptrCast(@alignCast(ctx.?));
+        return host.env.setCurrent(name, value);
+    }
+
+    fn phaseLabel(phase: state_mod.ScriptPhase) []const u8 {
+        return switch (phase) {
+            .pre => "Pre-req",
+            .post => "Post-res",
+        };
+    }
+
+    // One run of one script: a Pre-req gets no answer, a Post-res gets the one that just landed.
+    fn runScript(self: *KurirViewModel, phase: state_mod.ScriptPhase, source: []const u8, answer: ?http_mod.Result) bool {
+        var arena_state = std.heap.ArenaAllocator.init(self.session.gpa);
+        defer arena_state.deinit();
+        const arena = arena_state.allocator();
+
+        var response: ?script_mod.Response = null;
+        if (answer) |result| {
+            if (!result.failed) {
+                const headers: []script_mod.Header = arena.alloc(script_mod.Header, result.headers.len) catch &.{};
+                for (result.headers, 0..) |header, index| headers[index] = .{ .name = header.name, .value = header.value };
+                response = .{ .status = result.status, .headers = headers, .body = result.body };
+            }
+        }
+
+        var host: ScriptHost = .{ .env = &self.env };
+        const outcome = script_mod.run(arena, source, response, .{
+            .ctx = &host,
+            .get_fn = scriptGet,
+            .set_fn = scriptSet,
+        });
+        // The Scripts tab shows the run: what print said, or the line that stopped it.
+        const log = displayLog(arena, outcome.logs);
+        const failure_text = if (outcome.failure) |failure| script_mod.describe(arena, failure) else "";
+        self.editor.recordScriptRun(log, failure_text);
+        if (outcome.failure) |failure| {
+            self.session.fail("{s} script: line {d}: {s}", .{ phaseLabel(phase), failure.line, failure.message });
+            self.session.touch();
+            return false;
+        }
+        if (outcome.sets > 0) {
+            self.session.setStatus(false, "{s} script set {d} variable{s} in {s}.", .{
+                phaseLabel(phase),
+                outcome.sets,
+                if (outcome.sets == 1) "" else "s",
+                if (self.env.activeName()) |name| name else "the environment",
+            });
+        } else if (outcome.logs.len > 0) {
+            self.session.setStatus(false, "{s} script finished.", .{phaseLabel(phase)});
+        }
+        self.session.touch();
+        return true;
+    }
+
+    // A log is one line in the panel: the print lines are joined, because a label draws no line breaks.
+    fn displayLog(arena: Allocator, logs: []const u8) []const u8 {
+        if (logs.len == 0) return "";
+        var out: std.ArrayList(u8) = .empty;
+        var at: usize = 0;
+        while (at < logs.len) {
+            const end = std.mem.indexOfScalarPos(u8, logs, at, '\n') orelse logs.len;
+            const line = logs[at..end];
+            if (line.len > 0) {
+                if (out.items.len > 0) out.appendSlice(arena, "  ·  ") catch return "";
+                out.appendSlice(arena, line) catch return "";
+            }
+            at = end + 1;
+        }
+        return out.toOwnedSlice(arena) catch "";
     }
 
     // ---- import and export ------------------------------------------------------------------------------

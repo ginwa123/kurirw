@@ -1891,3 +1891,85 @@ test "Cmd/Ctrl+Z takes a typed URL back, the model hears it, and redo puts it ba
     h.driver.frame();
     try testing.expectEqualStrings("https://api.example.com/v1", h.app.vm().uiState().url);
 }
+
+// ---- the request's scripts: Pre-req before the send, Post-res on the answer ---------------------------------
+
+test "a Post-res script writes the answer's token into the active environment" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    // A collection, a request, and the URL the send resolves.
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
+    try h.driver.click(view_model.url_field_id);
+    try h.driver.typeText("https://api.example.com/v1/login");
+
+    // An environment to write into, because a variable needs one: the first one a workspace makes sends.
+    h.app.vm().addEnvironment();
+    h.app.vm().env.renameSelected("Dev");
+    try testing.expectEqualStrings("Dev", h.app.vm().uiState().env_active);
+
+    // The Scripts tab, its Post-res rail, and the code typed into the real field.
+    try h.driver.click("kurir.tab.scripts");
+    try testing.expectEqual(kurirw.state.Tab.scripts, h.app.vm().uiState().editor_tab);
+    try h.driver.click(view_model.phase_post_id);
+    try testing.expectEqual(kurirw.state.ScriptPhase.post, h.app.vm().uiState().script_phase);
+
+    const source = "pm.environment.set(\"token\",pm.response.json().access_token);print(\"token=\"..pm.response.json().access_token)";
+    try h.driver.click(view_model.post_field_id);
+    try h.driver.typeText(source);
+    // A script is document data: it is in the request the moment it is typed, before anything is saved.
+    const node = h.app.vm().session.selectedRequest() orelse return error.NoRequest;
+    try testing.expectEqualStrings(source, postman.scriptOf(node.*, .post));
+
+    // The answer carries the token, and the script turns it into a variable.
+    h.fake.status = 200;
+    h.fake.body = "{\"access_token\":\"tok-123\",\"expires_in\":3600}";
+    try h.driver.click("kurir.send");
+    try settle(&h);
+
+    const state = h.app.vm().uiState();
+    try testing.expectEqualStrings("", state.script_error);
+    try testing.expectEqualStrings("token=tok-123", state.script_log);
+    try testing.expectEqual(@as(usize, 1), state.env_count);
+    try testing.expectEqualStrings("token", state.env_rows[0].name);
+    try testing.expectEqualStrings("tok-123", state.env_rows[0].current);
+    try testing.expect(std.mem.indexOf(u8, state.status, "Post-res script set 1 variable in Dev.") != null);
+    // The run is on screen, not only in the model.
+    try h.driver.expectText("token=tok-123");
+
+    // The environment is configuration, so it is written beside the document as it changes.
+    const env_path = try std.fs.path.join(gpa, &.{ scratch.home, ".kurir", "environment.json" });
+    defer gpa.free(env_path);
+    const written = try std.Io.Dir.cwd().readFileAlloc(testing.io, env_path, gpa, .limited(1 << 20));
+    defer gpa.free(written);
+    try testing.expect(std.mem.indexOf(u8, written, "tok-123") != null);
+}
+
+test "a Pre-req script that cannot run stops the send before it leaves" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
+    try h.driver.click(view_model.url_field_id);
+    try h.driver.typeText("https://api.example.com/v1/charges");
+
+    // A Pre-req has no answer to read: the script says so on line 1, and the request never leaves.
+    h.app.vm().editor.setScript(.pre, "local data = pm.response.json()");
+    try h.driver.click("kurir.send");
+    try settle(&h);
+
+    try testing.expectEqual(@as(usize, 0), h.fake.sends);
+    try testing.expectEqual(kurirw.state.ResponseKind.none, h.app.vm().uiState().response.kind);
+    try testing.expect(std.mem.indexOf(u8, h.app.vm().uiState().status, "Pre-req script: line 1") != null);
+    try testing.expect(std.mem.indexOf(u8, h.app.vm().uiState().script_error, "line 1") != null);
+}

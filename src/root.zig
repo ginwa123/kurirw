@@ -55,6 +55,7 @@ comptime {
     _ = @import("data/repository/workspace_impl.zig");
     _ = @import("di/container.zig");
     _ = @import("domain/env.zig");
+    _ = @import("domain/script.zig");
     _ = @import("data/local/env_store.zig");
     _ = @import("ui/env/view_model.zig");
     _ = @import("ui/env/screen.zig");

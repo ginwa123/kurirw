@@ -41,7 +41,11 @@ pub const Tab = enum {
     headers,
     body,
     vars,
+    scripts,
 };
+
+// The Scripts tab's two phases: the code that runs before the send, and the code that runs after the answer.
+pub const ScriptPhase = enum { pre, post };
 
 // What the manager is listing: the workspace's environments, or one collection's own variables.
 pub const EnvGroup = enum {
@@ -218,6 +222,11 @@ pub const UiState = struct {
     body_parts: []const BodyPartRow = &.{},
     body_part_count: usize = 0,
     editor_tab: Tab = .headers,
+    // The Scripts tab: which phase the rail shows, the code it edits, and what the last run said.
+    script_phase: ScriptPhase = .pre,
+    script_code: []const u8 = "",
+    script_log: []const u8 = "",
+    script_error: []const u8 = "",
     // The workspace's environments, which one sends, and which one the manager is showing.
     env_names: []const []const u8 = &.{},
     env_active: []const u8 = "",
