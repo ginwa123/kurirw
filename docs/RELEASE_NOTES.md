@@ -44,6 +44,18 @@ print("Access Token: " .. jsonData.access_token)
 - Loops and function definitions are out of scope on purpose, and a script that uses them says so on its
   own line instead of quietly doing nothing.
 
+## New: the request body and a JSON response are coloured like code
+
+The **Body** tab and the response pane are one component now — a **CodeEditor**: the same text field as before, plus
+the rules of the language it is showing. Keys, strings, numbers, `true` / `false` / `null` and punctuation each get
+their own tone, so a nested answer reads as structure instead of a wall of text.
+
+- Editing is unchanged: click, select, **Shift+click**, Ctrl/Cmd+Z, copy, and the caret are all the same field's.
+- The colouring follows the text as it is typed — a half-written body is coloured too, not only a valid one.
+- Only JSON is coloured. An HTML or plain-text answer stays the colour of the text, because rules that do not apply
+  should not be painted.
+- A megabyte body is scanned once when it changes, never once per frame.
+
 ## Fixed: the Windows binary starts on every machine, not just the one that built it
 
 The 0.1.19 Windows zip could exit the moment it was run, with **0xC000001D** (illegal instruction):
