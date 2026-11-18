@@ -8,6 +8,7 @@ const body_mod = @import("../../data/model/body.zig");
 const http_mod = @import("../../data/remote/http_client.zig");
 const state_mod = @import("../../ui/state.zig");
 const session_mod = @import("../shell/session.zig");
+const code_editor = @import("../code_editor.zig");
 
 const Allocator = std.mem.Allocator;
 const UiState = state_mod.UiState;
@@ -63,6 +64,8 @@ pub const Response = struct {
     tab: state_mod.ResponseTab = .body,
     // The body itself: one read-only multiline field, so a response can be selected and copied like any text.
     body_field: Field = undefined,
+    // The answer's colouring: a CodeEditor over the same field, so a JSON response reads like JSON.
+    body_code: code_editor.CodeEditor = undefined,
 
     pub fn start(self: *Response, session: *Session) void {
         self.session = session;
@@ -78,9 +81,11 @@ pub const Response = struct {
         self.body_field.focus_ring_w = .{ .px = 0 };
         self.body_field.radius = glinlandui.props.Radius.all(0);
         self.body_field.h = .{ .fixed = 30 };
+        self.body_code = code_editor.CodeEditor.init(session.gpa);
     }
 
     pub fn deinit(self: *Response) void {
+        self.body_code.deinit();
         self.forgetAll();
         self.entries.deinit(self.session.gpa);
     }

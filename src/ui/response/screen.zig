@@ -180,7 +180,8 @@ pub fn responseBodyLines(scope: *Scope) void {
     // Full content height: the scrollbar measures the whole body while the field itself only draws the visible window.
     const total = if (scope.state.response.lines.len > 1) scope.state.response.lines.len - 1 else 0;
     field.h = .{ .fixed = @as(f32, @floatFromInt(total)) * field.lineHeight() + 2 * field.pad.top.pts() + 4 };
-    textField(field);
+    // A JSON answer is coloured from the same rules the body editor uses; HTML or plain text is left alone.
+    scope.vm.response.body_code.textField(field);
 }
 
 // ---- the history tab ------------------------------------------------------------------------------------------

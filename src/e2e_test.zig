@@ -2012,3 +2012,87 @@ test "shift-click in the URL field extends the run the first click placed the ca
     h.driver.clickAt(bb.x + pad + field.measure("https://api.example", size) + 2, y);
     try testing.expect(!field.editor.caret.hasSelection());
 }
+
+test "the body editor colours JSON as it is typed, and stops when the body is not JSON" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
+    try h.driver.click("kurir.tab.body");
+    try h.driver.click(view_model.body_id);
+    try h.driver.typeText("{\"a\": 1, \"ok\": true}");
+
+    const code = &h.app.vm().editor.body_code;
+    const field = &h.app.vm().editor.body_field;
+    try testing.expectEqual(kurirw.code_editor.Language.json, code.language);
+    try testing.expect(code.spans.items.len >= 7);
+    // The field is drawing those runs: the CodeEditor hands them over and the toolkit paints them.
+    try testing.expect(field.syntax != null);
+    try testing.expectEqual(code.spans.items.len, field.syntax.?.len);
+
+    // A key is one tone and its value another, which is the whole point of the colouring.
+    const key = h.app.vm().editor.body_code.spans.items[1];
+    try testing.expectEqual(kurirw.theme.json_key.toClay(), key.color.toClay());
+    var saw_key = false;
+    for (h.driver.commands()) |cmd| {
+        if (cmd.command_type != .text) continue;
+        if (std.meta.eql(cmd.render_data.text.text_color, kurirw.theme.json_key.toClay())) saw_key = true;
+    }
+    try testing.expect(saw_key);
+
+    // Select all and type words: the body stopped being JSON, so the runs and the field's syntax go with it.
+    _ = try h.driver.shortcut(glinlandui.keyboard.KEY_A);
+    try h.driver.typeText("plain words");
+    try testing.expectEqualStrings("plain words", h.app.vm().uiState().body);
+    try testing.expectEqual(kurirw.code_editor.Language.plain, code.language);
+    try testing.expectEqual(@as(usize, 0), code.spans.items.len);
+    try testing.expect(field.syntax == null);
+}
+
+test "a JSON answer is coloured in the response pane, and an HTML one is left plain" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try newMenu(&h, 0);
+    try newMenu(&h, 1);
+    try h.driver.click(view_model.url_field_id);
+    try h.driver.typeText("https://api.example.com/v1/items");
+
+    h.fake.status = 200;
+    h.fake.body = "{\"data\": [1, 2], \"ok\": true}";
+    try h.driver.click("kurir.send");
+    try settle(&h);
+
+    const code = &h.app.vm().response.body_code;
+    const field = &h.app.vm().response.body_field;
+    try testing.expectEqual(kurirw.code_editor.Language.json, code.language);
+    try testing.expect(code.spans.items.len > 0);
+    try testing.expect(field.syntax != null);
+    // The numbers and the literal are coloured on screen, not only in the model.
+    var saw_number = false;
+    var saw_literal = false;
+    for (h.driver.commands()) |cmd| {
+        if (cmd.command_type != .text) continue;
+        if (std.meta.eql(cmd.render_data.text.text_color, kurirw.theme.json_number.toClay())) saw_number = true;
+        if (std.meta.eql(cmd.render_data.text.text_color, kurirw.theme.json_literal.toClay())) saw_literal = true;
+    }
+    try testing.expect(saw_number);
+    try testing.expect(saw_literal);
+
+    // An answer that is not JSON must not be painted with rules that do not apply to it.
+    h.fake.body = "<html><body>hello</body></html>";
+    try h.driver.click("kurir.send");
+    try settle(&h);
+    try testing.expectEqual(kurirw.code_editor.Language.plain, code.language);
+    try testing.expectEqual(@as(usize, 0), code.spans.items.len);
+    try testing.expect(field.syntax == null);
+}

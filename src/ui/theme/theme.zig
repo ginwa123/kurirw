@@ -29,6 +29,13 @@ pub const accent = success;
 pub const select_bg = Color.hexC("#356f8f");
 pub const select_fg = Color.hexC("#f4f7f4");
 
+// The JSON tones a CodeEditor paints: a key reads as a name, a string as text, a number as a quantity, a literal as a keyword.
+pub const json_key = Color.hexC("#8ba4b0");
+pub const json_string = Color.hexC("#87a987");
+pub const json_number = Color.hexC("#c4b28a");
+pub const json_literal = Color.hexC("#8992a7");
+pub const json_punct = Color.hexC("#a6a69c");
+
 // One sRGB channel as a linear-light fraction, which is the space a contrast ratio is computed in.
 fn linearChannel(v: u8) f32 {
     const s = @as(f32, @floatFromInt(v)) / 255;
@@ -124,6 +131,18 @@ test "a selected run reads as selected, and its ink stays readable" {
     try testing.expect(channelSpread(select_fg) < 40);
     // The caret keeps a tone of its own on top of it, so the two signs of a selection do not merge.
     try testing.expect(!same(select_bg, app_theme.colors.primary));
+}
+
+test "every JSON tone reads on the field it is drawn on, and no two kinds share one" {
+    const tones = [_]Color{ json_key, json_string, json_number, json_literal, json_punct };
+    for (tones) |tone| {
+        // AA for body text: a coloured token is never harder to read than the field around it.
+        try testing.expect(contrast(tone, app_theme.colors.surface) >= 4.5);
+    }
+    // Five kinds, five tones: a token whose colour equals its neighbour's is a rule that does nothing.
+    for (tones, 0..) |a, i| {
+        for (tones[i + 1 ..]) |b| try testing.expect(!same(a, b));
+    }
 }
 
 test "contrast is the WCAG ratio, and luminance orders black under white" {

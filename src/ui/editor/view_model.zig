@@ -10,6 +10,7 @@ const env_mod = @import("../../domain/env.zig");
 const curl_transfer = @import("../../domain/usecase/curl_transfer.zig");
 const state_mod = @import("../../ui/state.zig");
 const session_mod = @import("../shell/session.zig");
+const code_editor = @import("../code_editor.zig");
 
 const Allocator = std.mem.Allocator;
 const UiState = state_mod.UiState;
@@ -60,6 +61,8 @@ pub const Editor = struct {
 
     // The body is the toolkit's multiline field: Enter types a line, Ctrl/Cmd+Enter sends.
     body_field: Field = undefined,
+    // The body's colouring: a CodeEditor owns the JSON runs the field paints, and nothing else about the editing.
+    body_code: code_editor.CodeEditor = undefined,
 
     // The two table modes edit one key/value row per part, with the same fields a header row uses.
     part_fields: [state_mod.max_body_parts * 2]Field = undefined,
@@ -211,6 +214,7 @@ pub const Editor = struct {
         self.body_field.scroll_id = body_scroll_id;
         self.body_field.pad = glinlandui.props.Pad.all(body_pad);
         self.body_field.bind();
+        self.body_code = code_editor.CodeEditor.init(gpa);
 
         var i: usize = 0;
         while (i < state_mod.max_headers) : (i += 1) {
@@ -280,6 +284,7 @@ pub const Editor = struct {
         // A field that grew past its inline buffer owns that run, so it goes with the panel.
         self.url_field.deinit();
         self.body_field.deinit();
+        self.body_code.deinit();
         self.pre_field.deinit();
         self.post_field.deinit();
         for (&self.header_fields) |*field| field.deinit();

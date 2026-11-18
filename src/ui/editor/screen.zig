@@ -552,7 +552,8 @@ pub fn bodyField(scope: *Scope) void {
     field.w = .grow;
     // Tall enough for the text, and never shorter than the pane, so a long body scrolls instead of clipping.
     field.h = .{ .fixed = @max(body_min_h, lines * field.lineHeight() + 12) };
-    textField(field);
+    // The CodeEditor declares the field and hands it the JSON runs; clicking, typing and the caret stay the field's.
+    scope.vm.editor.body_code.textField(field);
 }
 
 // ---- the environment picker, and the request's own variables -----------------------------------------------
