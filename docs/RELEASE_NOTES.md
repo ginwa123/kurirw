@@ -44,6 +44,16 @@ print("Access Token: " .. jsonData.access_token)
 - Loops and function definitions are out of scope on purpose, and a script that uses them says so on its
   own line instead of quietly doing nothing.
 
+## Fixed: the Windows binary starts on every machine, not just the one that built it
+
+The 0.1.19 Windows zip could exit the moment it was run, with **0xC000001D** (illegal instruction):
+Zig had compiled it for the CPU of the runner that produced it, and that runner had vector
+instructions the downloading machine does not. Release builds now pass `-Dcpu=baseline`, so the
+archive is built for the oldest CPU each platform promises instead of the one that happened to
+compile it.
+
+If 0.1.19 would not start for you, install again — 0.1.20 is the same code with a portable binary.
+
 ## Fixed: Shift+click extends a selection in every text field
 
 Clicking in a field placed the caret, and a second click **with Shift held** replaced it instead of
