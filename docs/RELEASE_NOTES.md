@@ -44,6 +44,12 @@ print("Access Token: " .. jsonData.access_token)
 - Loops and function definitions are out of scope on purpose, and a script that uses them says so on its
   own line instead of quietly doing nothing.
 
+## Fixed: a Windows-pasted body no longer ends every line in an empty box
+
+A body pasted from Windows ends its lines `\r\n`, and the editor drew the carriage return along with the text. The
+font has no glyph for it, so every line ended in one tofu box. A line now ends **before** the CR: it is still in the
+text, it is just not painted, and the caret and the selection agree with what is on screen.
+
 ## New: the request body and a JSON response are coloured like code
 
 The **Body** tab and the response pane are one component now — a **CodeEditor**: the same text field as before, plus
