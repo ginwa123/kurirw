@@ -36,6 +36,8 @@ pub const ws_panel_id = "kurir.ws.panel";
 pub const new_rows = [_][]const u8{ "Collection", "Request", "Folder", "Import", "From cURL" };
 // What a request row offers on a right click, in the order `pickRowMenu` switches on.
 pub const row_menu_items = [_][]const u8{ "Rename", "Duplicate", "Delete" };
+// What a collection or folder row offers: the runner first, then the same three a request has.
+pub const run_menu_items = [_][]const u8{ "Run collection...", "Rename", "Duplicate", "Delete" };
 // The workspace menu's rows, in the order `onWsPick` switches on.
 pub const ws_rows = [_][]const u8{ "New workspace", "Delete workspace", "Export collection" };
 
@@ -133,9 +135,17 @@ pub const Sidebar = struct {
     new_menu_open: bool = false,
     ws_menu_open: bool = false,
 
+    // The shell's runner, raised by a container row's card.
+    run: RunHook = .{},
     // One click context per row, in a FIXED array: an ArrayList reallocs and a registered click outlives the frame.
     row_ctxs: [state_mod.max_tree_rows]RowCtx = undefined,
     row_ctx_count: usize = 0,
+
+    // A container row's menu asks the shell for the runner, which owns the page.
+    pub const RunHook = struct {
+        ctx: ?*anyopaque = null,
+        f: ?*const fn (?*anyopaque, Path) void = null,
+    };
 
     pub const RowCtx = struct {
         sidebar: *Sidebar,
@@ -517,7 +527,18 @@ pub const Sidebar = struct {
     pub fn pickRowMenu(self: *Sidebar, row_index: usize, action: usize) void {
         const path = self.rowAt(row_index) orelse return self.session.failNow("That row is gone. Right-click it again.");
         const node = self.session.nodeAt(path) orelse return self.session.failNow("That request is gone. Right-click it again.");
-        if (!postman.isRequest(node.*)) return;
+        // A container runs the collection or folder under it; a request keeps the three it always had.
+        if (!postman.isRequest(node.*)) {
+            switch (action) {
+                0 => {
+                    if (self.run.f) |run| run(self.run.ctx, path);
+                },
+                1 => self.renameAt(path),
+                2 => self.duplicateAt(path),
+                else => self.deleteAt(path),
+            }
+            return;
+        }
         switch (action) {
             0 => self.renameAt(path),
             1 => self.duplicateAt(path),
@@ -763,13 +784,14 @@ pub const Sidebar = struct {
         return out;
     }
 
-    // One menu per row: a request offers rename, duplicate and delete; a container offers nothing.
+    // One menu per row: a request offers the three actions it always had, a container offers the runner too.
     fn treeMenus(self: *Sidebar, arena: Allocator) []const prop.ContextMenu {
         const out = arena.alloc(prop.ContextMenu, self.rows.items.len) catch return &.{};
         const t = self.session.theme;
         for (self.rows.items, out, 0..) |r, *menu, i| {
-            menu.* = if (r.kind != .request) .{} else .{
-                .items = &row_menu_items,
+            const items: []const []const u8 = if (r.kind == .request) &row_menu_items else &run_menu_items;
+            menu.* = .{
+                .items = items,
                 .on_select = .{ .f = onRowMenu, .ctx = &self.row_ctxs[i] },
                 .bg = t.colors.surface,
                 .fg = t.colors.text,

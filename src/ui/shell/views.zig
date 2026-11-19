@@ -11,6 +11,7 @@ pub const Views = struct {
     editor: Editor = .{},
     response: Response = .{},
     env: Env = .{},
+    runner: Runner = .{},
 
     // Give back every run a field grew past its inline buffer, and the colouring buffers with it.
     pub fn deinit(self: *Views) void {
@@ -18,6 +19,7 @@ pub const Views = struct {
         self.editor.deinit();
         self.response.deinit();
         self.env.deinit();
+        self.runner.deinit();
     }
 
     // The left panel: the workspace's name and the filter. The rename box lives in the editor's row (see `Editor.name`).
@@ -94,6 +96,19 @@ pub const Views = struct {
             for (&self.initial) |*field| field.deinit();
             for (&self.current) |*field| field.deinit();
             self.name.deinit();
+        }
+    };
+
+    // The runner page: the two numbers it asks for, and nothing else it types into.
+    pub const Runner = struct {
+        iterations: Field = undefined,
+        delay: Field = undefined,
+        started: bool = false,
+
+        pub fn deinit(self: *Runner) void {
+            if (!self.started) return;
+            self.iterations.deinit();
+            self.delay.deinit();
         }
     };
 };

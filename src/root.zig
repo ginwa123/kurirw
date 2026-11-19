@@ -28,6 +28,8 @@ pub const run_cli = @import("run_cli.zig");
 pub const code_editor = @import("ui/code_editor.zig");
 pub const env_view_model = @import("ui/env/view_model.zig");
 pub const editor_view_model = @import("ui/editor/view_model.zig");
+pub const runner_view_model = @import("ui/runner/view_model.zig");
+pub const runner_view = @import("ui/runner/screen.zig");
 
 // Every file's own tests, collected without adding an anonymous one, so the suite counts real tests.
 comptime {
@@ -73,4 +75,6 @@ comptime {
     _ = @import("domain/runner.zig");
     _ = @import("domain/usecase/run_collection.zig");
     _ = @import("run_cli.zig");
+    _ = @import("ui/runner/view_model.zig");
+    _ = @import("ui/runner/screen.zig");
 }

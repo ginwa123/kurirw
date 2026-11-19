@@ -20,6 +20,7 @@ const editor_mod = @import("../editor/view_model.zig");
 const response_mod = @import("../response/view_model.zig");
 const env_vm = @import("../env/view_model.zig");
 const Env = env_vm.Env;
+const runner_vm = @import("../runner/view_model.zig");
 const pump_mod = @import("pump.zig");
 
 const file_picker = @import("../../data/local/file_picker.zig");
@@ -105,6 +106,8 @@ pub const KurirViewModel = struct {
 
     // The global variables: owned by their own panel, read by every text field and by the send rule.
     env: Env = .{},
+    // The runner is a page of its own, on the same session and the same environment as the editor.
+    runner: runner_vm.Runner = .{},
 
     // The frame's snapshot, rebuilt once per frame while `session.dirty`.
     view: UiState = .{},
@@ -176,6 +179,12 @@ pub const KurirViewModel = struct {
         const loaded = self.session.load();
         // The variables belong to a workspace, so the panel starts after the document says which one is open.
         self.env.start(&self.session, deps.env_path);
+        // The runner sends one request at a time through the same transport the editor uses.
+        self.runner.start(&self.session, &self.env, self.pump, self.dialogs);
+        self.runner.transport_fn = runnerTransport;
+        self.runner.transport_ctx = self;
+        // A container row's menu raises the runner, which lives here and not in the tree.
+        self.sidebar.run = .{ .ctx = self, .f = runnerFromRow };
         self.sidebar.restore();
         // The tabs the last run had open, and the one it was looking at: the window looks the same.
         for (self.session.restored_tabs[0..self.session.restored_tab_count]) |path| self.openTab(path);
@@ -218,6 +227,8 @@ pub const KurirViewModel = struct {
     pub fn uiState(self: *KurirViewModel) UiState {
         // A request on its own task is collected here, so a frame never waits for the network.
         self.collect();
+        // The runner's own request lands the same way, and its next step is started from here.
+        self.runner.tick();
         // Neither menu has a scrim: each panel closes its own when the pointer leaves it, read from the last frame.
         self.editor.closeIfPointerAway();
         self.sidebar.closeMenusIfPointerAway();
@@ -235,6 +246,7 @@ pub const KurirViewModel = struct {
         self.sidebar.snapshot(&view, arena);
         self.editor.snapshot(&view, arena);
         self.env.snapshot(&view, arena);
+        self.runner.snapshot(&view, arena);
         self.response.snapshot(&view, arena);
         // Every panel reads the same variables, so the editor's completion and the send rule never disagree.
         self.session.env_vars = self.env.activeVars();
@@ -644,6 +656,40 @@ pub const KurirViewModel = struct {
 
     pub fn closeEnvManager(self: *KurirViewModel) void {
         self.env.closeManager();
+    }
+
+    // ---- the runner page ------------------------------------------------------------------------------
+
+    pub fn runnerRun(self: *KurirViewModel) void {
+        self.runner.run();
+    }
+
+    pub fn runnerStop(self: *KurirViewModel) void {
+        self.runner.stop();
+    }
+
+    pub fn runnerClose(self: *KurirViewModel) void {
+        self.runner.close();
+    }
+
+    pub fn runnerData(self: *KurirViewModel) void {
+        self.runner.chooseData();
+    }
+
+    // The runner's transport, built for the arena the request will outlive itself in.
+    fn runnerTransport(ctx: ?*anyopaque, arena: Allocator) http_mod.Transport {
+        const self: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+        return self.transport(arena);
+    }
+
+    // A container row asked for the runner: the page opens on that collection or folder.
+    pub fn openRunner(self: *KurirViewModel, path: Path) void {
+        self.runner.openAt(path);
+    }
+
+    fn runnerFromRow(ctx: ?*anyopaque, path: Path) void {
+        const self: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+        self.openRunner(path);
     }
 
     pub fn addEnvironment(self: *KurirViewModel) void {

@@ -5,6 +5,7 @@ const view_model = @import("../shell/view_model.zig");
 const KurirViewModel = view_model.KurirViewModel;
 const env_vm = @import("../env/view_model.zig");
 const editor_vm = @import("../editor/view_model.zig");
+const runner_vm = @import("../runner/view_model.zig");
 
 pub fn onRow(ctx: ?*anyopaque, index: usize) void {
     const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
@@ -274,4 +275,30 @@ pub fn onRemoveBodyPart(ctx: ?*anyopaque) void {
 pub fn onToggleBodyPart(ctx: ?*anyopaque) void {
     const part_ctx: *KurirViewModel.BodyPartCtx = @ptrCast(@alignCast(ctx.?));
     part_ctx.editor.toggleBodyPart(part_ctx.index);
+}
+
+// ---- the runner page -----------------------------------------------------------------------------------
+
+pub fn onRunnerRun(ctx: ?*anyopaque) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.runnerRun();
+}
+
+pub fn onRunnerStop(ctx: ?*anyopaque) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.runnerStop();
+}
+
+pub fn onRunnerClose(ctx: ?*anyopaque) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.runnerClose();
+}
+
+pub fn onRunnerData(ctx: ?*anyopaque) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.runnerData();
+}
+
+pub fn onRunnerStep(ctx: ?*anyopaque) void {
+    runner_vm.Runner.onStep(ctx);
 }

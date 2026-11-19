@@ -953,7 +953,7 @@ test "Rename hands the keyboard to the name field, so typing renames the row" {
     try testing.expectEqualStrings("!", kurirw.postman.str(node.*, "name"));
 }
 
-test "a collection row has no menu: a right click on it opens nothing" {
+test "a collection row's card offers the runner, and the page runs what it planned" {
     const gpa = std.heap.page_allocator;
     var scratch = try Scratch.make(gpa);
     defer scratch.deinit(gpa);
@@ -962,9 +962,49 @@ test "a collection row has no menu: a right click on it opens nothing" {
     defer h.stop(gpa);
 
     try newMenu(&h, 0);
-    try rightClickTreeRow(&h, 0);
-    try testing.expect(!glinlandui.components.context_menu.isOpen());
-    try h.driver.expectNoText("Duplicate");
+    try newMenu(&h, 1);
+    try newMenu(&h, 1);
+    h.driver.frame();
+
+    // A request with no URL cannot be sent, so give both an address the fake will answer.
+    const session = &h.app.vm().session;
+    for ([_]u16{ 0, 1 }) |index| {
+        const path = kurirw.state.Path.empty.child(0).child(index);
+        if (session.nodeAt(path)) |node| {
+            try kurirw.postman.setUrl(session.docArena(), node, "https://api.test/run");
+        }
+    }
+
+    // The card a container shows is built from its kind, and its first row is the runner.
+    const menus = h.app.vm().uiState().tree_menus;
+    try testing.expect(menus.len > 0);
+    try testing.expectEqual(@as(usize, 4), menus[0].items.len);
+    try testing.expectEqualStrings("Run collection...", menus[0].items[0]);
+
+    // Opening the page on the collection: the plan is both requests, and the page takes the main area.
+    const collection = kurirw.state.Path.empty.child(0);
+    h.app.vm().openRunner(collection);
+    h.driver.frame();
+    const opened = h.app.vm().uiState();
+    try testing.expect(opened.runner_open);
+    try testing.expectEqual(@as(usize, 2), opened.runner_total);
+
+    // Run: the fake answers at once, and each request lands a row of its own, two frames at a time.
+    h.app.vm().runnerRun();
+    var guard: usize = 0;
+    while (h.app.vm().uiState().runner_phase == .running and guard < 40) : (guard += 1) {
+        h.driver.frame();
+    }
+    try testing.expectEqual(kurirw.state.RunnerPhase.finished, h.app.vm().uiState().runner_phase);
+    const view = h.app.vm().uiState();
+    try testing.expectEqual(@as(usize, 2), view.runner_done);
+    try testing.expectEqual(@as(usize, 2), view.runner_ok);
+    try testing.expectEqual(@as(usize, 0), view.runner_failed);
+    try testing.expectEqual(@as(usize, 2), view.runner_rows.len);
+
+    h.app.vm().runnerClose();
+    h.driver.frame();
+    try testing.expect(!h.app.vm().uiState().runner_open);
 }
 
 test "dragging a request onto its sibling reorders the document" {

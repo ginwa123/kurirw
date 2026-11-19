@@ -280,6 +280,51 @@ pub const UiState = struct {
 
     // Which field owns the keyboard this frame, so the view can hand it to the toolkit.
     focus: Focus = .none,
+
+    // The runner: whether its page is open, how far the run got, the plan it will send, and the rows it produced.
+    runner_open: bool = false,
+    runner_phase: RunnerPhase = .idle,
+    runner_collection: []const u8 = "",
+    runner_steps: []const RunnerStep = &.{},
+    runner_rows: []const RunnerRow = &.{},
+    runner_selected: usize = 0,
+    runner_total: usize = 0,
+    runner_done: usize = 0,
+    runner_ok: usize = 0,
+    runner_failed: usize = 0,
+    runner_ms: u64 = 0,
+    runner_iterations: []const u8 = "1",
+    runner_delay: []const u8 = "0",
+    runner_env: []const u8 = "",
+    runner_data: []const u8 = "",
+    runner_note: []const u8 = "",
+};
+
+// How many rows the runner's table keeps: the newest this many requests of one run.
+pub const max_runner_rows: usize = 256;
+
+// Where a run is between its first request and its last.
+pub const RunnerPhase = enum { idle, running, stopping, finished, stopped };
+
+// One request of a run, as the table draws it.
+pub const RunnerRow = struct {
+    iteration: usize = 1,
+    name: []const u8 = "",
+    method: []const u8 = "",
+    status: u16 = 0,
+    time_ms: u64 = 0,
+    ok: bool = false,
+    // The reason a row did not pass, in the same words the CLI's report uses.
+    failure: []const u8 = "ok",
+    tests_passed: usize = 0,
+    tests_total: usize = 0,
+};
+
+// One request of the plan, as the left list draws it: a tick box and a name.
+pub const RunnerStep = struct {
+    name: []const u8 = "",
+    method: []const u8 = "",
+    enabled: bool = true,
 };
 
 pub const Focus = enum {
