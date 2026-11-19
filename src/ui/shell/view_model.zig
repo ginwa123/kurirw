@@ -21,6 +21,7 @@ const response_mod = @import("../response/view_model.zig");
 const env_vm = @import("../env/view_model.zig");
 const Env = env_vm.Env;
 const runner_vm = @import("../runner/view_model.zig");
+const spec_mod = @import("../../domain/spec.zig");
 const pump_mod = @import("pump.zig");
 
 const file_picker = @import("../../data/local/file_picker.zig");
@@ -84,6 +85,8 @@ pub const Deps = struct {
     session_path: []const u8 = "",
     // The global variables, shared by every workspace and every request.
     env_path: []const u8 = "",
+    // The process environment: the spec inherits it, plus the active environment's variables. Null in a bare test.
+    environ: ?*const std.process.Environ.Map = null,
     workspace: domain.Workspace,
     remote: *http_mod.Real,
     dialogs: *file_picker.Dialogs,
@@ -179,10 +182,10 @@ pub const KurirViewModel = struct {
         const loaded = self.session.load();
         // The variables belong to a workspace, so the panel starts after the document says which one is open.
         self.env.start(&self.session, deps.env_path);
-        // The runner sends one request at a time through the same transport the editor uses.
-        self.runner.start(&self.session, &self.env, self.pump, self.dialogs);
-        self.runner.transport_fn = runnerTransport;
-        self.runner.transport_ctx = self;
+        // The runner runs a Playwright spec, so it needs the process environment and where Playwright may live.
+        self.runner.start(&self.session, &self.env, self.pump);
+        self.runner.environ = deps.environ;
+        self.runner.roots = runnerRoots(self.session.gpa, deps) catch &.{};
         // A container row's menu raises the runner, which lives here and not in the tree.
         self.sidebar.run = .{ .ctx = self, .f = runnerFromRow };
         self.sidebar.restore();
@@ -206,6 +209,8 @@ pub const KurirViewModel = struct {
             if (pending.job.poll()) pending.job.destroy(self.session.gpa) else pending.job.abandon();
         }
         self.job = null;
+        // The runner owns its arenas and the Playwright roots it was started with, so it goes before the session.
+        self.runner.deinit();
         // The working session is written on the way out: the tabs, and the edits nobody has saved yet.
         self.session.persistSession(self.tabs[0..self.tab_count], self.session.selection);
         self.response.deinit();
@@ -350,7 +355,10 @@ pub const KurirViewModel = struct {
             return self.session.failNow("This runner is still running. Stop it first.");
         }
         const arena = self.session.docArena();
-        const source = if (seed) |path| self.runner.programFor(arena, path) else "";
+        // A row seeds one test per request under it; a new runner starts from the editable skeleton.
+        var source: []const u8 = "";
+        if (seed) |path| source = self.runner.seedFrom(arena, path);
+        if (source.len == 0) source = spec_mod.starter(arena) catch "";
         const name = self.nextRunnerName(arena);
         const item = postman.newFlow(arena, name, source) catch
             return self.session.failNow("Not enough memory for a runner.");
@@ -360,7 +368,7 @@ pub const KurirViewModel = struct {
         self.session.selection = path;
         self.session.markDirty(path);
         self.runner.openFlow(path);
-        self.session.setStatus(false, "Runner {s} created beside the collections: {d} steps.", .{ name, self.runner.steps.len });
+        self.session.setStatus(false, "Runner {s} created beside the collections: {d} tests.", .{ name, self.runner.tests.len });
     }
 
     // "Runner 3": the next number, counted among the runners the workspace already holds.
@@ -724,27 +732,18 @@ pub const KurirViewModel = struct {
         self.runner.close();
     }
 
-    pub fn runnerData(self: *KurirViewModel) void {
-        self.runner.chooseData();
-    }
-
-    // The page's three buttons, each one a line appended to the program and the script written again.
+    // The page's two insert buttons: a test for the selected request, or an empty one to write yourself.
     pub fn runnerAddSend(self: *KurirViewModel) void {
         self.runner.addSend();
     }
 
-    pub fn runnerAddDelay(self: *KurirViewModel) void {
-        self.runner.addDelay();
+    pub fn runnerAddTest(self: *KurirViewModel) void {
+        self.runner.addTest();
     }
 
-    pub fn runnerLoop(self: *KurirViewModel) void {
-        self.runner.wrapData();
-    }
-
-    // The runner's transport, built for the arena the request will outlive itself in.
-    fn runnerTransport(ctx: ?*anyopaque, arena: Allocator) http_mod.Transport {
-        const self: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
-        return self.transport(arena);
+    // FLOW shows the tests by name, or the spec itself.
+    pub fn runnerToggleCode(self: *KurirViewModel) void {
+        self.runner.toggleCode();
     }
 
     // A row asked for a runner: a NEW root is created from it, because a runner is a program, not a folder.
@@ -752,6 +751,7 @@ pub const KurirViewModel = struct {
         self.newRunnerFrom(path);
     }
 
+    // A row asked for a runner: a NEW root is created from it, because a runner is a program, not a folder.
     fn runnerFromRow(ctx: ?*anyopaque, path: Path) void {
         const self: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
         self.newRunnerFrom(path);
@@ -987,6 +987,20 @@ pub const KurirViewModel = struct {
 };
 
 // ---- tests: they drive the ViewModel the way the view does, with a real temp file and no socket ---------------
+
+// Where a Playwright project may live, in the order the runner tries them: the env var, then the store's own runner/.
+fn runnerRoots(gpa: Allocator, deps: Deps) ![]const []const u8 {
+    var out: std.ArrayList([]const u8) = .empty;
+    if (deps.environ) |environ| {
+        if (environ.get("KURIR_PLAYWRIGHT_DIR")) |dir| {
+            if (dir.len > 0) try out.append(gpa, try gpa.dupe(u8, dir));
+        }
+    }
+    const store_dir = std.fs.path.dirname(deps.path) orelse ".";
+    try out.append(gpa, try std.fs.path.join(gpa, &.{ store_dir, "runner" }));
+    // Owned exactly as long as it is long, so the runner's deinit can hand it back.
+    return out.toOwnedSlice(gpa);
+}
 
 const testing = std.testing;
 

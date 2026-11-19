@@ -987,26 +987,25 @@ test "a collection row's card seeds a runner ROOT, and the page runs what it pla
     h.driver.frame();
     const opened = h.app.vm().uiState();
     try testing.expect(opened.runner_open);
+    // One Playwright test per request under the row, listed by name.
+    try testing.expectEqual(@as(usize, 2), opened.runner_tests.len);
     try testing.expectEqual(@as(usize, 2), opened.runner_total);
     try testing.expectEqual(@as(usize, 2), opened.root_count);
     try testing.expectEqual(@as(usize, 1), opened.collection_count);
+    try testing.expectEqualStrings("Request 1", opened.runner_tests[0].name);
     const seeded = kurirw.state.Path.empty.child(1);
     try testing.expect(kurirw.postman.isFlow(h.app.vm().session.nodeAt(seeded).?.*));
+    // The spec itself is the seeded program, and its requests carry the address they were saved with.
+    try testing.expect(std.mem.indexOf(u8, opened.runner_flow, "test('Request 1'") != null);
+    try testing.expect(std.mem.indexOf(u8, opened.runner_flow, "request.get('https://api.test/run')") != null);
     // The collection itself is untouched: the runner holds no `item` and the collection gained none.
     try testing.expectEqual(@as(usize, 2), kurirw.postman.itemCount(h.app.vm().session.nodeAt(collection).?.*));
 
-    // Run: the fake answers at once, and each request lands a row of its own, two frames at a time.
+    // With no Playwright installed this machine cannot run it, and the page says so instead of pretending.
     h.app.vm().runnerRun();
-    var guard: usize = 0;
-    while (h.app.vm().uiState().runner_phase == .running and guard < 40) : (guard += 1) {
-        h.driver.frame();
-    }
-    try testing.expectEqual(kurirw.state.RunnerPhase.finished, h.app.vm().uiState().runner_phase);
-    const view = h.app.vm().uiState();
-    try testing.expectEqual(@as(usize, 2), view.runner_done);
-    try testing.expectEqual(@as(usize, 2), view.runner_ok);
-    try testing.expectEqual(@as(usize, 0), view.runner_failed);
-    try testing.expectEqual(@as(usize, 2), view.runner_rows.len);
+    h.driver.frame();
+    try testing.expectEqual(kurirw.state.RunnerPhase.idle, h.app.vm().uiState().runner_phase);
+    try testing.expect(std.mem.startsWith(u8, h.app.vm().uiState().runner_engine, "Playwright is not installed"));
 
     h.app.vm().runnerClose();
     h.driver.frame();
@@ -1031,6 +1030,10 @@ test "a runner is a ROOT: made from + New with no collection, renamed, and delet
     try testing.expectEqual(@as(u16, 0), view.rows[0].depth);
     try testing.expectEqualStrings("Runner 1", view.rows[0].label);
     try testing.expectEqualStrings("Runner 1", view.runner_name);
+    // A new runner starts from an editable Playwright spec, so the FLOW list already has one test.
+    try testing.expectEqual(@as(usize, 1), view.runner_tests.len);
+    try testing.expectEqualStrings("first test", view.runner_tests[0].name);
+    try testing.expect(std.mem.indexOf(u8, view.runner_flow, "from '@playwright/test'") != null);
 
     // Renaming it renames the page, because the page reads the item and never keeps a copy.
     h.app.vm().onNameChange("Smoke");

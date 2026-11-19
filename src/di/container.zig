@@ -22,6 +22,8 @@ pub const Container = struct {
     session_path: []u8 = &.{},
     // The global variables, shared by every workspace and every request.
     env_path: []u8 = &.{},
+    // The process environment as the app was started with: the Playwright child inherits it.
+    environ: std.process.Environ.Map = undefined,
     file: file_store.FileStore = undefined,
     remote: http_mod.Real = undefined,
     // The file panels import and export open; a test installs its own before `start`.
@@ -31,6 +33,7 @@ pub const Container = struct {
     pub fn init(self: *Container, gpa: Allocator, io: std.Io, environ: anytype) !void {
         self.gpa = gpa;
         self.io = io;
+        self.environ = environ;
         self.path = try store_mod.defaultPath(gpa, environ);
         self.session_path = try session_store.pathFor(gpa, self.path);
         self.env_path = try env_store.pathFor(gpa, self.path);

@@ -42,6 +42,7 @@ pub const App = struct {
             .session_path = self.container.session_path,
             .env_path = self.container.env_path,
             .workspace = self.container.file.workspace(),
+            .environ = &self.container.environ,
             .remote = &self.container.remote,
             .dialogs = &self.container.dialogs,
             .pump = &self.pump,

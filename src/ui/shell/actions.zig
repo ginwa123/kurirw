@@ -296,12 +296,7 @@ pub fn onRunnerClose(ctx: ?*anyopaque) void {
 
 pub fn onRunnerData(ctx: ?*anyopaque) void {
     const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
-    vm.runnerData();
-}
-
-pub fn onRunnerStep(ctx: ?*anyopaque) void {
-    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
-    vm.runnerAddSend();
+    vm.runnerToggleCode();
 }
 
 pub fn onRunnerAddSend(ctx: ?*anyopaque) void {
@@ -309,12 +304,13 @@ pub fn onRunnerAddSend(ctx: ?*anyopaque) void {
     vm.runnerAddSend();
 }
 
-pub fn onRunnerAddDelay(ctx: ?*anyopaque) void {
+pub fn onRunnerAddTest(ctx: ?*anyopaque) void {
     const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
-    vm.runnerAddDelay();
+    vm.runnerAddTest();
 }
 
-pub fn onRunnerLoop(ctx: ?*anyopaque) void {
+// FLOW shows the spec's tests by name, or the spec itself.
+pub fn onRunnerCode(ctx: ?*anyopaque) void {
     const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
-    vm.runnerLoop();
+    vm.runnerToggleCode();
 }

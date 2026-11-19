@@ -99,16 +99,16 @@ pub const Views = struct {
         }
     };
 
-    // The runner page: the two numbers it asks for, and nothing else it types into.
+    // The runner page: the spec itself, a multiline field with the colouring a spec may want.
     pub const Runner = struct {
-        iterations: Field = undefined,
-        delay: Field = undefined,
+        spec: Field = undefined,
+        spec_code: code_editor.CodeEditor = undefined,
         started: bool = false,
 
         pub fn deinit(self: *Runner) void {
             if (!self.started) return;
-            self.iterations.deinit();
-            self.delay.deinit();
+            self.spec.deinit();
+            self.spec_code.deinit();
         }
     };
 };

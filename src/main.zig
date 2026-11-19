@@ -24,7 +24,7 @@ pub fn main(init: std.process.Init) !void {
     }
 
     var app = kurirw.app.App{};
-    try app.start(gpa, init.io, init.environ_map);
+    try app.start(gpa, init.io, init.environ_map.*);
     defer app.deinit();
 
     var host = try glinlandui.host.Host.init(gpa, &app, kurirw.app.App.content);

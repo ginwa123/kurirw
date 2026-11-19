@@ -292,6 +292,11 @@ pub const UiState = struct {
     runner_name: []const u8 = "",
     // The program the page shows (written from the model) and the line that would not parse.
     runner_flow: []const u8 = "",
+    // The tests the spec declares, by name and line: the FLOW list, and whether it is showing the code instead.
+    runner_tests: []const RunnerTest = &.{},
+    runner_code_open: bool = false,
+    // Where Playwright was found ("playwright: <path>"), or why it was not.
+    runner_engine: []const u8 = "",
     runner_error: []const u8 = "",
     runner_steps: []const RunnerStep = &.{},
     runner_rows: []const RunnerRow = &.{},
@@ -300,6 +305,7 @@ pub const UiState = struct {
     runner_done: usize = 0,
     runner_ok: usize = 0,
     runner_failed: usize = 0,
+    runner_skipped: usize = 0,
     runner_ms: u64 = 0,
     runner_iterations: []const u8 = "1",
     runner_delay: []const u8 = "0",
@@ -314,18 +320,22 @@ pub const max_runner_rows: usize = 256;
 // Where a run is between its first request and its last.
 pub const RunnerPhase = enum { idle, running, stopping, finished, stopped };
 
-// One request of a run, as the table draws it.
+// One test of a run, as the table draws it: a Playwright test, its verdict, and the line that failed.
 pub const RunnerRow = struct {
-    iteration: usize = 1,
     name: []const u8 = "",
-    method: []const u8 = "",
-    status: u16 = 0,
-    time_ms: u64 = 0,
     ok: bool = false,
-    // The reason a row did not pass, in the same words the CLI's report uses.
-    failure: []const u8 = "ok",
-    tests_passed: usize = 0,
-    tests_total: usize = 0,
+    skipped: bool = false,
+    time_ms: u64 = 0,
+    // The word the table shows: "ok", "failed" or "skipped".
+    label: []const u8 = "ok",
+    // The first line of the failure, when there is one.
+    detail: []const u8 = "",
+};
+
+// One `test('…')` of the runner's spec, as the FLOW list draws it.
+pub const RunnerTest = struct {
+    name: []const u8 = "",
+    line: usize = 1,
 };
 
 // One request of the plan, as the left list draws it: a tick box and a name.

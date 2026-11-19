@@ -7,10 +7,9 @@ const env_store = @import("data/local/env_store.zig");
 const http_mod = @import("data/remote/http_client.zig");
 const env_mod = @import("domain/env.zig");
 const runner = @import("domain/runner.zig");
-const flow_mod = @import("domain/flow.zig");
 const data_file = @import("domain/data_file.zig");
 const run_collection = @import("domain/usecase/run_collection.zig");
-const run_flow = @import("domain/usecase/run_flow.zig");
+const pw_run = @import("data/local/pw_run.zig");
 
 const Allocator = std.mem.Allocator;
 
@@ -99,6 +98,9 @@ pub fn run(init: std.process.Init) !u8 {
     var vars = run_collection.Vars{};
     try loadEnvironment(arena, io, env_file, workspace_id(loaded.doc, workspace), opts.environment, &vars);
 
+    // A saved runner is a Playwright spec, so it runs through Playwright instead of a collection walk.
+    if (opts.runner.len > 0) return runSavedRunner(arena, io, init.environ_map, loaded.doc, workspace, opts, doc_file, &vars);
+
     var data = data_file.Data{};
     if (opts.data.len > 0) {
         const bytes = std.Io.Dir.cwd().readFileAlloc(io, opts.data, arena, .limited(8 * 1024 * 1024)) catch
@@ -113,34 +115,19 @@ pub fn run(init: std.process.Init) !u8 {
     var real = http_mod.Real.init(init.gpa);
     defer real.deinit();
 
-    // What ran, by its own name: the summary line and the report both say it.
-    var target_name: []const u8 = "";
-    const report_out = if (opts.runner.len > 0) blk: {
-        // A runner is a program, so it runs as one: its own flow, expanded step by step.
-        const found = findRunner(loaded.doc, workspace, opts.runner) orelse return bad(arena, io, "no runner matched --runner");
-        target_name = found.name;
-        const program = flow_mod.parse(arena, postman.flowOf(found.node)) catch
-            return bad(arena, io, "that runner's program could not be read");
-        break :blk run_flow.run(arena, real.transport(arena), loaded.doc, workspace, program, &vars, .{
-            .io = io,
-            .data = data,
-            .iterations = if (opts.iterations == 0) 1 else opts.iterations,
-            .delay_ms = opts.delay_ms,
-        });
-    } else blk: {
-        const collection = findCollection(loaded.doc, workspace, opts.collection) orelse return bad(arena, io, "no collection matched --collection");
-        const base = runner.Address{ .depth = 1, .segments = splatSegment(0, @intCast(collection.index)) };
-        const node = if (opts.path.len > 0) descend(collection.node, opts.path) orelse return bad(arena, io, "--path does not address a folder in this collection") else collection.node;
-        const address = if (opts.path.len > 0) try addressOf(arena, base, opts.path) else base;
-        const name = postman.str(collection.node, "name");
-        target_name = if (name.len > 0) name else if (collection.node == .object) postman.str(collection.node.object.get("info") orelse .{ .null = {} }, "name") else "";
-        break :blk run_collection.run(arena, real.transport(arena), node, address, &vars, .{
-            .io = io,
-            .data = data,
-            .iterations = if (opts.iterations == 0) 1 else opts.iterations,
-            .delay_ms = opts.delay_ms,
-        });
-    };
+    const collection = findCollection(loaded.doc, workspace, opts.collection) orelse return bad(arena, io, "no collection matched --collection");
+    const base = runner.Address{ .depth = 1, .segments = splatSegment(0, @intCast(collection.index)) };
+    const node = if (opts.path.len > 0) descend(collection.node, opts.path) orelse return bad(arena, io, "--path does not address a folder in this collection") else collection.node;
+    const address = if (opts.path.len > 0) try addressOf(arena, base, opts.path) else base;
+    const raw_name = postman.str(collection.node, "name");
+    const target_name = if (raw_name.len > 0) raw_name else if (collection.node == .object) postman.str(collection.node.object.get("info") orelse .{ .null = {} }, "name") else "";
+
+    const report_out = run_collection.run(arena, real.transport(arena), node, address, &vars, .{
+        .io = io,
+        .data = data,
+        .iterations = if (opts.iterations == 0) 1 else opts.iterations,
+        .delay_ms = opts.delay_ms,
+    });
     if (report_out.failure.len > 0) return bad(arena, io, report_out.failure);
     const json = try run_collection.reportJson(arena, target_name, report_out);
 
@@ -156,14 +143,81 @@ pub fn run(init: std.process.Init) !u8 {
     }) catch "";
     std.Io.File.stderr().writeStreamingAll(io, summary) catch {};
 
-    if (opts.report.len > 0) {
-        std.Io.Dir.cwd().writeFile(io, .{ .sub_path = opts.report, .data = json }) catch
+    return writeReport(arena, io, opts.report, json, report_out.failed == 0);
+}
+
+// A saved runner, run by Playwright with no window: the same report shape the page draws.
+fn runSavedRunner(
+    arena: Allocator,
+    io: std.Io,
+    environ: *const std.process.Environ.Map,
+    doc: postman.Value,
+    workspace: usize,
+    opts: Options,
+    doc_file: []const u8,
+    vars: *run_collection.Vars,
+) !u8 {
+    const found = findRunner(doc, workspace, opts.runner) orelse return bad(arena, io, "no runner matched --runner");
+    const install = playwrightInstall(arena, io, environ, doc_file) orelse
+        return bad(arena, io, "Playwright is not installed: run `npm i -D @playwright/test` in the runner folder beside the store, or point KURIR_PLAYWRIGHT_DIR at a project that has it");
+
+    // The active environment reaches the spec as `process.env`, so a test can read a token it was given.
+    var pairs: std.ArrayList(pw_run.Pair) = .empty;
+    for (vars.items.items) |variable| {
+        if (variable.name.len == 0) continue;
+        pairs.append(arena, .{ .name = variable.name, .value = env_mod.value(variable) }) catch break;
+    }
+    const report_out = pw_run.runNow(arena, io, install, postman.flowOf(found.node), baseUrlOf(vars.items.items), environ, pairs.items);
+    if (report_out.failure.len > 0) return bad(arena, io, report_out.failure);
+    const json = try pw_run.reportJson(arena, found.name, report_out);
+
+    var line: [200]u8 = undefined;
+    const summary = std.fmt.bufPrint(&line, "{s}: {d} tests, {d} passed, {d} failed, {d} ms{s}\n", .{
+        found.name,
+        report_out.rows.len,
+        report_out.expected,
+        report_out.unexpected,
+        report_out.duration_ms,
+        if (report_out.stopped) " (stopped)" else "",
+    }) catch "";
+    std.Io.File.stderr().writeStreamingAll(io, summary) catch {};
+    return writeReport(arena, io, opts.report, json, report_out.unexpected == 0);
+}
+
+// The report goes where the caller asked, or to stdout where a pipe can read it.
+fn writeReport(arena: Allocator, io: std.Io, path: []const u8, json: []const u8, ok: bool) !u8 {
+    if (path.len > 0) {
+        std.Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = json }) catch
             return bad(arena, io, "the report file could not be written");
     } else {
         std.Io.File.stdout().writeStreamingAll(io, json) catch {};
         std.Io.File.stdout().writeStreamingAll(io, "\n") catch {};
     }
-    return if (report_out.failed == 0) 0 else 1;
+    return if (ok) 0 else 1;
+}
+
+// Playwright lives in the env var first, then in the runner folder beside the store.
+fn playwrightInstall(arena: Allocator, io: std.Io, environ: *const std.process.Environ.Map, doc_file: []const u8) ?pw_run.Install {
+    var roots: std.ArrayList([]const u8) = .empty;
+    if (environ.get("KURIR_PLAYWRIGHT_DIR")) |dir| {
+        if (dir.len > 0) roots.append(arena, dir) catch {};
+    }
+    const store_dir = std.fs.path.dirname(doc_file) orelse ".";
+    roots.append(arena, std.fs.path.join(arena, &.{ store_dir, "runner" }) catch "") catch {};
+    return pw_run.locate(arena, io, roots.items) catch null;
+}
+
+// The variable an environment uses to say what relative URLs resolve against.
+fn baseUrlOf(items: []const env_mod.Variable) []const u8 {
+    const names = [_][]const u8{ "baseUrl", "base_url", "baseURL" };
+    for (items) |variable| {
+        for (names) |name| {
+            if (!std.ascii.eqlIgnoreCase(variable.name, name)) continue;
+            const value = env_mod.value(variable);
+            if (value.len > 0) return value;
+        }
+    }
+    return "";
 }
 
 // One line telling the caller what to fix, on stderr, and the usage code.
