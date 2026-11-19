@@ -253,13 +253,20 @@ pub const Sidebar = struct {
         const arena = self.session.view_arena.allocator();
         var name_buf: [name_max]u8 = undefined;
         const raw_name = Session.name(node);
-        const label = if (raw_name.len == 0) "(unnamed)" else clip(raw_name, &name_buf);
+        const clipped = if (raw_name.len == 0) "(unnamed)" else clip(raw_name, &name_buf);
+        // A runner is a leaf, but it is not a request: a tilde marks its row, and it has no method to show.
+        const is_flow = postman.isFlow(node);
+        const label = if (is_flow) frame.formatText("~ {s}", .{clipped}) else clipped;
+        const method: []const u8 = if (kind != .request) "" else blk: {
+            const request = node.object.get("request") orelse break :blk "";
+            break :blk postman.normalizeMethod(postman.str(request, "method"));
+        };
         self.rows.append(self.session.gpa, .{
             .path = path,
             .depth = depth,
             .kind = kind,
             .label = arena.dupe(u8, label) catch label,
-            .method = if (kind == .request) postman.normalizeMethod(postman.str(node.object.get("request").?, "method")) else "",
+            .method = method,
             .count = if (kind == .request) 0 else @intCast(@min(postman.itemCount(node), std.math.maxInt(u16))),
             .has_children = kind != .request,
             .expanded = self.isExpanded(path),

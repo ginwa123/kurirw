@@ -1007,6 +1007,27 @@ test "a collection row's card offers the runner, and the page runs what it plann
     try testing.expect(!h.app.vm().uiState().runner_open);
 }
 
+test "a runner is created from + New, drawn as its own row, and opens its page" {
+    const gpa = std.heap.page_allocator;
+    var scratch = try Scratch.make(gpa);
+    defer scratch.deinit(gpa);
+
+    var h = try Harness.boot(gpa, scratch.home);
+    defer h.stop(gpa);
+
+    try newMenu(&h, 0);
+    h.app.vm().addFlow();
+    // The tree now walks a runner: it must not read a `request` the item does not have (that was a panic).
+    h.driver.frame();
+    const view = h.app.vm().uiState();
+    try testing.expect(view.runner_open);
+    var marked = false;
+    for (view.rows) |row| {
+        if (std.mem.startsWith(u8, row.label, "~ ")) marked = true;
+    }
+    try testing.expect(marked);
+}
+
 test "dragging a request onto its sibling reorders the document" {
     const gpa = std.heap.page_allocator;
     var scratch = try Scratch.make(gpa);
