@@ -20,6 +20,11 @@ pub const curl_transfer = @import("domain/usecase/curl_transfer.zig");
 pub const container = @import("di/container.zig");
 pub const env = @import("domain/env.zig");
 pub const json_syntax = @import("domain/json_syntax.zig");
+pub const csv = @import("domain/csv.zig");
+pub const data_file = @import("domain/data_file.zig");
+pub const runner = @import("domain/runner.zig");
+pub const run_collection = @import("domain/usecase/run_collection.zig");
+pub const run_cli = @import("run_cli.zig");
 pub const code_editor = @import("ui/code_editor.zig");
 pub const env_view_model = @import("ui/env/view_model.zig");
 pub const editor_view_model = @import("ui/editor/view_model.zig");
@@ -63,4 +68,9 @@ comptime {
     _ = @import("data/local/env_store.zig");
     _ = @import("ui/env/view_model.zig");
     _ = @import("ui/env/screen.zig");
+    _ = @import("domain/csv.zig");
+    _ = @import("domain/data_file.zig");
+    _ = @import("domain/runner.zig");
+    _ = @import("domain/usecase/run_collection.zig");
+    _ = @import("run_cli.zig");
 }

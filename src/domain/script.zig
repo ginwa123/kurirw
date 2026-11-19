@@ -39,6 +39,14 @@ pub const Result = struct {
     failure: ?Diagnostic = null,
     // How many variables the script wrote, which is what the status line reports.
     sets: usize = 0,
+    // Every `test(...)` the script made, in order; the caller decides what a failed one means.
+    tests: []const Test = &.{},
+};
+
+// One assertion a script made: what it calls itself, and whether the condition held.
+pub const Test = struct {
+    name: []const u8 = "",
+    passed: bool = false,
 };
 
 // A value a script can hold: the five Lua primitives plus a node of the response's JSON.
@@ -201,7 +209,7 @@ const Local = struct {
 const ScriptError = error{ Script, OutOfMemory, Unterminated };
 
 // The calls a script may make, by the name it writes: a chain is joined with dots and looked up whole.
-const builtin_heads = [_][]const u8{ "pm", "print", "console" };
+const builtin_heads = [_][]const u8{ "pm", "print", "console", "test" };
 
 // No loops, so the only thing this bounds is a pathological paste.
 const max_steps: usize = 10_000;
@@ -216,6 +224,7 @@ const Interp = struct {
     logs: std.ArrayList(u8) = .empty,
     json_root: ?std.json.Value = null,
     sets: usize = 0,
+    tests: std.ArrayList(Test) = .empty,
     steps: usize = 0,
     call_line: u32 = 1,
     failure: ?Diagnostic = null,
@@ -481,7 +490,7 @@ const Interp = struct {
                 if (self.tok.tag != .name) return self.failAtt("expected a field name after '.'", .{});
                 const field = self.tok.text;
                 try self.advance();
-                if (self.tok.isSymbol("(")) return self.failAtt("'{s}' is not a call; only pm.* and print can be called", .{field});
+                if (self.tok.isSymbol("(")) return self.failAtt("'{s}' is not a call; only pm.*, print and test can be called", .{field});
                 if (exec) value = try self.fieldOf(value, field);
                 continue;
             }
@@ -589,6 +598,7 @@ const Interp = struct {
 
     fn call(self: *Interp, name: []const u8, args: []const Value) ScriptError!Value {
         if (std.mem.eql(u8, name, "print") or std.mem.eql(u8, name, "console.log")) return self.print(args);
+        if (std.mem.eql(u8, name, "test")) return self.recordTest(args);
         if (std.mem.eql(u8, name, "pm.response.json")) {
             if (args.len != 0) return self.failCall("pm.response.json() takes no arguments", .{});
             return self.responseJson();
@@ -626,6 +636,14 @@ const Interp = struct {
             try self.logs.appendSlice(self.arena, try self.toText(args[i]));
         }
         try self.logs.append(self.arena, '\n');
+        return .nil;
+    }
+
+    // `test("status is 200", pm.response.code == 200)`: one assertion, kept so a run can be judged by it.
+    fn recordTest(self: *Interp, args: []const Value) ScriptError!Value {
+        if (args.len != 2) return self.failCall("test takes a name and a condition", .{});
+        const label = try self.toText(args[0]);
+        try self.tests.append(self.arena, .{ .name = label, .passed = truthy(args[1]) });
         return .nil;
     }
 
@@ -748,9 +766,9 @@ pub fn run(arena: Allocator, source: []const u8, response: ?Response, host: Host
             .line = interp.tok.line,
             .message = if (err == error.OutOfMemory) "not enough memory to run this script" else "the script could not run",
         };
-        return .{ .logs = interp.logs.items, .failure = failure, .sets = interp.sets };
+        return .{ .logs = interp.logs.items, .failure = failure, .sets = interp.sets, .tests = interp.tests.items };
     };
-    return .{ .logs = interp.logs.items, .sets = interp.sets };
+    return .{ .logs = interp.logs.items, .sets = interp.sets, .tests = interp.tests.items };
 }
 
 // What a caller prints under the field: one line a person can act on.

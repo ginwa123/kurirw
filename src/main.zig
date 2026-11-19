@@ -8,6 +8,12 @@ const version = @import("version.zig");
 pub fn main(init: std.process.Init) !void {
     const gpa = init.gpa;
 
+    // `kurirw run …` sends a collection and writes a report, with no window: what a build runs.
+    if (kurirw.run_cli.wants(init.minimal.args, gpa)) {
+        const code = kurirw.run_cli.run(init) catch 2;
+        std.process.exit(if (code == 0) 0 else code);
+    }
+
     // `kurirw --version` answers without a window, which is how the installer says what it installed.
     if (wantsVersion(init.minimal.args, gpa)) {
         // stdout, because a version is output: a script captures it without touching its error handling.
