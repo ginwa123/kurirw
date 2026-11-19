@@ -367,6 +367,8 @@ pub const Session = struct {
 
     pub fn kind(node: Value) state_mod.NodeKind {
         if (postman.isCollection(node)) return .collection;
+        // A runner is a leaf like a request, but it opens its own page instead of the editor.
+        if (postman.isFlow(node)) return .request;
         if (postman.isRequest(node)) return .request;
         return .folder;
     }

@@ -16,10 +16,7 @@ pub const max_method_len: usize = 8;
 
 // ---- reading -------------------------------------------------------------------------------------------------
 
-// A collection is the object Postman puts `info` on; that is the only thing that tells it apart from a folder.
-// ---- a code runner: a saved program, beside the requests of its collection ------------------------------
-
-// The key a runner's program lives under. An item WITH a `flow` is a runner, and has no `request` at all.
+// A code runner is an item with `flow` (its program) and no `request`: it is run, never sent.
 pub const flow_key = "flow";
 pub const flow_format = "kurir/flow@1";
 

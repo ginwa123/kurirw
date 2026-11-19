@@ -328,8 +328,29 @@ pub const KurirViewModel = struct {
             2 => self.addFolder(),
             3 => self.importCollection(),
             4 => self.addRequestFromCurl(),
+            5 => self.addFlow(),
             else => {},
         }
+    }
+
+    // A code runner is created inside the selected collection, so export carries it with its requests.
+    pub fn addFlow(self: *KurirViewModel) void {
+        if (store.collectionCount(self.session.doc, self.session.workspace) == 0) {
+            return self.session.failNow("Add a collection first: a runner lives inside one.");
+        }
+        const collection_index: usize = if (self.session.selection) |path| path.segments[0] else 0;
+        const collection = store.collectionPtr(&self.session.doc, self.session.workspace, collection_index) orelse
+            return self.session.failNow("That collection is gone.");
+        const arena = self.session.docArena();
+        const item = postman.newFlow(arena, "Runner", "send \"\"\n") catch
+            return self.session.failNow("Not enough memory for a runner.");
+        const index = postman.appendChild(arena, collection, item) catch
+            return self.session.failNow("Not enough memory for a runner.");
+        const path = Path.empty.child(@intCast(collection_index)).child(@intCast(index));
+        self.session.selection = path;
+        self.session.markDirty(path);
+        self.runner.openFlow(path);
+        self.session.setStatus(false, "Runner created. Add a send, then press Run.", .{});
     }
 
     pub fn toggleWorkspaceMenu(self: *KurirViewModel) void {
@@ -357,6 +378,13 @@ pub const KurirViewModel = struct {
 
     pub fn select(self: *KurirViewModel, path: Path) void {
         self.sidebar.select(path);
+        // A saved runner is not a request: selecting it opens its page instead of the editor.
+        if (self.session.nodeAt(path)) |node| {
+            if (postman.isFlow(node.*)) {
+                self.runner.openFlow(path);
+                return;
+            }
+        }
         self.editor.load();
         // A different endpoint means a different result: no history row survives the move.
         self.response.clearPin();

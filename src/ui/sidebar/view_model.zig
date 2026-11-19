@@ -33,7 +33,7 @@ pub const ws_list_id = "kurir.ws.options";
 pub const ws_panel_id = "kurir.ws.panel";
 
 // The two menus' rows, in declaration order: a pick joins the row's index to the intent it raises.
-pub const new_rows = [_][]const u8{ "Collection", "Request", "Folder", "Import", "From cURL" };
+pub const new_rows = [_][]const u8{ "Collection", "Request", "Folder", "Import", "From cURL", "Runner" };
 // What a request row offers on a right click, in the order `pickRowMenu` switches on.
 pub const row_menu_items = [_][]const u8{ "Rename", "Duplicate", "Delete", "Run this request..." };
 // What a collection or folder row offers: the runner first, then the same three a request has.

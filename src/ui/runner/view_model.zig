@@ -75,6 +75,10 @@ pub const Runner = struct {
     done: usize = 0,
     total_ms: u64 = 0,
     job: ?Pending = null,
+    // The document item this page is bound to, when it was opened from a saved runner.
+    flow_path: ?Path = null,
+    // True while the program is being read from the document, so reading does not write it back.
+    loading: bool = false,
     note: [160]u8 = undefined,
     note_len: usize = 0,
     // Which row a box's children callback is drawing, and which cell of it (the callback gets only the scope).
@@ -112,6 +116,21 @@ pub const Runner = struct {
 
     // ---- the program ------------------------------------------------------------------------------------
 
+    // A saved runner, opened from its row: the document is the source of the program.
+    pub fn openFlow(self: *Runner, path: Path) void {
+        const node = self.session.nodeAt(path) orelse return;
+        if (!postman.isFlow(node.*)) return;
+        self.flow_path = path;
+        self.open = true;
+        self.phase = .idle;
+        self.reset();
+        self.loading = true;
+        self.setFlow(postman.flowOf(node.*));
+        self.loading = false;
+        self.session.setStatus(false, "Runner open: {d} steps.", .{self.steps.len});
+        self.session.touch();
+    }
+
     // Open the page. A request row seeds one `send`; a collection or folder seeds every request under it.
     pub fn openAt(self: *Runner, path: Path) void {
         const node = self.session.nodeAt(path) orelse return self.session.failNow("That row is gone. Right-click it again.");
@@ -144,6 +163,16 @@ pub const Runner = struct {
         @memcpy(self.flow_buf[0..length], text[0..length]);
         self.flow_len = length;
         self.reparse();
+        // A page bound to a saved runner writes every edit back to the document; Ctrl+S then saves it.
+        if (!self.loading) self.persistFlow();
+    }
+
+    // The program goes back into the item it came from, marked unsaved like any other edit.
+    fn persistFlow(self: *Runner) void {
+        const path = self.flow_path orelse return;
+        const node = self.session.nodeAt(path) orelse return;
+        postman.setFlowSource(self.session.docArena(), node, self.flow_buf[0..self.flow_len]) catch return;
+        self.session.markDirty(path);
     }
 
     fn reparse(self: *Runner) void {
@@ -426,6 +455,8 @@ pub const Runner = struct {
             .tests_total = tests.len,
         }, error_text);
         self.next_at_ns = if (pending.step.delay_ms > 0) nowNs(self.session.io) + @as(i96, pending.step.delay_ms) * 1_000_000 else 0;
+        // The next step needs a frame of its own, so the pump stays on until the run is over.
+        self.pump.set(true);
     }
 
     fn pushRow(self: *Runner, row: state_mod.RunnerRow, error_text: []const u8) void {
