@@ -304,6 +304,16 @@ pub fn onRunnerAddSend(ctx: ?*anyopaque) void {
     vm.runnerAddSend();
 }
 
+pub fn onRunnerPick(ctx: ?*anyopaque) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.runnerTogglePicker();
+}
+
+pub fn onRunnerEndpoint(ctx: ?*anyopaque, index: usize) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.runnerPickEndpoint(index);
+}
+
 pub fn onRunnerAddTest(ctx: ?*anyopaque) void {
     const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
     vm.runnerAddTest();

@@ -1,10 +1,13 @@
 //! The runner page's model: a Playwright spec, the tests it lists, and the rows one run produced.
 const std = @import("std");
 const glinlandui = @import("glinlandui");
+const frame = glinlandui.frame;
 
 const postman = @import("../../data/model/postman.zig");
+const requests_map = @import("../../data/model/requests_map.zig");
 const pw_run = @import("../../data/local/pw_run.zig");
 const env_mod = @import("../../domain/env.zig");
+const ref_mod = @import("../../domain/request_ref.zig");
 const spec_mod = @import("../../domain/spec.zig");
 
 const state_mod = @import("../state.zig");
@@ -21,6 +24,9 @@ pub const page_id = "kurir.runner.page";
 pub const run_id = "kurir.runner.run";
 pub const stop_id = "kurir.runner.stop";
 pub const send_id = "kurir.runner.add.send";
+pub const pick_id = "kurir.runner.pick";
+pub const pick_list_id = "kurir.runner.pick.options";
+pub const pick_menu_id = "kurir.runner.pick.menu";
 pub const test_id = "kurir.runner.add.test";
 pub const code_id = "kurir.runner.code";
 pub const spec_field_id = "kurir.runner.spec";
@@ -47,6 +53,10 @@ pub const Runner = struct {
     arena: std.heap.ArenaAllocator = undefined,
     // Where Playwright was found: kept apart, because a re-parse of the spec must not free these paths.
     install_arena: std.heap.ArenaAllocator = undefined,
+    // The refs the endpoint picker lists: its own arena, so a spec edit cannot free a menu that is open.
+    pick_arena: std.heap.ArenaAllocator = undefined,
+    picks: []const []const u8 = &.{},
+    picker_open: bool = false,
     // The spec text of the bound runner: the document is the source, this is its buffer for the frame.
     flow_buf: [flow_cap]u8 = undefined,
     flow_len: usize = 0,
@@ -78,6 +88,7 @@ pub const Runner = struct {
         self.pump = pump;
         self.arena = .init(session.gpa);
         self.install_arena = .init(session.gpa);
+        self.pick_arena = .init(session.gpa);
         self.rows = undefined;
         self.flow_len = 0;
         self.started = true;
@@ -89,6 +100,7 @@ pub const Runner = struct {
         self.job = null;
         self.arena.deinit();
         self.install_arena.deinit();
+        self.pick_arena.deinit();
         // The roots were built for this run of the app, so it gives them back.
         if (self.roots.len > 0) {
             for (self.roots) |root| self.session.gpa.free(root);
@@ -111,6 +123,7 @@ pub const Runner = struct {
         self.open = true;
         self.phase = .idle;
         self.code_open = false;
+        self.picker_open = false;
         self.reset();
         self.pump.set(false);
         self.loading = true;
@@ -157,8 +170,20 @@ pub const Runner = struct {
 
     // Our own text with a block appended, which is what a button on the page does.
     fn appendText(self: *Runner, block: []const u8) void {
+        self.appendBlock("", block);
+    }
+
+    // The same, with the helper's import put on top when the spec does not name it yet.
+    fn appendRefTest(self: *Runner, block: []const u8) void {
+        const header = spec_mod.missingImport(self.session.gpa, self.source()) catch null;
+        defer if (header) |text| self.session.gpa.free(text);
+        self.appendBlock(header orelse "", block);
+    }
+
+    fn appendBlock(self: *Runner, header: []const u8, block: []const u8) void {
         var text: std.ArrayList(u8) = .empty;
         defer text.deinit(self.session.gpa);
+        text.appendSlice(self.session.gpa, header) catch return;
         text.appendSlice(self.session.gpa, self.source()) catch return;
         if (text.items.len > 0 and text.items[text.items.len - 1] != '\n') text.append(self.session.gpa, '\n') catch return;
         if (text.items.len > 0) text.append(self.session.gpa, '\n') catch return;
@@ -166,16 +191,91 @@ pub const Runner = struct {
         self.setFlow(text.items);
     }
 
-    // A request chosen in the tree becomes one more test at the end of the spec.
+    // A request chosen in the tree becomes one more test: the test NAMES it, so the URL stays in the collection.
     pub fn addSend(self: *Runner) void {
         const node = self.session.selectedNode() orelse return self.session.failNow("Select a request in the tree first.");
         if (!postman.isRequest(node.*)) return self.session.failNow("Select a request, not a folder or a runner.");
-        const request = node.object.get("request") orelse return self.session.failNow("That row is not a request.");
-        const block = spec_mod.requestTest(self.session.gpa, Session.name(node.*), postman.str(request, "method"), postman.urlRaw(request)) catch
+        const ref = self.selectedRef(self.session.gpa) orelse return self.session.failNow("That row has no name a test can point at.");
+        defer self.session.gpa.free(ref);
+        self.addSendRef(ref, Session.name(node.*));
+    }
+
+    // ---- naming an endpoint from the page ---------------------------------------------------------------
+
+    // The endpoint menu: every saved request of the workspace, by the ref a test would write.
+    pub fn togglePicker(self: *Runner) void {
+        self.picker_open = !self.picker_open;
+        if (self.picker_open) self.refreshPicks();
+        self.session.touch();
+    }
+
+    pub fn closePicker(self: *Runner) void {
+        if (!self.picker_open) return;
+        self.picker_open = false;
+        self.session.touch();
+    }
+
+    // No scrim on the card: it closes when the pointer leaves its button and the card as one box.
+    pub fn closePickerIfPointerAway(self: *Runner) void {
+        if (!self.picker_open) return;
+        const trigger = frame.bounds(frame.clayId(pick_id)) orelse return;
+        const card = frame.bounds(frame.clayId(pick_menu_id)) orelse return;
+        const left = @min(trigger.x, card.x);
+        const top = @min(trigger.y, card.y);
+        const right = @max(trigger.x + trigger.width, card.x + card.width);
+        const bottom = @max(trigger.y + trigger.height, card.y + card.height);
+        if (frame.ptr_x >= left and frame.ptr_x <= right and frame.ptr_y >= top and frame.ptr_y <= bottom) return;
+        self.picker_open = false;
+        self.session.touch();
+    }
+
+    // One menu row picked: its ref becomes a test at the end of the spec.
+    pub fn pickEndpoint(self: *Runner, index: usize) void {
+        if (index >= self.picks.len) return;
+        const ref = self.picks[index];
+        self.picker_open = false;
+        self.addSendRef(ref, refName(ref));
+    }
+
+    // A test for a saved request, named by the ref the run will resolve.
+    fn addSendRef(self: *Runner, ref: []const u8, name: []const u8) void {
+        const block = spec_mod.requestTest(self.session.gpa, name, ref) catch
             return self.session.failNow("Not enough memory to add a test.");
         defer self.session.gpa.free(block);
-        self.appendText(block);
-        self.session.setStatus(false, "Added a test for {s}.", .{Session.name(node.*)});
+        self.appendRefTest(block);
+        self.session.setStatus(false, "Added a test for {s}.", .{ref});
+    }
+
+    // The menu's rows: the workspace's requests, in tree order, capped to what a menu can show.
+    fn refreshPicks(self: *Runner) void {
+        _ = self.pick_arena.reset(.retain_capacity);
+        const refs = requests_map.refs(self.pick_arena.allocator(), self.session.doc, self.session.workspace) catch &.{};
+        self.picks = refs[0..@min(refs.len, state_mod.max_runner_picks)];
+    }
+
+    // The name a ref ends with: the request's own name, which is what its test is called.
+    fn refName(ref: []const u8) []const u8 {
+        const slash = std.mem.lastIndexOfScalar(u8, ref, '/') orelse return ref;
+        return ref[slash + 1 ..];
+    }
+
+    // The ref of the selected row: its collection, any folders, and its own name, joined by '/'.
+    fn selectedRef(self: *Runner, arena: Allocator) ?[]const u8 {
+        const path = self.session.selection orelse return null;
+        var parts: std.ArrayList([]const u8) = .empty;
+        defer parts.deinit(arena);
+        var level: usize = 0;
+        var current = Path.empty;
+        while (level < path.depth) : (level += 1) {
+            const index = path.at(level) orelse return null;
+            current = current.child(index);
+            const node = self.session.nodeAt(current) orelse return null;
+            const name = requests_map.nameOf(node.*);
+            if (name.len == 0) return null;
+            parts.append(arena, name) catch return null;
+        }
+        if (parts.items.len == 0) return null;
+        return ref_mod.join(arena, parts.items) catch null;
     }
 
     // An empty test to fill in: the button that says "write it yourself".
@@ -207,6 +307,8 @@ pub const Runner = struct {
         const node = self.session.nodeAt(path) orelse return "";
         var text: std.ArrayList(u8) = .empty;
         var walker = Seeder{ .arena = arena, .text = &text };
+        // The row's own ancestors are part of every ref under it, so the walk starts with them.
+        walker.ancestors(self.session, path);
         walker.walk(node.*, 0);
         return text.items;
     }
@@ -214,23 +316,46 @@ pub const Runner = struct {
     const Seeder = struct {
         arena: Allocator,
         text: *std.ArrayList(u8),
+        // The names from the row down to the one being written: that path IS the ref a test names.
+        names: std.ArrayList([]const u8) = .empty,
+
+        // The names ABOVE the row the seeding started at, so a request deep in a collection keeps its collection.
+        fn ancestors(self: *Seeder, session: *Session, path: Path) void {
+            var level: usize = 0;
+            var current = Path.empty;
+            while (level + 1 < path.depth) : (level += 1) {
+                const index = path.at(level) orelse return;
+                current = current.child(index);
+                const node = session.nodeAt(current) orelse return;
+                const name = requests_map.nameOf(node.*);
+                if (name.len == 0) return;
+                self.names.append(self.arena, name) catch return;
+            }
+        }
 
         fn walk(self: *Seeder, node: postman.Value, depth: usize) void {
+            if (postman.isFlow(node)) return;
+            const name = requests_map.nameOf(node);
             if (postman.isRequest(node)) {
-                const request = node.object.get("request") orelse return;
-                const block = spec_mod.requestTest(self.arena, postman.str(node, "name"), postman.str(request, "method"), postman.urlRaw(request)) catch return;
+                if (name.len == 0) return;
+                self.names.append(self.arena, name) catch return;
+                const ref = ref_mod.join(self.arena, self.names.items) catch "";
+                _ = self.names.pop();
+                const block = spec_mod.requestTest(self.arena, name, ref) catch return;
                 self.text.appendSlice(self.arena, block) catch return;
                 self.text.append(self.arena, '\n') catch return;
                 return;
             }
             // A folder is walked by the same rule; a tree deeper than this is not a page's worth of tests.
             if (depth > 6) return;
+            if (name.len > 0) self.names.append(self.arena, name) catch return;
             var index: usize = 0;
             const count = postman.itemCount(node);
             while (index < count) : (index += 1) {
                 const item = postman.itemAt(node, index) orelse continue;
                 self.walk(item, depth + 1);
             }
+            if (name.len > 0) _ = self.names.pop();
         }
     };
 
@@ -264,7 +389,9 @@ pub const Runner = struct {
         var arena_state = std.heap.ArenaAllocator.init(gpa);
         defer arena_state.deinit();
         const arena = arena_state.allocator();
-        const prepared = pw_run.writeRun(arena, self.session.io, install, self.source(), self.baseUrl()) catch |err|
+        // The requests a test can name are written beside the spec, so the run never carries a stale URL.
+        const requests_json = requests_map.build(arena, self.session.doc, self.session.workspace) catch "";
+        const prepared = pw_run.writeRun(arena, self.session.io, install, self.source(), self.baseUrl(), requests_json) catch |err|
             return self.session.fail("The runner's folder could not be written ({s}).", .{@errorName(err)});
 
         const job = pw_run.Job.create(gpa, self.session.io) catch
@@ -361,6 +488,7 @@ pub const Runner = struct {
         if (self.phase == .running or self.phase == .stopping) self.stop();
         self.open = false;
         self.code_open = false;
+        self.picker_open = false;
         self.session.touch();
     }
 
@@ -395,11 +523,29 @@ pub const Runner = struct {
         } else "";
         u.runner_flow = self.source();
         u.runner_code_open = self.code_open;
+        u.runner_picker_open = self.picker_open;
+        u.runner_picks = self.picks;
         u.runner_engine = self.engine();
         u.runner_error = "";
 
         const tests: []state_mod.RunnerTest = arena.alloc(state_mod.RunnerTest, self.tests.len) catch &.{};
-        for (self.tests, tests) |one, *row| row.* = .{ .name = one.name, .line = one.line };
+        // Each row also says which saved request its test names, and warns when that name is gone.
+        const candidates = requests_map.refs(arena, self.session.doc, self.session.workspace) catch &.{};
+        const sites = ref_mod.parse(arena, self.source()) catch &.{};
+        for (self.tests, tests, 0..) |one, *row, index| {
+            const end = if (index + 1 < self.tests.len) self.tests[index + 1].line else std.math.maxInt(usize);
+            var ref: []const u8 = "";
+            for (sites) |site| {
+                if (site.line < one.line or site.line >= end) continue;
+                ref = site.text;
+                break;
+            }
+            const missing = ref.len > 0 and switch (ref_mod.resolve(candidates, ref)) {
+                .found => false,
+                else => true,
+            };
+            row.* = .{ .name = one.name, .line = one.line, .ref = ref, .missing = missing };
+        }
         u.runner_tests = tests;
 
         u.runner_iterations = "1";

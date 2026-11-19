@@ -995,9 +995,12 @@ test "a collection row's card seeds a runner ROOT, and the page runs what it pla
     try testing.expectEqualStrings("Request 1", opened.runner_tests[0].name);
     const seeded = kurirw.state.Path.empty.child(1);
     try testing.expect(kurirw.postman.isFlow(h.app.vm().session.nodeAt(seeded).?.*));
-    // The spec itself is the seeded program, and its requests carry the address they were saved with.
+    // The spec NAMES the request (`collection/name`), so the run resolves its URL, headers and body itself.
     try testing.expect(std.mem.indexOf(u8, opened.runner_flow, "test('Request 1'") != null);
-    try testing.expect(std.mem.indexOf(u8, opened.runner_flow, "request.get('https://api.test/run')") != null);
+    try testing.expect(std.mem.indexOf(u8, opened.runner_flow, "send(request, '") != null);
+    try testing.expect(std.mem.indexOf(u8, opened.runner_flow, "/Request 1')") != null);
+    try testing.expect(std.mem.indexOf(u8, opened.runner_flow, "import { send } from '../kurir/index';") != null);
+    try testing.expect(std.mem.indexOf(u8, opened.runner_flow, "request.get(") == null);
     // The collection itself is untouched: the runner holds no `item` and the collection gained none.
     try testing.expectEqual(@as(usize, 2), kurirw.postman.itemCount(h.app.vm().session.nodeAt(collection).?.*));
 

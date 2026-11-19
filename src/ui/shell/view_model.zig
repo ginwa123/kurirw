@@ -243,6 +243,7 @@ pub const KurirViewModel = struct {
         // Neither menu has a scrim: each panel closes its own when the pointer leaves it, read from the last frame.
         self.editor.closeIfPointerAway();
         self.sidebar.closeMenusIfPointerAway();
+        self.runner.closePickerIfPointerAway();
         if (self.session.dirty) self.refresh();
         self.view.sidebar_width = self.sidebar.width();
         self.view.sidebar_collapsed = self.sidebar.state.collapsed;
@@ -367,6 +368,10 @@ pub const KurirViewModel = struct {
         var source: []const u8 = "";
         if (seed) |path| source = self.runner.seedFrom(arena, path);
         if (source.len == 0) source = spec_mod.starter(arena) catch "";
+        // A seeded spec names saved requests, so it needs the helper's import before its first test.
+        if (source.len > 0) {
+            if (spec_mod.missingImport(arena, source) catch null) |with_import| source = with_import;
+        }
         const name = self.nextRunnerName(arena);
         const item = postman.newFlow(arena, name, source) catch
             return self.session.failNow("Not enough memory for a runner.");
@@ -777,6 +782,15 @@ pub const KurirViewModel = struct {
     // The page's two insert buttons: a test for the selected request, or an empty one to write yourself.
     pub fn runnerAddSend(self: *KurirViewModel) void {
         self.runner.addSend();
+    }
+
+    // The endpoint menu: every saved request, by the ref a test writes.
+    pub fn runnerTogglePicker(self: *KurirViewModel) void {
+        self.runner.togglePicker();
+    }
+
+    pub fn runnerPickEndpoint(self: *KurirViewModel, index: usize) void {
+        self.runner.pickEndpoint(index);
     }
 
     pub fn runnerAddTest(self: *KurirViewModel) void {
@@ -1464,6 +1478,36 @@ test "a runner opens a tab beside the requests, and picking either tab swaps the
     try testing.expect(!h.state().runner_open);
     try testing.expectEqual(@as(usize, 1), h.state().tabs.len);
     try testing.expect(!h.vm.runner.isBoundTo(state_mod.Path.empty.child(1)));
+}
+
+test "an endpoint picked from the runner's menu becomes a test that names its ref" {
+    var h = try Harness.boot();
+    defer h.stop();
+
+    h.vm.addCollection();
+    h.vm.addRequest();
+    h.vm.addFlow();
+
+    // The menu lists every saved request of the workspace by the ref a test would write.
+    h.vm.runnerTogglePicker();
+    const picks = h.state().runner_picks;
+    try testing.expectEqual(@as(usize, 1), picks.len);
+    try testing.expect(std.mem.endsWith(u8, picks[0], "/Request 1"));
+
+    // Picking a row appends a test that NAMES it, and the import the helper needs comes with it.
+    h.vm.runnerPickEndpoint(0);
+    const state = h.state();
+    try testing.expect(!state.runner_picker_open);
+    try testing.expect(std.mem.indexOf(u8, state.runner_flow, "send(request, '") != null);
+    try testing.expect(std.mem.indexOf(u8, state.runner_flow, "/Request 1')") != null);
+    try testing.expect(std.mem.indexOf(u8, state.runner_flow, "import { send } from '../kurir/index';") != null);
+    // The row says which request it names, and that name exists in this workspace.
+    const tests = state.runner_tests;
+    try testing.expect(tests.len > 0);
+    const last = tests[tests.len - 1];
+    try testing.expectEqualStrings("Request 1", last.name);
+    try testing.expect(std.mem.endsWith(u8, last.ref, "/Request 1"));
+    try testing.expect(!last.missing);
 }
 
 const QuitProbe = struct {

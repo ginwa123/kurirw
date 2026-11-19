@@ -2,6 +2,7 @@
 const std = @import("std");
 
 const postman = @import("data/model/postman.zig");
+const requests_map = @import("data/model/requests_map.zig");
 const store_mod = @import("data/local/workspace_store.zig");
 const env_store = @import("data/local/env_store.zig");
 const http_mod = @import("data/remote/http_client.zig");
@@ -167,7 +168,7 @@ fn runSavedRunner(
         if (variable.name.len == 0) continue;
         pairs.append(arena, .{ .name = variable.name, .value = env_mod.value(variable) }) catch break;
     }
-    const report_out = pw_run.runNow(arena, io, install, postman.flowOf(found.node), baseUrlOf(vars.items.items), environ, pairs.items);
+    const report_out = pw_run.runNow(arena, io, install, postman.flowOf(found.node), baseUrlOf(vars.items.items), requests_map.build(arena, doc, workspace) catch "", environ, pairs.items);
     if (report_out.failure.len > 0) return bad(arena, io, report_out.failure);
     const json = try pw_run.reportJson(arena, found.name, report_out);
 

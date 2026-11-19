@@ -295,6 +295,9 @@ pub const UiState = struct {
     // The tests the spec declares, by name and line: the FLOW list, and whether it is showing the code instead.
     runner_tests: []const RunnerTest = &.{},
     runner_code_open: bool = false,
+    // The endpoint menu the page hangs from its `+ Endpoint` button: the refs it lists, row by row.
+    runner_picker_open: bool = false,
+    runner_picks: []const []const u8 = &.{},
     // Where Playwright was found ("playwright: <path>"), or why it was not.
     runner_engine: []const u8 = "",
     runner_error: []const u8 = "",
@@ -316,6 +319,8 @@ pub const UiState = struct {
 
 // How many rows the runner's table keeps: the newest this many requests of one run.
 pub const max_runner_rows: usize = 256;
+// How many endpoints the runner's picker lists: a menu longer than this is a scroll, not a menu.
+pub const max_runner_picks: usize = 64;
 
 // Where a run is between its first request and its last.
 pub const RunnerPhase = enum { idle, running, stopping, finished, stopped };
@@ -336,6 +341,10 @@ pub const RunnerRow = struct {
 pub const RunnerTest = struct {
     name: []const u8 = "",
     line: usize = 1,
+    // The saved request this test names with `send(request, '…')`: the row prints it under the name.
+    ref: []const u8 = "",
+    // That ref names nothing in the workspace any more (renamed or deleted), so the run would fail.
+    missing: bool = false,
 };
 
 // One request of the plan, as the left list draws it: a tick box and a name.

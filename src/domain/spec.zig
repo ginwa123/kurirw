@@ -80,11 +80,15 @@ fn unescape(arena: Allocator, raw: []const u8) Allocator.Error![]const u8 {
 
 // ---- writing -------------------------------------------------------------------------------------------------
 
+// The import a test that names a saved request needs. The generator adds it once, and never twice.
+pub const helper_import = "import { send } from '../kurir/index';";
+
 // The starter a new runner holds: a comment that says where the environment goes, and one test to edit.
 pub fn starter(arena: Allocator) Allocator.Error![]u8 {
     return arena.dupe(u8,
         \\// A Playwright spec. The FLOW list shows every test('…') below, and Run executes them all.
-        \\// `request` is Playwright's API client; the active environment's variables are `process.env.<NAME>`.
+        \\// `+ Endpoint` writes a test that NAMES a saved request: `send(request, 'collection/request')`.
+        \\// The active environment's variables are `process.env.<NAME>`, and `{{name}}` in the saved request.
         \\import { test, expect } from '@playwright/test';
         \\
         \\test('first test', async ({ request }) => {
@@ -95,39 +99,23 @@ pub fn starter(arena: Allocator) Allocator.Error![]u8 {
     );
 }
 
-// One test built from a saved request: its method, its URL, and an assertion that the call did not fail.
-pub fn requestTest(arena: Allocator, name: []const u8, method: []const u8, url: []const u8) Allocator.Error![]u8 {
+// One test built from a saved request: the ref it names, which the helper resolves when the run starts.
+pub fn requestTest(arena: Allocator, name: []const u8, ref: []const u8) Allocator.Error![]u8 {
     var out: std.ArrayList(u8) = .empty;
-    const verb = verbOf(method);
     try out.appendSlice(arena, "test('");
     try quoted(arena, &out, name);
-    try out.appendSlice(arena, "', async ({ request }) => {\n");
-    if (verb) |call| {
-        try out.appendSlice(arena, "  const r = await request.");
-        try out.appendSlice(arena, call);
-        try out.appendSlice(arena, "('");
-        try quoted(arena, &out, url);
-        try out.appendSlice(arena, "');\n");
-    } else {
-        // A verb with no shorthand on APIRequestContext goes through fetch, with the method spelled out.
-        try out.appendSlice(arena, "  const r = await request.fetch('");
-        try quoted(arena, &out, url);
-        try out.appendSlice(arena, "', { method: '");
-        try out.appendSlice(arena, method);
-        try out.appendSlice(arena, "' });\n");
-    }
-    try out.appendSlice(arena, "  expect(r.ok()).toBeTruthy();\n});\n");
-    return out.items;
+    try out.appendSlice(arena, "', async ({ request }) => {\n  const r = await send(request, '");
+    try quoted(arena, &out, ref);
+    try out.appendSlice(arena, "');\n  expect(r.ok()).toBeTruthy();\n});\n");
+    // Owned, not `items`: a caller frees this, and an ArrayList's buffer is bigger than its length.
+    return out.toOwnedSlice(arena);
 }
 
-// The APIRequestContext shorthand for a verb, or null when it has none.
-fn verbOf(method: []const u8) ?[]const u8 {
-    const verbs = [_][]const u8{ "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD" };
-    const calls = [_][]const u8{ "get", "post", "put", "patch", "delete", "head" };
-    for (verbs, calls) |verb, call| {
-        if (std.ascii.eqlIgnoreCase(method, verb)) return call;
-    }
-    return null;
+// The spec with the helper's import put on top, or null when it already has it: a test cannot name a ref without it.
+pub fn missingImport(arena: Allocator, source: []const u8) Allocator.Error!?[]const u8 {
+    if (std.mem.indexOf(u8, source, "'../kurir/index'") != null) return null;
+    if (std.mem.indexOf(u8, source, "\"../kurir/index\"") != null) return null;
+    return try std.mem.concat(arena, u8, &.{ helper_import, "\n\n", source });
 }
 
 // Text inside a single-quoted JavaScript string: a quote or a backslash is escaped, and no newline survives.
@@ -192,21 +180,22 @@ test "a spec lists its tests by name and line, and a describe group is not one" 
     try testing.expectEqualStrings("skipped", variants[1].name);
 }
 
-test "a generated request test is a test the parser finds again" {
+test "a generated request test is a test the parser finds again, and it names a ref" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    const generated = try requestTest(arena, "it's ok", "GET", "http://127.0.0.1:8099/ok");
+    const generated = try requestTest(arena, "it's ok", "billing/ok");
     const tests = try parse(arena, generated);
     try testing.expectEqual(@as(usize, 1), tests.len);
     try testing.expectEqualStrings("it's ok", tests[0].name);
-    try testing.expect(std.mem.indexOf(u8, generated, "request.get('http://127.0.0.1:8099/ok')") != null);
-    try testing.expect(std.mem.indexOf(u8, generated, "expect(r.ok()).toBeTruthy()") != null);
+    // The test carries a NAME, not a URL: the run resolves it against the saved collection.
+    try testing.expect(std.mem.indexOf(u8, generated, "send(request, 'billing/ok')") != null);
+    try testing.expect(std.mem.indexOf(u8, generated, "request.get(") == null);
 
-    // A verb without a shorthand goes through fetch, and OPTIONS keeps its own spelling.
-    const options = try requestTest(arena, "preflight", "OPTIONS", "https://api.test/a");
-    try testing.expect(std.mem.indexOf(u8, options, "request.fetch('https://api.test/a', { method: 'OPTIONS' })") != null);
+    // The helper's import is added once, and a spec that already has it is left alone.
+    try testing.expectEqualStrings(helper_import, (try missingImport(arena, "test('x', async () => {});")).?[0..helper_import.len]);
+    try testing.expect(try missingImport(arena, "import { send } from '../kurir/index';\n") == null);
 }
 
 test "the starter is a spec with one test a person can edit" {
@@ -219,4 +208,6 @@ test "the starter is a spec with one test a person can edit" {
     try testing.expectEqual(@as(usize, 1), tests.len);
     try testing.expectEqualStrings("first test", tests[0].name);
     try testing.expect(std.mem.indexOf(u8, text, "process.env") != null);
+    // The starter has no ref of its own, so it does not import the helper: + Endpoint adds it.
+    try testing.expect(try missingImport(arena, text) != null);
 }

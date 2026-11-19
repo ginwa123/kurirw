@@ -4,6 +4,7 @@ const glinlandui = @import("glinlandui");
 
 const box = glinlandui.components.box.box;
 const spacer = glinlandui.components.box.spacer;
+const dropdown = glinlandui.components.dropdown.dropdown;
 const textField = glinlandui.components.input.textField;
 const scroll = glinlandui.components.scroll.scroll;
 const label = glinlandui.components.text.label;
@@ -63,6 +64,41 @@ fn pageChildren(scope: *Scope) void {
     header(scope);
     body(scope);
     summary(scope);
+    endpointMenu(scope);
+}
+
+// The endpoint menu: the button is the anchor, its rows are the workspace's saved requests by ref.
+fn endpointMenu(scope: *Scope) void {
+    if (!scope.state.runner_picker_open) return;
+    const t = scope.theme;
+    dropdown(.{
+        .src = @src(),
+        .field_id = "kurir.runner.picker",
+        .list_id = runner_vm.pick_list_id,
+        .row_h = .{ .px = 26 },
+        .row_bg = t.colors.surface,
+        .row_fg = t.colors.text,
+        .hover_bg = t.colors.hover,
+        .border_width = .{ .px = 0 },
+        .radius = .{ .px = 0 },
+        .gap = .{ .px = 0 },
+        .font_size = t.type_scale.caption,
+        .on_select = .{ .f = actions.onRunnerEndpoint, .ctx = scope.vm },
+        .overlay = true,
+        .anchor_text = runner_vm.pick_id,
+        .overlay_id = runner_vm.pick_menu_id,
+        .overlay_bg = t.colors.surface_variant,
+        .overlay_pad = .{ .px = 4 },
+        .overlay_border_width = .{ .px = 1 },
+        .overlay_border_color = t.colors.divider,
+        .z_index = 20,
+    }, scope.state.runner_picks, t, plainRow);
+}
+
+// One row of a menu: the text it was given, in the menu's own type.
+fn plainRow(t: glinlandui.theme.Theme, item: []const u8, index: usize) void {
+    _ = index;
+    label(.{ .label = .{ .text = item, .size = t.type_scale.caption, .color = t.colors.text } });
 }
 
 fn header(scope: *Scope) void {
@@ -161,7 +197,7 @@ fn programBarChildren(scope: *Scope) void {
     const t = scope.theme;
     label(.{ .label = .{ .text = "FLOW", .size = t.type_scale.caption, .color = t.colors.text_done } });
     spacer(.{ .text = "kurir.runner.program.gap" });
-    smallButton(scope, runner_vm.send_id, "+ Send", 64, actions.onRunnerAddSend);
+    smallButton(scope, runner_vm.pick_id, "+ Endpoint", 84, actions.onRunnerPick);
     smallButton(scope, runner_vm.test_id, "+ Test", 64, actions.onRunnerAddTest);
     smallButton(scope, runner_vm.code_id, if (scope.state.runner_code_open) "Tests" else "Code", 64, actions.onRunnerCode);
 }
@@ -226,6 +262,14 @@ fn testRowChildren(ctx: *const TestRowCtx) void {
     const t = ctx.theme;
     label(.{ .label = .{ .text = "test", .size = t.type_scale.caption, .color = theme_mod.accent } });
     label(.{ .label = .{ .text = ctx.test_case.name, .size = t.type_scale.body, .color = t.colors.text } });
+    // The saved request the test names, and a warning when that name no longer exists in the workspace.
+    if (ctx.test_case.ref.len > 0) {
+        label(.{ .label = .{
+            .text = if (ctx.test_case.missing) frame.formatText("missing: {s}", .{ctx.test_case.ref}) else ctx.test_case.ref,
+            .size = t.type_scale.caption,
+            .color = if (ctx.test_case.missing) theme_mod.danger else t.colors.text_done,
+        } });
+    }
     spacer(.{ .text = frame.elementId("kurir.runner.test.fill", ctx.index) });
     label(.{ .label = .{
         .text = frame.formatText("line {d}", .{ctx.test_case.line}),
