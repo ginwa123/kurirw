@@ -300,5 +300,21 @@ pub fn onRunnerData(ctx: ?*anyopaque) void {
 }
 
 pub fn onRunnerStep(ctx: ?*anyopaque) void {
-    runner_vm.Runner.onStep(ctx);
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.runnerAddSend();
+}
+
+pub fn onRunnerAddSend(ctx: ?*anyopaque) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.runnerAddSend();
+}
+
+pub fn onRunnerAddDelay(ctx: ?*anyopaque) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.runnerAddDelay();
+}
+
+pub fn onRunnerLoop(ctx: ?*anyopaque) void {
+    const vm: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
+    vm.runnerLoop();
 }

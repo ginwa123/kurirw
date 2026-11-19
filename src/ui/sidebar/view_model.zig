@@ -35,7 +35,7 @@ pub const ws_panel_id = "kurir.ws.panel";
 // The two menus' rows, in declaration order: a pick joins the row's index to the intent it raises.
 pub const new_rows = [_][]const u8{ "Collection", "Request", "Folder", "Import", "From cURL" };
 // What a request row offers on a right click, in the order `pickRowMenu` switches on.
-pub const row_menu_items = [_][]const u8{ "Rename", "Duplicate", "Delete" };
+pub const row_menu_items = [_][]const u8{ "Rename", "Duplicate", "Delete", "Run this request..." };
 // What a collection or folder row offers: the runner first, then the same three a request has.
 pub const run_menu_items = [_][]const u8{ "Run collection...", "Rename", "Duplicate", "Delete" };
 // The workspace menu's rows, in the order `onWsPick` switches on.
@@ -527,12 +527,10 @@ pub const Sidebar = struct {
     pub fn pickRowMenu(self: *Sidebar, row_index: usize, action: usize) void {
         const path = self.rowAt(row_index) orelse return self.session.failNow("That row is gone. Right-click it again.");
         const node = self.session.nodeAt(path) orelse return self.session.failNow("That request is gone. Right-click it again.");
-        // A container runs the collection or folder under it; a request keeps the three it always had.
+        // A request runs as a flow seeded with its own name; a container seeds every request under it.
         if (!postman.isRequest(node.*)) {
             switch (action) {
-                0 => {
-                    if (self.run.f) |run| run(self.run.ctx, path);
-                },
+                0 => self.runFrom(path),
                 1 => self.renameAt(path),
                 2 => self.duplicateAt(path),
                 else => self.deleteAt(path),
@@ -542,8 +540,14 @@ pub const Sidebar = struct {
         switch (action) {
             0 => self.renameAt(path),
             1 => self.duplicateAt(path),
-            else => self.deleteAt(path),
+            2 => self.deleteAt(path),
+            else => self.runFrom(path),
         }
+    }
+
+    // The runner lives in the shell; the card only says which row was asked for.
+    fn runFrom(self: *Sidebar, path: Path) void {
+        if (self.run.f) |run| run(self.run.ctx, path);
     }
 
     // Rename: select the row and hand the keyboard to the name field, which is where a name is typed.

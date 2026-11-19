@@ -285,6 +285,9 @@ pub const UiState = struct {
     runner_open: bool = false,
     runner_phase: RunnerPhase = .idle,
     runner_collection: []const u8 = "",
+    // The program the page shows (written from the model) and the line that would not parse.
+    runner_flow: []const u8 = "",
+    runner_error: []const u8 = "",
     runner_steps: []const RunnerStep = &.{},
     runner_rows: []const RunnerRow = &.{},
     runner_selected: usize = 0,

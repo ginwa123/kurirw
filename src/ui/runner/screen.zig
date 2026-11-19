@@ -1,10 +1,9 @@
-//! The runner's page: the plan on the left, the options, the table and the summary on the right.
+//! The runner's page: the flow program on the left, its run on the right.
 const std = @import("std");
 const glinlandui = @import("glinlandui");
 
 const box = glinlandui.components.box.box;
 const spacer = glinlandui.components.box.spacer;
-const button = glinlandui.components.button.button;
 const textField = glinlandui.components.input.textField;
 const scroll = glinlandui.components.scroll.scroll;
 const label = glinlandui.components.text.label;
@@ -31,10 +30,10 @@ fn views(scope: *Scope) *views_mod.Views.Runner {
     const vm = scope.vm;
     v.iterations = session.fieldStyle(.{ .text = runner_vm.iterations_id }, @src());
     v.iterations.bind();
-    v.iterations.on_change = .{ .f = runner_vm.Runner.onIterationsTyped, .ctx = vm };
+    v.iterations.on_change = .{ .f = runner_vm.Runner.onIterationsTyped, .ctx = &vm.runner };
     v.delay = session.fieldStyle(.{ .text = runner_vm.delay_id }, @src());
     v.delay.bind();
-    v.delay.on_change = .{ .f = runner_vm.Runner.onDelayTyped, .ctx = vm };
+    v.delay.on_change = .{ .f = runner_vm.Runner.onDelayTyped, .ctx = &vm.runner };
     v.started = true;
     return v;
 }
@@ -60,7 +59,6 @@ fn pageChildren(scope: *Scope) void {
 }
 
 fn header(scope: *Scope) void {
-    const t = scope.theme;
     box(.{
         .src = @src(),
         .id = .{ .text = "kurir.runner.header" },
@@ -69,13 +67,12 @@ fn header(scope: *Scope) void {
         .child_align = .{ .y = .center },
         .gap = .{ .px = 8 },
     }, scope, headerChildren);
-    _ = t;
 }
 
 fn headerChildren(scope: *Scope) void {
     const t = scope.theme;
     label(.{ .label = .{ .text = "Runner", .size = t.type_scale.title, .color = t.colors.text } });
-    label(.{ .label = .{ .text = scope.state.runner_collection, .size = t.type_scale.body, .color = t.colors.text_dim } });
+    label(.{ .label = .{ .text = "flow", .size = t.type_scale.body, .color = t.colors.text_dim } });
     label(.{ .label = .{ .text = phaseLabel(scope.state.runner_phase), .size = t.type_scale.caption, .color = phaseColor(scope) } });
     spacer(.{ .text = "kurir.runner.header.spacer" });
     smallButton(scope, runner_vm.close_id, "Close", 64, actions.onRunnerClose);
@@ -112,71 +109,76 @@ fn body(scope: *Scope) void {
 }
 
 fn bodyChildren(scope: *Scope) void {
-    planPane(scope);
+    programPane(scope);
     resultPane(scope);
 }
 
-// The left column: what the run will send, one tick box per request.
-fn planPane(scope: *Scope) void {
+// The left column: the program, its buttons, and the diagnostic when a line does not parse.
+fn programPane(scope: *Scope) void {
+    box(.{
+        .src = @src(),
+        .id = .{ .text = "kurir.runner.program" },
+        .direction = .column,
+        .w = .{ .fixed = 380 },
+        .h = .grow,
+        .gap = .{ .px = 6 },
+    }, scope, programChildren);
+}
+
+fn programChildren(scope: *Scope) void {
     const t = scope.theme;
     box(.{
         .src = @src(),
-        .id = .{ .text = "kurir.runner.plan" },
-        .direction = .column,
-        .w = .{ .fixed = 250 },
-        .h = .grow,
-        .gap = .{ .px = 4 },
-    }, scope, planChildren);
+        .id = .{ .text = "kurir.runner.program.bar" },
+        .direction = .row,
+        .w = .grow,
+        .child_align = .{ .y = .center },
+        .gap = .{ .px = 6 },
+    }, scope, programBarChildren);
     _ = t;
-}
 
-fn planChildren(scope: *Scope) void {
-    const t = scope.theme;
-    label(.{ .label = .{ .text = "REQUESTS", .size = t.type_scale.caption, .color = t.colors.text_done } });
     scroll(.{
         .src = @src(),
-        .id = .{ .text = "kurir.runner.plan.list" },
+        .id = .{ .text = "kurir.runner.program.text" },
         .w = .grow,
         .h = .grow,
-    }, scope, planList);
-    label(.{ .label = .{
-        .text = frame.formatText("{d} of {d} selected", .{ scope.state.runner_selected, scope.state.runner_total }),
-        .size = t.type_scale.caption,
-        .color = t.colors.text_dim,
-    } });
-}
+    }, scope, scriptLines);
 
-fn planList(scope: *Scope) void {
-    for (scope.state.runner_steps, 0..) |step, index| {
-        stepRow(scope, step, index);
-    }
-    if (scope.state.runner_steps.len == 0) {
+    if (scope.state.runner_error.len > 0) {
         label(.{ .label = .{
-            .text = "No requests under this selection.",
+            .text = scope.state.runner_error,
             .size = scope.theme.type_scale.caption,
-            .color = scope.theme.colors.text_dim,
+            .color = theme_mod.danger,
         } });
     }
 }
 
-// One request: `[x] POST name`, and a click on it toggles whether the run sends it.
-fn stepRow(scope: *Scope, step: state_mod.RunnerStep, index: usize) void {
+fn programBarChildren(scope: *Scope) void {
     const t = scope.theme;
-    const tick: []const u8 = if (step.enabled) "[x] " else "[ ] ";
-    button(.{
-        .id = .{ .text = frame.elementId(runner_vm.step_prefix, index) },
-        .label = .{
-            .text = frame.formatText("{s}{s} {s}", .{ tick, step.method, step.name }),
-            .size = t.type_scale.caption,
-            .color = if (step.enabled) t.colors.text else t.colors.text_done,
-        },
-        .bg = t.colors.surface,
-        .hover_bg = t.colors.hover,
-        .w = .grow,
-        .pad = props.Pad.axes(3, 6),
-        .radius = props.Radius.all(3),
-        .on_click = .{ .f = actions.onRunnerStep, .ctx = &scope.vm.runner.step_ctxs[index] },
-    });
+    label(.{ .label = .{ .text = "FLOW", .size = t.type_scale.caption, .color = t.colors.text_done } });
+    spacer(.{ .text = "kurir.runner.program.gap" });
+    smallButton(scope, runner_vm.send_id, "+ Send", 64, actions.onRunnerAddSend);
+    smallButton(scope, runner_vm.delay_step_id, "+ Delay", 68, actions.onRunnerAddDelay);
+    smallButton(scope, runner_vm.loop_id, "Loop data", 84, actions.onRunnerLoop);
+}
+
+// The script, one label a line: it is WRITTEN from the program, which is what the buttons edit.
+fn scriptLines(scope: *Scope) void {
+    const text = scope.state.runner_flow;
+    if (text.len == 0) {
+        label(.{ .label = .{
+            .text = "Pick a request in the tree, then press + Send.",
+            .size = scope.theme.type_scale.caption,
+            .color = scope.theme.colors.text_dim,
+        } });
+        return;
+    }
+    var it = std.mem.splitScalar(u8, text, '\n');
+    while (it.next()) |line| {
+        const shown: []const u8 = if (line.len == 0) " " else line;
+        const tone = if (std.mem.startsWith(u8, shown, "send ")) scope.theme.colors.text else scope.theme.colors.text_dim;
+        label(.{ .label = .{ .text = shown, .size = scope.theme.type_scale.caption, .color = tone } });
+    }
 }
 
 // The right column: the options, the two buttons, the table, then the summary below it.
@@ -210,7 +212,7 @@ fn optionsRow(scope: *Scope) void {
         .direction = .row,
         .w = .grow,
         .child_align = .{ .y = .center },
-        .gap = .{ .px = 10 },
+        .gap = .{ .px = 8 },
     }, scope, optionsChildren);
 }
 
@@ -219,7 +221,7 @@ fn optionsChildren(scope: *Scope) void {
     numberField(scope, "Iterations", &views(scope).iterations, scope.state.runner_iterations, 52);
     numberField(scope, "Delay ms", &views(scope).delay, scope.state.runner_delay, 60);
     label(.{ .label = .{
-        .text = frame.formatText("Environment: {s}", .{scope.state.runner_env}),
+        .text = frame.formatText("Env: {s}", .{scope.state.runner_env}),
         .size = t.type_scale.caption,
         .color = t.colors.text_dim,
     } });
@@ -242,7 +244,6 @@ fn numberField(scope: *Scope, title: []const u8, field: *glinlandui.components.i
 }
 
 fn controlsRow(scope: *Scope) void {
-    const t = scope.theme;
     box(.{
         .src = @src(),
         .id = .{ .text = "kurir.runner.controls" },
@@ -251,27 +252,26 @@ fn controlsRow(scope: *Scope) void {
         .child_align = .{ .y = .center },
         .gap = .{ .px = 8 },
     }, scope, controlsChildren);
-    _ = t;
 }
 
 fn controlsChildren(scope: *Scope) void {
     const t = scope.theme;
     const busy = scope.state.runner_phase == .running or scope.state.runner_phase == .stopping;
-    smallButton(scope, runner_vm.run_id, if (busy) "Run again" else "Run", 84, actions.onRunnerRun);
+    smallButton(scope, runner_vm.run_id, "Run", 84, actions.onRunnerRun);
     smallButton(scope, runner_vm.stop_id, "Stop", 64, actions.onRunnerStop);
     label(.{ .label = .{
-        .text = frame.formatText("{d} sent   {d} failed   {d} ms", .{
+        .text = frame.formatText("{d} steps   {d} sent   {d} failed   {d} ms", .{
+            scope.state.runner_selected,
             scope.state.runner_done,
             scope.state.runner_failed,
             scope.state.runner_ms,
         }),
         .size = t.type_scale.caption,
-        .color = t.colors.text_dim,
+        .color = if (busy) theme_mod.accent else t.colors.text_dim,
     } });
 }
 
 fn tableHeader(scope: *Scope) void {
-    const t = scope.theme;
     box(.{
         .src = @src(),
         .id = .{ .text = "kurir.runner.table.header" },
@@ -281,19 +281,17 @@ fn tableHeader(scope: *Scope) void {
         .child_align = .{ .y = .center },
         .gap = .{ .px = 6 },
     }, scope, tableHeaderChildren);
-    _ = t;
 }
 
 fn tableHeaderChildren(scope: *Scope) void {
     const t = scope.theme;
-    const headers = [_][]const u8{ "ITER", "METHOD", "REQUEST", "STATUS", "TIME", "RESULT" };
+    const headers = [_][]const u8{ "ITER", "STEP", "STATUS", "TIME", "TESTS", "RESULT" };
     for (headers, 0..) |text, index| {
         label(.{ .label = .{ .text = text, .size = t.type_scale.caption, .color = t.colors.text_done } });
         spacer(.{ .text = frame.elementId("kurir.runner.th.spacer", index) });
     }
 }
 
-// The VM holds which row is being drawn, because a box's children callback takes only the scope.
 fn tableRows(scope: *Scope) void {
     // One counter for the whole frame: two rows must not declare the same cell id.
     scope.vm.runner.draw_cell = 0;
@@ -311,7 +309,7 @@ fn tableRows(scope: *Scope) void {
     }
     if (scope.state.runner_rows.len == 0) {
         label(.{ .label = .{
-            .text = if (scope.state.runner_phase == .idle) "Press Run to send the ticked requests." else "Waiting for the first answer...",
+            .text = if (scope.state.runner_phase == .idle) "Press Run to execute the flow." else "Waiting for the first answer...",
             .size = scope.theme.type_scale.caption,
             .color = scope.theme.colors.text_dim,
         } });
@@ -323,16 +321,15 @@ fn resultRow(scope: *Scope) void {
     const index = scope.vm.runner.draw_row;
     if (index >= scope.state.runner_rows.len) return;
     const row = scope.state.runner_rows[index];
-    cell(scope, frame.formatText("{d}", .{row.iteration}), 30, t.colors.text_dim);
-    cell(scope, row.method, 54, theme_mod.methodColor(row.method));
-    cell(scope, row.name, 300, t.colors.text);
-    cell(scope, if (row.status == 0) "-" else frame.formatText("{d}", .{row.status}), 46, theme_mod.statusColor(row.status));
-    cell(scope, frame.formatText("{d} ms", .{row.time_ms}), 70, t.colors.text_dim);
+    cell(scope, frame.formatText("{d}", .{row.iteration}), 18, t.colors.text_dim);
+    cell(scope, row.name, 96, t.colors.text);
+    cell(scope, if (row.status == 0) "-" else frame.formatText("{d}", .{row.status}), 30, theme_mod.statusColor(row.status));
+    cell(scope, frame.formatText("{d} ms", .{row.time_ms}), 34, t.colors.text_dim);
+    cell(scope, if (row.tests_total == 0) "-" else frame.formatText("{d}/{d}", .{ row.tests_passed, row.tests_total }), 52, t.colors.text_dim);
     const result = if (row.ok) "ok" else row.failure;
     cell(scope, result, 0, if (row.ok) theme_mod.success else theme_mod.danger);
 }
 
-// One value and the room its column takes, so the next column starts where the last one ends.
 fn cell(scope: *Scope, text: []const u8, width: f32, color: Color) void {
     const t = scope.theme;
     const slot = scope.vm.runner.draw_cell;
@@ -351,7 +348,6 @@ fn cell(scope: *Scope, text: []const u8, width: f32, color: Color) void {
 }
 
 fn summary(scope: *Scope) void {
-    const t = scope.theme;
     box(.{
         .src = @src(),
         .id = .{ .text = "kurir.runner.summary" },
@@ -361,7 +357,6 @@ fn summary(scope: *Scope) void {
         .gap = .{ .px = 16 },
         .pad = props.Pad.axes(6, 0),
     }, scope, summaryChildren);
-    _ = t;
 }
 
 fn summaryChildren(scope: *Scope) void {
@@ -375,7 +370,7 @@ fn summaryChildren(scope: *Scope) void {
     } });
     label(.{ .label = .{ .text = frame.formatText("{d} ms total", .{scope.state.runner_ms}), .size = t.type_scale.caption, .color = t.colors.text_dim } });
     spacer(.{ .text = "kurir.runner.summary.fill" });
-    label(.{ .label = .{ .text = scope.state.runner_note, .size = t.type_scale.caption, .color = t.colors.text_done } });
+    label(.{ .label = .{ .text = "the script is generated from the program", .size = t.type_scale.caption, .color = t.colors.text_done } });
 }
 
 fn nothing(_: *Scope) void {}

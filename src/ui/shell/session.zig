@@ -280,6 +280,39 @@ pub const Session = struct {
         return node;
     }
 
+    // The saved request a flow names: its own name, or `collection/name` when two collections share one.
+    pub fn findRequest(self: *Session, wanted_name: []const u8) ?Path {
+        const slash = std.mem.indexOfScalar(u8, wanted_name, '/');
+        const wanted_collection = if (slash) |at| wanted_name[0..at] else "";
+        const wanted = if (slash) |at| wanted_name[at + 1 ..] else wanted_name;
+        const count = store.collectionCount(self.doc, self.workspace);
+        var index: usize = 0;
+        while (index < count) : (index += 1) {
+            const collection = store.collectionAt(self.doc, self.workspace, index) orelse continue;
+            if (wanted_collection.len > 0) {
+                const info = collection.object.get("info") orelse continue;
+                if (!std.ascii.eqlIgnoreCase(postman.str(info, "name"), wanted_collection)) continue;
+            }
+            if (findIn(collection, Path.empty.child(@intCast(index)), wanted)) |found| return found;
+        }
+        return null;
+    }
+
+    // A depth-first walk for one request name, which is how a flow's `send "…"` becomes a path.
+    fn findIn(node: Value, base: Path, wanted: []const u8) ?Path {
+        var index: usize = 0;
+        while (index < postman.itemCount(node)) : (index += 1) {
+            const item = postman.itemAt(node, index) orelse continue;
+            const path = base.child(@intCast(index));
+            if (postman.isRequest(item)) {
+                if (std.ascii.eqlIgnoreCase(postman.str(item, "name"), wanted)) return path;
+                continue;
+            }
+            if (findIn(item, path, wanted)) |found| return found;
+        }
+        return null;
+    }
+
     // The workspace on screen, by its own id: the key the global variables are filed under.
     pub fn workspaceId(self: *const Session) []const u8 {
         const workspace = store.workspaceAt(self.doc, self.workspace) orelse return "";

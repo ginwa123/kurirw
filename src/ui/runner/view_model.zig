@@ -1,4 +1,4 @@
-//! The runner page's model: the plan, one request at a time on its own task, and the rows it produced.
+//! The runner page's model: a flow program, its generated script, and the steps a run sends.
 const std = @import("std");
 const glinlandui = @import("glinlandui");
 
@@ -6,15 +6,16 @@ const postman = @import("../../data/model/postman.zig");
 const http_mod = @import("../../data/remote/http_client.zig");
 const request_job = @import("../../data/remote/request_job.zig");
 const env_mod = @import("../../domain/env.zig");
+const flow_mod = @import("../../domain/flow.zig");
 const runner_mod = @import("../../domain/runner.zig");
 const script_mod = @import("../../domain/script.zig");
 const data_file = @import("../../domain/data_file.zig");
 const run_collection = @import("../../domain/usecase/run_collection.zig");
 const send_request = @import("../../domain/usecase/send_request.zig");
+const file_picker = @import("../../data/local/file_picker.zig");
 
 const state_mod = @import("../state.zig");
 const session_mod = @import("../shell/session.zig");
-const file_picker = @import("../../data/local/file_picker.zig");
 const env_vm = @import("../env/view_model.zig");
 const pump_mod = @import("../shell/pump.zig");
 
@@ -30,7 +31,12 @@ pub const close_id = "kurir.runner.close";
 pub const data_id = "kurir.runner.data";
 pub const iterations_id = "kurir.runner.iterations";
 pub const delay_id = "kurir.runner.delay";
-pub const step_prefix = "kurir.runner.step.";
+pub const send_id = "kurir.runner.add.send";
+pub const delay_step_id = "kurir.runner.add.delay";
+pub const loop_id = "kurir.runner.add.loop";
+
+// How much program the page holds: a flow is a screen or two of text, not a file of megabytes.
+pub const flow_cap: usize = 16 * 1024;
 
 pub const Runner = struct {
     session: *Session = undefined,
@@ -43,18 +49,20 @@ pub const Runner = struct {
 
     open: bool = false,
     phase: state_mod.RunnerPhase = .idle,
-    root: runner_mod.Address = .{},
-    collection_name: []const u8 = "",
-    // The plan and the data rows own their strings, so one arena per run is reset when it starts.
+    // The program and the steps it expands to own their strings, so one arena is reset whenever it is re-read.
     arena: std.heap.ArenaAllocator = undefined,
+    // The data file outlives a re-parse, so its rows live in their own arena.
+    data_arena: std.heap.ArenaAllocator = undefined,
     started: bool = false,
-    plan: std.ArrayList(runner_mod.Step) = .empty,
+    flow_buf: [flow_cap]u8 = undefined,
+    flow_len: usize = 0,
+    program: flow_mod.Flow = .{},
+    steps: []flow_mod.Step = &.{},
     data: data_file.Data = .{},
     data_name: []const u8 = "",
     at: usize = 0,
     iteration: usize = 0,
     iterations: usize = 1,
-    delay_ms: u32 = 0,
     iterations_text: [8]u8 = @splat('1'),
     iterations_len: usize = 1,
     delay_text: [8]u8 = @splat('0'),
@@ -69,43 +77,158 @@ pub const Runner = struct {
     job: ?Pending = null,
     note: [160]u8 = undefined,
     note_len: usize = 0,
-    // One click context per planned row (a click lands on a later frame than the one that registered it).
-    step_ctxs: [runner_mod.max_steps]StepCtx = undefined,
-    // Which row a box's children callback is drawing: the callback is handed the scope, not a value.
+    // Which row a box's children callback is drawing, and which cell of it (the callback gets only the scope).
     draw_row: usize = 0,
-    // The cell a row is on, so each of a frame's boxes gets an id of its own.
     draw_cell: usize = 0,
-
-    pub const StepCtx = struct {
-        runner: *Runner,
-        index: usize,
-    };
 
     const Pending = struct {
         job: *request_job.Job,
-        step: runner_mod.Step,
+        step: flow_mod.Step,
         iteration: usize,
     };
 
     pub fn start(self: *Runner, session: *Session, env: *Env, pump: *pump_mod.Pump, dialogs: *file_picker.Dialogs) void {
-        self.dialogs = dialogs;
         self.session = session;
         self.env = env;
         self.pump = pump;
+        self.dialogs = dialogs;
         self.arena = .init(session.gpa);
+        self.data_arena = .init(session.gpa);
         self.rows = undefined;
-        self.row_count = 0;
-        for (&self.step_ctxs, 0..) |*ctx, index| ctx.* = .{ .runner = self, .index = index };
+        self.flow_len = 0;
         self.started = true;
     }
 
-    // A click on a row of the plan: send it, or skip it.
-    pub fn onStep(ctx: ?*anyopaque) void {
-        const step: *StepCtx = @ptrCast(@alignCast(ctx.?));
-        step.runner.toggle(step.index);
+    pub fn deinit(self: *Runner) void {
+        if (!self.started) return;
+        if (self.job) |pending| {
+            if (pending.job.poll()) pending.job.destroy(self.session.gpa) else pending.job.abandon();
+        }
+        self.job = null;
+        self.arena.deinit();
+        self.data_arena.deinit();
+        self.started = false;
     }
 
-    // The two numbers, typed: the field hands its text, and the model keeps the digits.
+    // ---- the program ------------------------------------------------------------------------------------
+
+    // Open the page. A request row seeds one `send`; a collection or folder seeds every request under it.
+    pub fn openAt(self: *Runner, path: Path) void {
+        const node = self.session.nodeAt(path) orelse return self.session.failNow("That row is gone. Right-click it again.");
+        self.open = true;
+        self.phase = .idle;
+        self.reset();
+        var text: std.ArrayList(u8) = .empty;
+        defer text.deinit(self.session.gpa);
+        if (postman.isRequest(node.*)) {
+            self.appendSend(&text, Session.name(node.*)) catch {};
+        } else {
+            const steps = runner_mod.collect(self.arena.allocator(), node.*, addressOf(path)) catch &.{};
+            for (steps) |step| self.appendSend(&text, step.name) catch {};
+            if (steps.len == 0) self.appendSend(&text, "") catch {};
+        }
+        self.setFlow(text.items);
+        self.session.setStatus(false, "Runner ready: {d} steps.", .{self.steps.len});
+        self.session.touch();
+    }
+
+    fn appendSend(self: *Runner, text: *std.ArrayList(u8), name: []const u8) !void {
+        try text.appendSlice(self.session.gpa, "send \"");
+        try text.appendSlice(self.session.gpa, name);
+        try text.appendSlice(self.session.gpa, "\"\n");
+    }
+
+    // The script IS the source: re-read it and the steps follow. A broken line keeps what parsed.
+    pub fn setFlow(self: *Runner, text: []const u8) void {
+        const length = @min(text.len, flow_cap);
+        @memcpy(self.flow_buf[0..length], text[0..length]);
+        self.flow_len = length;
+        self.reparse();
+    }
+
+    fn reparse(self: *Runner) void {
+        _ = self.arena.reset(.retain_capacity);
+        const arena = self.arena.allocator();
+        self.program = flow_mod.parse(arena, self.flow_buf[0..self.flow_len]) catch .{};
+        self.steps = flow_mod.expand(arena, self.program, self.data.count()) catch &.{};
+        self.session.touch();
+    }
+
+    // The script the page shows: written from the program, so a change made through the UI cannot drift.
+    pub fn script(self: *Runner, arena: Allocator) []const u8 {
+        if (self.program.failure) |_| return self.flow_buf[0..self.flow_len];
+        return flow_mod.write(arena, self.program) catch self.flow_buf[0..self.flow_len];
+    }
+
+    // Our own text with a line appended, which is what a button on the page does.
+    fn appendLine(self: *Runner, line: []const u8) void {
+        var text: std.ArrayList(u8) = .empty;
+        defer text.deinit(self.session.gpa);
+        text.appendSlice(self.session.gpa, self.flow_buf[0..self.flow_len]) catch return;
+        if (text.items.len > 0 and text.items[text.items.len - 1] != '\n') text.append(self.session.gpa, '\n') catch return;
+        text.appendSlice(self.session.gpa, line) catch return;
+        text.append(self.session.gpa, '\n') catch return;
+        self.setFlow(text.items);
+    }
+
+    // A request chosen in the tree becomes one more `send` at the end of the program.
+    pub fn addSend(self: *Runner) void {
+        const node = self.session.selectedNode() orelse return self.session.failNow("Select a request in the tree first.");
+        if (!postman.isRequest(node.*)) return self.session.failNow("Select a request, not a folder.");
+        var line: std.ArrayList(u8) = .empty;
+        defer line.deinit(self.session.gpa);
+        line.appendSlice(self.session.gpa, "send \"") catch return;
+        line.appendSlice(self.session.gpa, Session.name(node.*)) catch return;
+        line.appendSlice(self.session.gpa, "\"") catch return;
+        self.appendLine(line.items);
+    }
+
+    pub fn addDelay(self: *Runner) void {
+        self.appendLine("delay 250");
+    }
+
+    // Wrap the whole program in the data loop: the UI's way of saying "one pass per row".
+    pub fn wrapData(self: *Runner) void {
+        var text: std.ArrayList(u8) = .empty;
+        defer text.deinit(self.session.gpa);
+        text.appendSlice(self.session.gpa, "for row in data do\n") catch return;
+        var it = std.mem.splitScalar(u8, self.flow_buf[0..self.flow_len], '\n');
+        while (it.next()) |line| {
+            if (line.len == 0) continue;
+            text.appendSlice(self.session.gpa, "  ") catch return;
+            text.appendSlice(self.session.gpa, line) catch return;
+            text.append(self.session.gpa, '\n') catch return;
+        }
+        text.appendSlice(self.session.gpa, "end\n") catch return;
+        self.setFlow(text.items);
+    }
+
+    pub fn close(self: *Runner) void {
+        if (self.phase == .running or self.phase == .stopping) self.stop();
+        self.open = false;
+        self.session.touch();
+    }
+
+    fn reset(self: *Runner) void {
+        self.row_count = 0;
+        self.ok = 0;
+        self.failed = 0;
+        self.done = 0;
+        self.total_ms = 0;
+        self.at = 0;
+        self.iteration = 0;
+        self.note_len = 0;
+    }
+
+    pub fn setIterations(self: *Runner, text: []const u8) void {
+        self.iterations_len = copyNumber(&self.iterations_text, text, self.iterations_text[0..self.iterations_len]);
+        self.iterations = std.fmt.parseInt(usize, self.iterations_text[0..self.iterations_len], 10) catch 1;
+    }
+
+    pub fn setDelay(self: *Runner, text: []const u8) void {
+        self.delay_len = copyNumber(&self.delay_text, text, self.delay_text[0..self.delay_len]);
+    }
+
     pub fn onIterationsTyped(ctx: ?*anyopaque, text: []const u8) void {
         const self: *Runner = @ptrCast(@alignCast(ctx.?));
         self.setIterations(text);
@@ -116,90 +239,14 @@ pub const Runner = struct {
         self.setDelay(text);
     }
 
-    pub fn deinit(self: *Runner) void {
-        if (!self.started) return;
-        if (self.job) |pending| {
-            if (pending.job.poll()) pending.job.destroy(self.session.gpa) else pending.job.abandon();
-        }
-        self.job = null;
-        self.arena.deinit();
-        self.plan.deinit(self.session.gpa);
-        self.started = false;
-    }
-
-    // ---- the page's intents -----------------------------------------------------------------------------
-
-    // Open the page on a collection or a folder, and plan what a run would send.
-    pub fn openAt(self: *Runner, path: Path) void {
-        const node = self.session.nodeAt(path) orelse return self.session.failNow("That collection is gone. Right-click it again.");
-        if (postman.isRequest(node.*)) return self.session.failNow("Select a collection or a folder to run.");
-        self.open = true;
-        self.phase = .idle;
-        self.root = addressOf(path);
-        self.collection_name = Session.name(node.*);
-        self.planIt(node.*);
-        self.row_count = 0;
-        self.ok = 0;
-        self.failed = 0;
-        self.done = 0;
-        self.total_ms = 0;
-        self.at = 0;
-        self.iteration = 0;
-        self.note_len = 0;
-        self.session.setStatus(false, "Runner ready: {d} requests.", .{self.plan.items.len});
-        self.session.touch();
-    }
-
-    fn planIt(self: *Runner, node: postman.Value) void {
-        _ = self.arena.reset(.retain_capacity);
-        self.plan.clearRetainingCapacity();
-        const arena = self.arena.allocator();
-        const steps = runner_mod.collect(arena, node, self.root) catch return;
-        for (steps) |step| self.plan.append(self.session.gpa, step) catch break;
-    }
-
-    pub fn close(self: *Runner) void {
-        if (self.phase == .running or self.phase == .stopping) self.stop();
-        self.open = false;
-        self.session.touch();
-    }
-
-    // One tick box in the left list.
-    pub fn toggle(self: *Runner, index: usize) void {
-        if (index >= self.plan.items.len) return;
-        if (self.phase == .running or self.phase == .stopping) return;
-        self.plan.items[index].enabled = !self.plan.items[index].enabled;
-        self.session.touch();
-    }
-
-    pub fn selected(self: *Runner) usize {
-        var count: usize = 0;
-        for (self.plan.items) |step| {
-            if (step.enabled) count += 1;
-        }
-        return count;
-    }
-
-    // The two numbers, as they are typed: a bad one is not an error, it is the value it was before.
-    pub fn setIterations(self: *Runner, text: []const u8) void {
-        self.iterations_len = copyNumber(&self.iterations_text, text, self.iterations_text[0..self.iterations_len]);
-        self.iterations = std.fmt.parseInt(usize, self.iterations_text[0..self.iterations_len], 10) catch 1;
-    }
-
-    pub fn setDelay(self: *Runner, text: []const u8) void {
-        self.delay_len = copyNumber(&self.delay_text, text, self.delay_text[0..self.delay_len]);
-        self.delay_ms = std.fmt.parseInt(u32, self.delay_text[0..self.delay_len], 10) catch 0;
-    }
-
     pub fn chooseData(self: *Runner) void {
         const dialogs = self.dialogs;
         if (!dialogs.available) return self.session.failNow("This build has no file dialog.");
-        if (!dialogs.available) return self.session.failNow("This build has no file dialog.");
         const picked = dialogs.open_fn(dialogs.ctx, self.session.gpa, "Choose a CSV or JSON data file") orelse return;
         defer self.session.gpa.free(picked);
-        const bytes = std.Io.Dir.cwd().readFileAlloc(self.session.io, picked, self.arena.allocator(), .limited(8 * 1024 * 1024)) catch
+        const bytes = std.Io.Dir.cwd().readFileAlloc(self.session.io, picked, self.data_arena.allocator(), .limited(8 * 1024 * 1024)) catch
             return self.session.failNow("That data file could not be read.");
-        const parsed = data_file.parse(self.arena.allocator(), bytes) catch
+        const parsed = data_file.parse(self.data_arena.allocator(), bytes) catch
             return self.session.failNow("That data file is too large to read.");
         if (parsed.failure) |failure| {
             self.session.setStatus(true, "{s}", .{failure.message});
@@ -207,39 +254,26 @@ pub const Runner = struct {
         }
         self.data = parsed;
         self.data_name = std.fs.path.basename(picked);
+        // The data file decides how many copies a `for row in data` loop expands to.
+        self.reparse();
         self.session.setStatus(false, "Runner data: {d} rows, {d} columns.", .{ parsed.count(), parsed.columns.len });
-        self.session.touch();
     }
 
-    pub fn clearData(self: *Runner) void {
-        self.data = .{};
-        self.data_name = "";
-        self.session.touch();
-    }
+    // ---- the run ----------------------------------------------------------------------------------------
 
     pub fn run(self: *Runner) void {
         if (self.phase == .running or self.phase == .stopping) return;
-        if (self.selected() == 0) return self.session.failNow("Tick at least one request to run.");
-        // A fresh plan: the document may have changed since the page opened.
-        if (self.session.nodeAt(pathOf(self.root))) |node| {
-            const steps = runner_mod.collect(self.arena.allocator(), node.*, self.root) catch return self.session.failNow("Not enough memory to plan this run.");
-            var i: usize = 0;
-            while (i < steps.len and i < self.plan.items.len) : (i += 1) steps[i].enabled = self.plan.items[i].enabled;
-            self.plan.clearRetainingCapacity();
-            for (steps) |step| self.plan.append(self.session.gpa, step) catch break;
+        self.reparse();
+        if (self.program.failure) |failure| {
+            self.session.setStatus(true, "Line {d}: {s}", .{ failure.line, failure.message });
+            return;
         }
-        self.row_count = 0;
-        self.ok = 0;
-        self.failed = 0;
-        self.done = 0;
-        self.total_ms = 0;
-        self.at = 0;
-        self.iteration = 0;
-        self.iterations = runner_mod.iterationsFor(self.data.count(), self.iterations);
+        if (self.steps.len == 0) return self.session.failNow("This flow sends nothing. Add a `send \"request\"` line.");
+        self.reset();
         self.phase = .running;
         self.next_at_ns = 0;
         self.pump.set(true);
-        self.session.setStatus(false, "Runner: starting {d} requests.", .{self.selected() * self.iterations});
+        self.session.setStatus(false, "Runner: {d} steps x {d}.", .{ self.steps.len, self.iterations });
         self.session.touch();
         self.tick();
     }
@@ -247,13 +281,10 @@ pub const Runner = struct {
     pub fn stop(self: *Runner) void {
         if (self.phase != .running) return;
         self.phase = .stopping;
-        self.session.setStatus(false, "Runner: stopping after the request in flight.", .{});
+        self.session.setStatus(false, "Runner: stopping after the step in flight.", .{});
         self.session.touch();
     }
 
-    // ---- the run, one request at a time -----------------------------------------------------------------
-
-    // Called once per frame: collect the answer that landed, or start the next request.
     pub fn tick(self: *Runner) void {
         if (self.phase != .running and self.phase != .stopping) return;
         if (self.job) |pending| {
@@ -267,56 +298,73 @@ pub const Runner = struct {
             return;
         }
         if (self.phase != .running) return;
-        if (self.at >= self.plan.items.len) {
+        if (self.at >= self.steps.len) {
             self.iteration += 1;
             self.at = 0;
             if (self.iteration >= self.iterations) return self.finishRun(.finished);
         }
-        // The delay is spent between requests, never before the first one.
-        if (self.delay_ms > 0 and self.next_at_ns != 0 and nowNs(self.session.io) < self.next_at_ns) return;
+        if (self.next_at_ns != 0 and nowNs(self.session.io) < self.next_at_ns) return;
         self.begin();
     }
 
     fn begin(self: *Runner) void {
-        const step = self.plan.items[self.at];
-        if (!step.enabled) {
-            self.at += 1;
-            self.tick();
+        const step = self.steps[self.at];
+        const path = self.session.findRequest(step.request) orelse {
+            self.failStep(step, "no saved request has that name");
             return;
-        }
-        const path = pathOf(step.path);
-        const node = self.session.nodeAt(path) orelse return self.failStep(step, "this request is gone");
-        const collection_path = Path{ .depth = 1, .segments = splatOf(step.path.segments[0]) };
-        const collection = self.session.nodeAt(collection_path) orelse return self.failStep(step, "its collection is gone");
+        };
+        const node = self.session.nodeAt(path) orelse {
+            self.failStep(step, "that request is gone");
+            return;
+        };
+        const collection_path = Path{ .depth = 1, .segments = splatOf(path.segments[0]) };
+        const collection = self.session.nodeAt(collection_path) orelse {
+            self.failStep(step, "its collection is gone");
+            return;
+        };
         const arena = self.arena.allocator();
-        const data_pairs = data_file.pairs(arena, self.data, self.iteration) catch &.{};
+        const data_pairs = if (step.data_row) |row| data_file.pairs(arena, self.data, row) catch &.{} else &.{};
         const scope = run_collection.scopeFor(arena, node.*, collection.*, self.env.activeVars(), data_pairs);
         const host = script_mod.Host{ .ctx = self.env, .get_fn = scriptGet, .set_fn = scriptSet };
 
-        const pre = postman.scriptOf(node.*, .pre);
-        if (pre.len > 0) {
-            const outcome = script_mod.run(arena, pre, null, host);
-            if (outcome.failure) |failure| return self.failStep(step, script_mod.describe(arena, failure));
+        // The saved request's own Pre-req runs first: `send` runs the request, not just its URL.
+        const own_pre = postman.scriptOf(node.*, .pre);
+        if (own_pre.len > 0) {
+            const outcome = script_mod.run(arena, own_pre, null, host);
+            if (outcome.failure) |failure| {
+                self.failStep(step, script_mod.describe(arena, failure));
+                return;
+            }
+        }
+
+        // The statements written above the send run before it, with no answer to read.
+        if (step.pre.len > 0) {
+            const outcome = script_mod.run(arena, step.pre, null, host);
+            if (outcome.failure) |failure| {
+                self.failStep(step, script_mod.describe(arena, failure));
+                return;
+            }
         }
 
         const gpa = self.session.gpa;
-        const job = request_job.Job.create(gpa, self.session.io) catch return self.failStep(step, "could not start the request");
-        const wire = send_request.build(job.arena(), node.*, .{
-            .boundary = "kurir-runner",
-            .scope = scope,
-        }) catch |err| {
+        const job = request_job.Job.create(gpa, self.session.io) catch {
+            self.failStep(step, "could not start the request");
+            return;
+        };
+        const wire = send_request.build(job.arena(), node.*, .{ .boundary = "kurir-runner", .scope = scope }) catch |err| {
             job.destroy(gpa);
-            return self.failStep(step, switch (err) {
+            self.failStep(step, switch (err) {
                 error.NoUrl => "this request has no URL",
                 error.NotARequest => "this node is not a request",
                 error.OutOfMemory => "not enough memory to expand this request",
             });
+            return;
         };
         job.request = .{ .method = wire.method, .url = wire.url, .headers = wire.headers, .body = wire.body };
         job.start(self.transport(job.arena()));
         self.job = .{ .job = job, .step = step, .iteration = self.iteration };
         self.pump.set(true);
-        self.session.setStatus(false, "Runner: {s} {s}…", .{ step.method, step.name });
+        self.session.setStatus(false, "Runner: {s}…", .{step.request});
         self.session.touch();
     }
 
@@ -325,12 +373,11 @@ pub const Runner = struct {
         return build(self.transport_ctx, arena);
     }
 
-    // A step that never left the app: it still gets a row, so the table says why.
-    fn failStep(self: *Runner, step: runner_mod.Step, reason: []const u8) void {
+    fn failStep(self: *Runner, step: flow_mod.Step, reason: []const u8) void {
         self.pushRow(.{
             .iteration = self.iteration + 1,
-            .name = step.name,
-            .method = step.method,
+            .name = step.request,
+            .method = "",
             .ok = false,
             .failure = runner_mod.failureLabel(.request),
         }, reason);
@@ -339,23 +386,28 @@ pub const Runner = struct {
 
     fn finish(self: *Runner, pending: Pending, result: http_mod.Result) void {
         const arena = self.arena.allocator();
-        var tests: []const script_mod.Test = &.{};
+        const host = script_mod.Host{ .ctx = self.env, .get_fn = scriptGet, .set_fn = scriptSet };
+        var found: std.ArrayList(script_mod.Test) = .empty;
         var post_failed = false;
         var error_text: []const u8 = "";
-        const path = pathOf(pending.step.path);
-        if (self.session.nodeAt(path)) |node| {
-            const post = postman.scriptOf(node.*, .post);
-            if (post.len > 0) {
-                const headers = headersOf(arena, result) catch &.{};
-                const answer = script_mod.Response{ .status = result.status, .headers = headers, .body = result.body };
-                const outcome = script_mod.run(arena, post, answer, .{ .ctx = self.env, .get_fn = scriptGet, .set_fn = scriptSet });
-                tests = outcome.tests;
-                if (outcome.failure) |failure| {
-                    post_failed = true;
-                    error_text = script_mod.describe(arena, failure);
-                }
+
+        // The saved request's own Post-res runs, then the statements written under the send.
+        const node_post: []const u8 = if (self.session.findRequest(pending.step.request)) |path| blk: {
+            const node = self.session.nodeAt(path) orelse break :blk "";
+            break :blk postman.scriptOf(node.*, .post);
+        } else "";
+        for ([_][]const u8{ node_post, pending.step.post }) |source| {
+            if (source.len == 0) continue;
+            const headers = headersOf(arena, result) catch &.{};
+            const answer = script_mod.Response{ .status = result.status, .headers = headers, .body = result.body };
+            const outcome = script_mod.run(arena, source, answer, host);
+            for (outcome.tests) |one| found.append(arena, one) catch {};
+            if (outcome.failure) |failure| {
+                post_failed = true;
+                error_text = script_mod.describe(arena, failure);
             }
         }
+        const tests = found.items;
         if (result.failed) error_text = if (result.error_message.len > 0) result.error_message else result.error_title;
         const verdict = runner_mod.verdict(result, post_failed, tests);
         var passed: usize = 0;
@@ -364,8 +416,8 @@ pub const Runner = struct {
         }
         self.pushRow(.{
             .iteration = pending.iteration + 1,
-            .name = pending.step.name,
-            .method = pending.step.method,
+            .name = pending.step.request,
+            .method = "",
             .status = result.status,
             .time_ms = result.time_ms,
             .ok = verdict.ok,
@@ -373,6 +425,7 @@ pub const Runner = struct {
             .tests_passed = passed,
             .tests_total = tests.len,
         }, error_text);
+        self.next_at_ns = if (pending.step.delay_ms > 0) nowNs(self.session.io) + @as(i96, pending.step.delay_ms) * 1_000_000 else 0;
     }
 
     fn pushRow(self: *Runner, row: state_mod.RunnerRow, error_text: []const u8) void {
@@ -383,19 +436,19 @@ pub const Runner = struct {
         self.done += 1;
         self.total_ms += row.time_ms;
         if (row.ok) self.ok += 1 else self.failed += 1;
-        if (error_text.len > 0) self.session.setStatus(true, "Runner: {s} — {s}", .{ row.name, error_text }) else self.session.setStatus(!row.ok, "Runner: {s} {s}.", .{ row.name, row.failure });
+        if (error_text.len > 0) {
+            self.session.setStatus(true, "Runner: {s} — {s}", .{ row.name, error_text });
+        } else {
+            self.session.setStatus(!row.ok, "Runner: {s} {s}.", .{ row.name, row.failure });
+        }
         self.session.touch();
     }
 
     fn advance(self: *Runner) void {
         self.at += 1;
-        if (self.at < self.plan.items.len) {
-            self.next_at_ns = if (self.delay_ms > 0) nowNs(self.session.io) + @as(i96, self.delay_ms) * 1_000_000 else 0;
-            return;
-        }
+        if (self.at < self.steps.len) return;
         self.at = 0;
         self.iteration += 1;
-        self.next_at_ns = if (self.delay_ms > 0) nowNs(self.session.io) + @as(i96, self.delay_ms) * 1_000_000 else 0;
         if (self.iteration >= self.iterations) return self.finishRun(.finished);
     }
 
@@ -403,7 +456,7 @@ pub const Runner = struct {
         self.phase = phase;
         self.pump.set(false);
         self.job = null;
-        self.session.setStatus(phase == .stopped, "Runner {s}: {d} requests, {d} ok, {d} failed.", .{
+        self.session.setStatus(phase == .stopped, "Runner {s}: {d} steps, {d} ok, {d} failed.", .{
             if (phase == .stopped) "stopped" else "finished",
             self.done,
             self.ok,
@@ -417,30 +470,34 @@ pub const Runner = struct {
     pub fn snapshot(self: *Runner, u: *state_mod.UiState, arena: Allocator) void {
         u.runner_open = self.open;
         u.runner_phase = self.phase;
-        u.runner_collection = self.collection_name;
+        u.runner_collection = "flow";
+        u.runner_flow = self.script(arena);
+        u.runner_error = if (self.program.failure) |failure|
+            frameText(arena, "line {d}: {s}", .{ failure.line, failure.message })
+        else
+            "";
         u.runner_iterations = self.iterations_text[0..self.iterations_len];
         u.runner_delay = self.delay_text[0..self.delay_len];
         u.runner_env = self.env.activeName() orelse "No environment";
         u.runner_data = if (self.data_name.len > 0) self.data_name else "None";
-        u.runner_selected = self.selected();
-        u.runner_total = self.plan.items.len;
+        u.runner_selected = self.steps.len;
+        u.runner_total = self.steps.len * @max(@as(usize, 1), self.iterations);
         u.runner_done = self.done;
         u.runner_ok = self.ok;
         u.runner_failed = self.failed;
         u.runner_ms = self.total_ms;
         u.runner_note = self.note[0..self.note_len];
-
-        const steps: []state_mod.RunnerStep = arena.alloc(state_mod.RunnerStep, self.plan.items.len) catch &.{};
-        for (self.plan.items, 0..) |step, index| {
-            steps[index] = .{ .name = step.name, .method = step.method, .enabled = step.enabled };
-        }
-        u.runner_steps = steps;
+        u.runner_steps = &.{};
 
         const rows: []state_mod.RunnerRow = arena.alloc(state_mod.RunnerRow, self.row_count) catch &.{};
         @memcpy(rows, self.rows[0..self.row_count]);
         u.runner_rows = rows;
     }
 };
+
+fn frameText(arena: Allocator, comptime fmt: []const u8, args: anytype) []const u8 {
+    return std.fmt.allocPrint(arena, fmt, args) catch "";
+}
 
 fn nowNs(io: std.Io) i96 {
     return std.Io.Timestamp.now(io, .real).nanoseconds;
@@ -463,7 +520,6 @@ fn headersOf(arena: Allocator, result: http_mod.Result) Allocator.Error![]const 
     return headers;
 }
 
-// A path's address inside the document, which is what the domain plan walks with.
 pub fn addressOf(path: Path) runner_mod.Address {
     var address = runner_mod.Address{};
     address.depth = path.depth;
@@ -471,16 +527,6 @@ pub fn addressOf(path: Path) runner_mod.Address {
         if (index < runner_mod.max_depth) address.segments[index] = segment;
     }
     return address;
-}
-
-// And back: the address the plan carries becomes the Path the session resolves.
-pub fn pathOf(address: runner_mod.Address) Path {
-    var path = Path{};
-    path.depth = address.depth;
-    for (address.segments[0..address.depth], 0..) |segment, index| {
-        if (index < state_mod.max_depth) path.segments[index] = segment;
-    }
-    return path;
 }
 
 fn splatOf(value: u16) [state_mod.max_depth]u16 {
@@ -505,13 +551,11 @@ fn copyNumber(buffer: *[8]u8, text: []const u8, previous: []const u8) usize {
 
 const testing = std.testing;
 
-test "an address and a path are the same shape, both ways" {
-    const path = Path.empty.child(2).child(5).child(1);
+test "an address and a path are the same shape" {
+    const path = Path.empty.child(2).child(5);
     const address = addressOf(path);
-    try testing.expectEqual(@as(usize, 3), address.depth);
+    try testing.expectEqual(@as(usize, 2), address.depth);
     try testing.expectEqual(@as(u16, 5), address.segments[1]);
-    const back = pathOf(address);
-    try testing.expect(Path.eql(path, back));
 }
 
 test "a typed number keeps its digits, and an empty one keeps what was there" {

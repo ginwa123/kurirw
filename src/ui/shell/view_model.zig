@@ -676,6 +676,19 @@ pub const KurirViewModel = struct {
         self.runner.chooseData();
     }
 
+    // The page's three buttons, each one a line appended to the program and the script written again.
+    pub fn runnerAddSend(self: *KurirViewModel) void {
+        self.runner.addSend();
+    }
+
+    pub fn runnerAddDelay(self: *KurirViewModel) void {
+        self.runner.addDelay();
+    }
+
+    pub fn runnerLoop(self: *KurirViewModel) void {
+        self.runner.wrapData();
+    }
+
     // The runner's transport, built for the arena the request will outlive itself in.
     fn runnerTransport(ctx: ?*anyopaque, arena: Allocator) http_mod.Transport {
         const self: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
