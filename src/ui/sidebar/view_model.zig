@@ -32,12 +32,14 @@ pub const ws_trigger_id = "kurir.ws.menu";
 pub const ws_list_id = "kurir.ws.options";
 pub const ws_panel_id = "kurir.ws.panel";
 
-// The two menus' rows, in declaration order: a pick joins the row's index to the intent it raises.
+// What the two menus' rows are, in declaration order: a pick joins the row's index to the intent it raises.
 pub const new_rows = [_][]const u8{ "Collection", "Request", "Folder", "Import", "From cURL", "Runner" };
 // What a request row offers on a right click, in the order `pickRowMenu` switches on.
-pub const row_menu_items = [_][]const u8{ "Rename", "Duplicate", "Delete", "Run this request..." };
-// What a collection or folder row offers: the runner first, then the same three a request has.
-pub const run_menu_items = [_][]const u8{ "Run collection...", "Rename", "Duplicate", "Delete" };
+pub const row_menu_items = [_][]const u8{ "Rename", "Duplicate", "Delete", "New runner..." };
+// What a collection or folder row offers: seed a runner from it, then the same three a row always had.
+pub const run_menu_items = [_][]const u8{ "New runner...", "Rename", "Duplicate", "Delete" };
+// A runner is a root and nothing else: it holds no requests, so it is never seeded FROM.
+pub const flow_menu_items = [_][]const u8{ "Rename", "Duplicate", "Delete" };
 // The workspace menu's rows, in the order `onWsPick` switches on.
 pub const ws_rows = [_][]const u8{ "New workspace", "Delete workspace", "Export collection" };
 
@@ -196,12 +198,13 @@ pub const Sidebar = struct {
     }
 
     pub fn firstRequestPath(self: *Sidebar) ?Path {
-        const count = store.collectionCount(self.session.doc, self.session.workspace);
+        const count = store.rootCount(self.session.doc, self.session.workspace);
         var i: usize = 0;
         while (i < count) : (i += 1) {
-            const collection = store.collectionAt(self.session.doc, self.session.workspace, i) orelse continue;
-            const root = Path.empty.child(@intCast(i));
-            if (firstRequestInside(collection, root, 0)) |found| return found;
+            const root = store.rootAt(self.session.doc, self.session.workspace, i) orelse continue;
+            if (!postman.isCollection(root)) continue;
+            const root_path = Path.empty.child(@intCast(i));
+            if (firstRequestInside(root, root_path, 0)) |found| return found;
         }
         return null;
     }
@@ -223,14 +226,15 @@ pub const Sidebar = struct {
         const query = self.filterText();
         // While filtering every container is open, because a match three levels down has to be reachable.
         const filtering = query.len > 0;
-        const count = store.collectionCount(self.session.doc, self.session.workspace);
+        const count = store.rootCount(self.session.doc, self.session.workspace);
         var i: usize = 0;
         while (i < count) : (i += 1) {
-            const collection = store.collectionAt(self.session.doc, self.session.workspace, i) orelse continue;
-            if (filtering and !matchesQuery(collection, query)) continue;
+            const root = store.rootAt(self.session.doc, self.session.workspace, i) orelse continue;
+            if (filtering and !matchesQuery(root, query)) continue;
             const path = Path.empty.child(@intCast(i));
-            self.pushRow(collection, path, 0, .collection);
-            if (filtering or self.isExpanded(path)) self.pushChildren(collection, path, 1, query);
+            const kind = Session.kind(root);
+            self.pushRow(root, path, 0, kind);
+            if (kind != .runner and (filtering or self.isExpanded(path))) self.pushChildren(root, path, 1, query);
         }
     }
 
@@ -254,25 +258,24 @@ pub const Sidebar = struct {
         var name_buf: [name_max]u8 = undefined;
         const raw_name = Session.name(node);
         const clipped = if (raw_name.len == 0) "(unnamed)" else clip(raw_name, &name_buf);
-        // A runner is a leaf, but it is not a request: a tilde marks its row, and it has no method to show.
-        const is_flow = postman.isFlow(node);
-        const label = if (is_flow) frame.formatText("~ {s}", .{clipped}) else clipped;
+        // A runner is a leaf that is not a request: it shows no method, and its chip says RUN instead.
         const method: []const u8 = if (kind != .request) "" else blk: {
             const request = node.object.get("request") orelse break :blk "";
             break :blk postman.normalizeMethod(postman.str(request, "method"));
         };
+        const container = kind == .collection or kind == .folder;
         self.rows.append(self.session.gpa, .{
             .path = path,
             .depth = depth,
             .kind = kind,
-            .label = arena.dupe(u8, label) catch label,
+            .label = arena.dupe(u8, clipped) catch clipped,
             .method = method,
-            .count = if (kind == .request) 0 else @intCast(@min(postman.itemCount(node), std.math.maxInt(u16))),
-            .has_children = kind != .request,
-            .expanded = self.isExpanded(path),
+            .count = if (container) @intCast(@min(postman.itemCount(node), std.math.maxInt(u16))) else 0,
+            .has_children = container,
+            .expanded = container and self.isExpanded(path),
             .selected = selected,
-            // Only an endpoint carries edits of its own; a container is not saved anywhere either way.
-            .dirty = kind == .request and self.session.isDirty(path),
+            // An endpoint and a runner carry edits of their own; a container is not saved anywhere either way.
+            .dirty = (kind == .request or kind == .runner) and self.session.isDirty(path),
         }) catch {};
         self.row_ctx_count = self.rows.items.len;
     }
@@ -369,9 +372,9 @@ pub const Sidebar = struct {
     pub fn addCollection(self: *Sidebar) void {
         const arena = self.session.doc_arena.allocator();
         const id = self.session.randomId(arena);
-        const name = std.fmt.allocPrint(arena, "Collection {d}", .{store.collectionCount(self.session.doc, self.session.workspace) + 1}) catch "Collection";
+        const name = std.fmt.allocPrint(arena, "Collection {d}", .{store.rootCount(self.session.doc, self.session.workspace) + 1}) catch "Collection";
         const collection = postman.newCollection(arena, name, id) catch return self.session.failNow("Could not create a collection.");
-        const index = store.addCollection(self.session.gpa, &self.session.doc, self.session.workspace, collection) catch
+        const index = store.addRoot(self.session.gpa, &self.session.doc, self.session.workspace, collection) catch
             return self.session.failNow("Could not create a collection.");
         self.session.selection = Path.empty.child(@intCast(index));
         self.expand(self.session.selection.?, true);
@@ -453,10 +456,12 @@ pub const Sidebar = struct {
 
     // A drop INSIDE a folder or a collection: the node changes parent, and the container opens to show it.
     fn dropInto(self: *Sidebar, from: Path, to: Path) void {
-        const from_parent = from.parent() orelse return self.session.failNow("A collection is a top-level row: it cannot be dropped inside another one.");
+        const from_parent = from.parent() orelse return self.session.failNow("A root row cannot be dropped inside another one.");
+        if (from_parent.depth == 0) return self.session.failNow("A collection or a runner is a top-level row: it cannot be dropped inside another one.");
         const source = self.session.nodeAt(from) orelse return self.session.failNow("That row is gone. Try again.");
+        if (postman.isFlow(source.*)) return self.session.failNow("A runner is a root: it holds no requests, so it cannot go inside one.");
         const target = self.session.nodeAt(to) orelse return self.session.failNow("That folder is gone. Try again.");
-        if (postman.isRequest(target.*)) return self.session.failNow("A request holds nothing. Drop above or below it instead.");
+        if (postman.isRequest(target.*) or postman.isFlow(target.*)) return self.session.failNow("That row holds nothing. Drop above or below it instead.");
         const old_parent = self.session.nodeAt(from_parent) orelse return self.session.failNow("That folder is gone. Try again.");
         const moved_name = Session.name(source.*);
         const from_index = from.segments[from.depth - 1];
@@ -474,34 +479,34 @@ pub const Sidebar = struct {
 
     // A drop ABOVE or BELOW another row: a reorder among siblings, or a move into another folder's list.
     fn dropBeside(self: *Sidebar, from: Path, to: Path, above: bool) void {
-        const from_parent = from.parent();
-        const to_parent = to.parent();
-        // Two collections are siblings in the workspace's own array, which is the same move one level up.
-        if (from_parent == null and to_parent == null) return self.moveCollectionBeside(from, to, above);
-        if (from_parent == null or to_parent == null) return self.session.failNow("A collection and a folder are not in one list. Drop the row inside a collection instead.");
+        // Two roots are siblings in the workspace's own array; a runner never leaves that level.
+        if (from.depth == 1 and to.depth == 1) return self.moveRootBeside(from, to, above);
+        if (from.depth == 1 or to.depth == 1) return self.session.failNow("A root and a row inside a collection are not in one list. Drop the row inside a collection instead.");
+        const from_parent = from.parent().?;
+        const to_parent = to.parent().?;
         const from_index = from.segments[from.depth - 1];
         const source = self.session.nodeAt(from) orelse return self.session.failNow("That row is gone. Try again.");
         const target = self.session.nodeAt(to) orelse return self.session.failNow("That row is gone. Try again.");
         const moved_name = Session.name(source.*);
         const target_name = Session.name(target.*);
-        if (Path.eql(from_parent.?, to_parent.?)) {
-            const parent = self.session.nodeAt(from_parent.?) orelse return self.session.failNow("That folder is gone. Try again.");
+        if (Path.eql(from_parent, to_parent)) {
+            const parent = self.session.nodeAt(from_parent) orelse return self.session.failNow("That folder is gone. Try again.");
             const to_index = to.segments[to.depth - 1];
             // The slot is asked in the list the row has ALREADY left, so anything past it comes back one.
             var at = if (above) to_index else to_index + 1;
             if (at > from_index) at -= 1;
             if (at == from_index) return;
             if (!postman.moveChild(parent, from_index, at)) return self.session.failNow("Could not move that row.");
-            self.expand(from_parent.?, true);
-            self.session.selection = from_parent.?.child(@intCast(at));
+            self.expand(from_parent, true);
+            self.session.selection = from_parent.child(@intCast(at));
             self.session.commit();
             self.session.setStatus(false, "Moved {s} {s} {s}.", .{ moved_name, side(above), target_name });
             return;
         }
         // Cross-parent: the row leaves one folder and takes the slot it was dropped on in another.
-        const old_parent = self.session.nodeAt(from_parent.?) orelse return self.session.failNow("That folder is gone. Try again.");
+        const old_parent = self.session.nodeAt(from_parent) orelse return self.session.failNow("That folder is gone. Try again.");
         const node = postman.detachChild(self.session.docArena(), old_parent, from_index) orelse return self.session.failNow("That row is gone. Try again.");
-        const destination = shiftDown(to, from_parent.?.depth, from_index);
+        const destination = shiftDown(to, from_parent.depth, from_index);
         const new_parent_path = destination.parent() orelse return self.session.failNow("That row is gone. Try again.");
         const new_parent = self.session.nodeAt(new_parent_path) orelse return self.session.failNow("That folder is gone. Try again.");
         const to_index = destination.segments[destination.depth - 1];
@@ -513,18 +518,18 @@ pub const Sidebar = struct {
         self.session.setStatus(false, "Moved {s} {s} {s}.", .{ moved_name, side(above), target_name });
     }
 
-    // Two collections in one workspace: the same above-or-below move, applied to `collections[]`.
-    fn moveCollectionBeside(self: *Sidebar, from: Path, to: Path, above: bool) void {
+    // Two roots in one workspace: the same above-or-below move, applied to the root list a runner also lives in.
+    fn moveRootBeside(self: *Sidebar, from: Path, to: Path, above: bool) void {
         const from_index: usize = from.segments[0];
         const to_index: usize = to.segments[0];
         var at = if (above) to_index else to_index + 1;
         if (at > from_index) at -= 1;
         if (at == from_index) return;
-        const source = store.collectionAt(self.session.doc, self.session.workspace, from_index) orelse return self.session.failNow("That collection is gone. Try again.");
-        const target = store.collectionAt(self.session.doc, self.session.workspace, to_index) orelse return self.session.failNow("That collection is gone. Try again.");
+        const source = store.rootAt(self.session.doc, self.session.workspace, from_index) orelse return self.session.failNow("That row is gone. Try again.");
+        const target = store.rootAt(self.session.doc, self.session.workspace, to_index) orelse return self.session.failNow("That row is gone. Try again.");
         const moved_name = Session.name(source);
         const target_name = Session.name(target);
-        if (!store.moveCollection(self.session.gpa, &self.session.doc, self.session.workspace, from_index, at)) return self.session.failNow("Could not move that collection.");
+        if (!store.moveRoot(self.session.gpa, &self.session.doc, self.session.workspace, from_index, at)) return self.session.failNow("Could not move that row.");
         self.session.selection = Path.empty.child(@intCast(at));
         self.session.commit();
         self.session.setStatus(false, "Moved {s} {s} {s}.", .{ moved_name, side(above), target_name });
@@ -533,22 +538,26 @@ pub const Sidebar = struct {
     // A right-click menu pick for the row at `row_index`: the row's PATH is read now, so a shifted row cannot act on a neighbour.
     pub fn pickRowMenu(self: *Sidebar, row_index: usize, action: usize) void {
         const path = self.rowAt(row_index) orelse return self.session.failNow("That row is gone. Right-click it again.");
-        const node = self.session.nodeAt(path) orelse return self.session.failNow("That request is gone. Right-click it again.");
-        // A request runs as a flow seeded with its own name; a container seeds every request under it.
-        if (!postman.isRequest(node.*)) {
-            switch (action) {
+        const node = self.session.nodeAt(path) orelse return self.session.failNow("That row is gone. Right-click it again.");
+        // One card per kind, and this switch is the order those labels are declared in.
+        switch (Session.kind(node.*)) {
+            .request => switch (action) {
+                0 => self.renameAt(path),
+                1 => self.duplicateAt(path),
+                2 => self.deleteAt(path),
+                else => self.runFrom(path),
+            },
+            .collection, .folder => switch (action) {
                 0 => self.runFrom(path),
                 1 => self.renameAt(path),
                 2 => self.duplicateAt(path),
                 else => self.deleteAt(path),
-            }
-            return;
-        }
-        switch (action) {
-            0 => self.renameAt(path),
-            1 => self.duplicateAt(path),
-            2 => self.deleteAt(path),
-            else => self.runFrom(path),
+            },
+            .runner => switch (action) {
+                0 => self.renameAt(path),
+                1 => self.duplicateAt(path),
+                else => self.deleteAt(path),
+            },
         }
     }
 
@@ -567,20 +576,40 @@ pub const Sidebar = struct {
 
     // Duplicate: a deep copy under the same parent, named "… copy", selected so it can be edited at once.
     pub fn duplicateAt(self: *Sidebar, path: Path) void {
-        const parent_path = path.parent() orelse return self.session.failNow("That row has no parent to hold a copy.");
-        const parent = self.session.nodeAt(parent_path) orelse return self.session.failNow("That folder is gone. Right-click the request again.");
-        const source = self.session.nodeAt(path) orelse return self.session.failNow("That request is gone. Right-click it again.");
+        const source = self.session.nodeAt(path) orelse return self.session.failNow("That row is gone. Right-click it again.");
         const arena = self.session.docArena();
-        var copy = postman.clone(arena, source.*) catch return self.session.failNow("Could not duplicate that request.");
-        const name = postman.str(source.*, "name");
+        var copy = postman.clone(arena, source.*) catch return self.session.failNow("Could not duplicate that row.");
+        const name = Session.name(source.*);
         const copy_name = std.fmt.allocPrint(arena, "{s} copy", .{name}) catch name;
-        postman.setName(arena, &copy, copy_name) catch {};
-        const index = postman.appendChild(self.session.gpa, parent, copy) catch return self.session.failNow("Could not duplicate that request.");
+        self.setNodeName(&copy, copy_name);
+        // A root has no parent: its copy is one more root, right after the original's list.
+        if (path.depth == 1) {
+            const index = store.addRoot(self.session.gpa, &self.session.doc, self.session.workspace, copy) catch
+                return self.session.failNow("Could not duplicate that row.");
+            self.session.selection = Path.empty.child(@intCast(index));
+            self.session.commit();
+            self.session.setStatus(false, "Duplicated as {s}.", .{copy_name});
+            return;
+        }
+        const parent_path = path.parent() orelse return self.session.failNow("That row has no parent to hold a copy.");
+        const parent = self.session.nodeAt(parent_path) orelse return self.session.failNow("That folder is gone. Right-click the row again.");
+        const index = postman.appendChild(self.session.gpa, parent, copy) catch return self.session.failNow("Could not duplicate that row.");
         self.expand(parent_path, true);
         self.session.selection = parent_path.child(@intCast(index));
 
         self.session.commit();
         self.session.setStatus(false, "Duplicated as {s}.", .{copy_name});
+    }
+
+    // A collection keeps its name under `info`; every other row keeps it at the top. One place, both callers.
+    fn setNodeName(self: *Sidebar, node: *Value, name: []const u8) void {
+        const arena = self.session.docArena();
+        if (postman.isCollection(node.*)) {
+            const info = postman.objectChild(arena, node, "info") catch return;
+            postman.setString(arena, info, "name", name) catch return;
+            return;
+        }
+        postman.setName(arena, node, name) catch return;
     }
 
     // Delete: the row's own node, selected first so the delete acts on what was right-clicked.
@@ -592,10 +621,13 @@ pub const Sidebar = struct {
     pub fn containerForInsert(self: *Sidebar) ?Path {
         if (self.session.selection) |path| {
             const node = self.session.nodeAt(path) orelse return null;
-            if (!postman.isRequest(node.*)) return path;
-            return path.parent();
+            // A request and a runner hold nothing; the row they were made in is the answer.
+            if (Session.kind(node.*) == .request) return path.parent();
+            if (Session.kind(node.*) == .runner) return null;
+            return path;
         }
-        if (store.collectionCount(self.session.doc, self.session.workspace) > 0) return Path.empty.child(0);
+        // Nothing is selected: the first collection is where a new request belongs, whatever else is a root.
+        if (store.collectionRoot(self.session.doc, self.session.workspace, 0)) |root_index| return Path.empty.child(@intCast(root_index));
         return null;
     }
 
@@ -603,7 +635,7 @@ pub const Sidebar = struct {
         const path = self.session.selection orelse return self.session.failNow("Select something to delete first.");
         if (path.depth == 0) return;
         if (path.depth == 1) {
-            store.removeCollection(&self.session.doc, self.session.workspace, path.segments[0]);
+            store.removeRoot(&self.session.doc, self.session.workspace, path.segments[0]);
         } else {
             const parent_path = path.parent() orelse return;
             const parent = self.session.nodeAt(parent_path) orelse return;
@@ -622,7 +654,7 @@ pub const Sidebar = struct {
         var workspace: postman.Object = .empty;
         workspace.put(arena, "id", .{ .string = id }) catch return self.session.failNow("Could not create a workspace.");
         workspace.put(arena, "name", .{ .string = name }) catch return self.session.failNow("Could not create a workspace.");
-        workspace.put(arena, "collections", .{ .array = postman.Array.init(arena) }) catch return self.session.failNow("Could not create a workspace.");
+        workspace.put(arena, "items", .{ .array = postman.Array.init(arena) }) catch return self.session.failNow("Could not create a workspace.");
         const index = store.addWorkspace(self.session.gpa, &self.session.doc, .{ .object = workspace }) catch
             return self.session.failNow("Could not create a workspace.");
         self.session.workspace = index;
@@ -644,7 +676,7 @@ pub const Sidebar = struct {
         self.session.workspace = index;
         self.session.selection = null;
         self.expanded.clearRetainingCapacity();
-        if (store.collectionCount(self.session.doc, self.session.workspace) > 0) {
+        if (store.rootCount(self.session.doc, self.session.workspace) > 0) {
             self.session.selection = Path.empty.child(0);
             self.expand(self.session.selection.?, true);
         }
@@ -675,12 +707,8 @@ pub const Sidebar = struct {
     pub fn onNameChange(self: *Sidebar, name: []const u8) void {
         const path = self.session.selection orelse return;
         const node = self.session.nodeAt(path) orelse return;
-        if (postman.isCollection(node.*)) {
-            const info = postman.objectChild(self.session.doc_arena.allocator(), node, "info") catch return;
-            postman.setString(self.session.doc_arena.allocator(), info, "name", name) catch return;
-        } else {
-            postman.setName(self.session.doc_arena.allocator(), node, name) catch return;
-        }
+        // A runner is renamed exactly like a request: its name is the page's title, so one edit updates both.
+        self.setNodeName(node, name);
         self.session.commit();
     }
 
@@ -708,7 +736,7 @@ pub const Sidebar = struct {
         if (self.firstRequestPath()) |found| {
             self.session.selection = found;
             self.expandAncestors(found);
-        } else if (store.collectionCount(self.session.doc, self.session.workspace) > 0) {
+        } else if (store.rootCount(self.session.doc, self.session.workspace) > 0) {
             self.session.selection = Path.empty.child(0);
             self.expand(Path.empty.child(0), true);
         }
@@ -765,7 +793,8 @@ pub const Sidebar = struct {
     pub fn select(self: *Sidebar, path: Path) void {
         self.session.selection = path;
         if (self.session.nodeAt(path)) |node| {
-            if (Session.kind(node.*) != .request) self.expand(path, !self.isExpanded(path));
+            // Only a container opens and closes; a request and a runner are leaves.
+            if (Session.kind(node.*) == .collection or Session.kind(node.*) == .folder) self.expand(path, !self.isExpanded(path));
         }
         self.session.touch();
     }
@@ -789,18 +818,23 @@ pub const Sidebar = struct {
                 .expanded = r.expanded,
                 .selected = r.selected,
                 .meta = if (r.count > 0) std.fmt.allocPrint(arena, "{d}", .{r.count}) catch "" else "",
-                .kind = if (r.kind == .request) .item else .group,
+                // A request and a runner are both leaves; only a container gets the open/close caret.
+                .kind = if (r.kind == .request or r.kind == .runner) .item else .group,
             };
         }
         return out;
     }
 
-    // One menu per row: a request offers the three actions it always had, a container offers the runner too.
+    // One menu per row: a runner is a root, a container seeds a runner, a request offers its own three actions.
     fn treeMenus(self: *Sidebar, arena: Allocator) []const prop.ContextMenu {
         const out = arena.alloc(prop.ContextMenu, self.rows.items.len) catch return &.{};
         const t = self.session.theme;
         for (self.rows.items, out, 0..) |r, *menu, i| {
-            const items: []const []const u8 = if (r.kind == .request) &row_menu_items else &run_menu_items;
+            const items: []const []const u8 = switch (r.kind) {
+                .request => &row_menu_items,
+                .runner => &flow_menu_items,
+                else => &run_menu_items,
+            };
             menu.* = .{
                 .items = items,
                 .on_select = .{ .f = onRowMenu, .ctx = &self.row_ctxs[i] },
@@ -829,6 +863,7 @@ pub const Sidebar = struct {
             u.workspace_count,
         }) catch u.workspace_name;
         u.collection_count = store.collectionCount(self.session.doc, self.session.workspace);
+        u.root_count = store.rootCount(self.session.doc, self.session.workspace);
         u.has_collection = u.collection_count > 0;
         u.sidebar_width = self.width();
         u.sidebar_collapsed = self.state.collapsed;
@@ -843,7 +878,8 @@ pub const Sidebar = struct {
                 u.node_kind = Session.kind(node.*);
                 u.node_name = Session.name(node.*);
                 u.can_delete = true;
-                u.can_add_folder = u.node_kind != .request;
+                // Only a container holds rows; a request and a runner are leaves of the tree.
+                u.can_add_folder = u.node_kind == .collection or u.node_kind == .folder;
                 u.can_add_request = true;
             }
         }

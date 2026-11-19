@@ -243,7 +243,8 @@ pub fn sectionLabel(scope: *Scope) void {
 // A section head says what the list is and how much of it there is, and the count keeps to the right edge.
 pub fn sectionLabelText(scope: *Scope) void {
     const t = scope.theme;
-    label(.{ .label = .{ .text = "COLLECTIONS", .size = t.type_scale.caption, .color = t.colors.text_done } });
+    // The list holds two kinds of root: a collection of endpoints, and a runner program.
+    label(.{ .label = .{ .text = "COLLECTIONS & RUNNERS", .size = t.type_scale.caption, .color = t.colors.text_done } });
     box(.{
         .src = @src(),
         .id = .{ .text = "kurir.tree.section.spacer" },
@@ -252,7 +253,7 @@ pub fn sectionLabelText(scope: *Scope) void {
         .h = .{ .fixed = 1 },
     }, scope, noChildren);
     label(.{ .label = .{
-        .text = frame.formatText("{d}", .{scope.state.collection_count}),
+        .text = frame.formatText("{d}", .{scope.state.root_count}),
         .size = t.type_scale.caption,
         .color = t.colors.text_done,
     } });
@@ -292,14 +293,14 @@ pub fn emptyTree(scope: *Scope) void {
 
 pub fn emptyTreeChildren(scope: *Scope) void {
     const t = scope.theme;
-    // A filter that matches nothing is a different empty state from a workspace with no collections.
+    // A filter that matches nothing is a different empty state from a workspace with no roots at all.
     label(.{ .label = .{
-        .text = if (scope.state.filter_active) "Nothing matches that filter." else "No collections yet.",
+        .text = if (scope.state.filter_active) "Nothing matches that filter." else "Nothing here yet.",
         .size = t.type_scale.body,
         .color = t.colors.text_dim,
     } });
     label(.{ .label = .{
-        .text = if (scope.state.filter_active) "Clear the filter to see the whole tree." else "Press + New to make one.",
+        .text = if (scope.state.filter_active) "Clear the filter to see the whole tree." else "Press + New: a collection, or a runner.",
         .size = t.type_scale.caption,
         .color = t.colors.text_done,
     }, .wrap = true });
@@ -349,12 +350,13 @@ fn onTreeDrop(ctx: ?*anyopaque, from: usize, to: usize, zone: TreeZone) void {
     sb.onTreeDrop(from, to, zone);
 }
 
-// The app's own decor for a row, between the engine's caret and the label: a chip for a request, a folder for a container.
+// The app's own decor for a row, between the engine's caret and the label: a method chip, RUN, or a folder.
 fn chipExtra(ctx: ?*anyopaque, index: usize) void {
     const scope: *Scope = @ptrCast(@alignCast(ctx.?));
     if (index >= scope.state.rows.len) return;
     const r = scope.state.rows[index];
-    if (r.kind != .request) return folderIcon(scope, index);
+    // A runner is a leaf with a chip of its own, so it is not drawn as a container.
+    if (r.kind != .request and r.kind != .runner) return folderIcon(scope, index);
     box(.{
         .src = @src(),
         .id = .{ .text = frame.elementId("kurir.tree.extra", index) },
@@ -385,6 +387,20 @@ fn extraChildren(ctx: *const ExtraScope) void {
             .radius = props.Radius.all(3),
         }, ctx, extraNoChildren);
     }
+    // A runner says RUN where an endpoint says its verb: a program is run, never sent.
+    if (ctx.row.kind == .runner) {
+        box(.{
+            .src = @src(),
+            .id = .{ .text = frame.elementId("kurir.tree.run", ctx.index) },
+            .direction = .row,
+            .w = .{ .fixed = 46 },
+            .h = .{ .fixed = 18 },
+            .bg = theme_mod.runner_chip,
+            .radius = props.Radius.all(4),
+            .child_align = .{ .x = .center, .y = .center },
+        }, ctx, runChipLabel);
+        return;
+    }
     box(.{
         .src = @src(),
         .id = .{ .text = frame.elementId("kurir.tree.chip", ctx.index) },
@@ -395,6 +411,11 @@ fn extraChildren(ctx: *const ExtraScope) void {
         .radius = props.Radius.all(4),
         .child_align = .{ .x = .center, .y = .center },
     }, &ctx.row.method, chipLabel);
+}
+
+fn runChipLabel(ctx: *const ExtraScope) void {
+    _ = ctx;
+    label(.{ .label = .{ .text = "RUN", .size = .{ .px = 10 }, .color = theme_mod.accent } });
 }
 
 fn extraNoChildren(ctx: *const ExtraScope) void {

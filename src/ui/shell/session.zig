@@ -255,8 +255,8 @@ pub const Session = struct {
 
     pub fn nodeAt(self: *Session, path: Path) ?*Value {
         if (path.depth == 0) return null;
-        const collection_index = path.segments[0];
-        var current = store.collectionPtr(&self.doc, self.workspace, collection_index) orelse return null;
+        const root_index = path.segments[0];
+        var current = store.rootPtr(&self.doc, self.workspace, root_index) orelse return null;
         var level: usize = 1;
         while (level < path.depth) : (level += 1) {
             if (current.* != .object) return null;
@@ -285,15 +285,17 @@ pub const Session = struct {
         const slash = std.mem.indexOfScalar(u8, wanted_name, '/');
         const wanted_collection = if (slash) |at| wanted_name[0..at] else "";
         const wanted = if (slash) |at| wanted_name[at + 1 ..] else wanted_name;
-        const count = store.collectionCount(self.doc, self.workspace);
+        const count = store.rootCount(self.doc, self.workspace);
         var index: usize = 0;
         while (index < count) : (index += 1) {
-            const collection = store.collectionAt(self.doc, self.workspace, index) orelse continue;
+            const root = store.rootAt(self.doc, self.workspace, index) orelse continue;
+            // A runner is a root too, and holds no requests: only a collection can answer a `send`.
+            if (!postman.isCollection(root)) continue;
             if (wanted_collection.len > 0) {
-                const info = collection.object.get("info") orelse continue;
+                const info = root.object.get("info") orelse continue;
                 if (!std.ascii.eqlIgnoreCase(postman.str(info, "name"), wanted_collection)) continue;
             }
-            if (findIn(collection, Path.empty.child(@intCast(index)), wanted)) |found| return found;
+            if (findIn(root, Path.empty.child(@intCast(index)), wanted)) |found| return found;
         }
         return null;
     }
@@ -342,8 +344,10 @@ pub const Session = struct {
     pub fn collectionVars(self: *Session, arena: Allocator) []const env_mod.Pair {
         const path = self.selection orelse return &.{};
         if (path.depth == 0) return &.{};
-        const collection = store.collectionAt(self.doc, self.workspace, path.segments[0]) orelse return &.{};
-        return pairsOf(collection, arena);
+        const root = store.rootAt(self.doc, self.workspace, path.segments[0]) orelse return &.{};
+        // A runner is a root of its own and carries no variables: only a collection scopes a request.
+        if (!postman.isCollection(root)) return &.{};
+        return pairsOf(root, arena);
     }
 
     fn pairsOf(item: postman.Value, arena: Allocator) []const env_mod.Pair {
@@ -368,9 +372,14 @@ pub const Session = struct {
     pub fn kind(node: Value) state_mod.NodeKind {
         if (postman.isCollection(node)) return .collection;
         // A runner is a leaf like a request, but it opens its own page instead of the editor.
-        if (postman.isFlow(node)) return .request;
+        if (postman.isFlow(node)) return .runner;
         if (postman.isRequest(node)) return .request;
         return .folder;
+    }
+
+    // True for a code runner: a flow program, which is a root of the workspace and never a request.
+    pub fn isRunner(node: Value) bool {
+        return postman.isFlow(node);
     }
 
     pub fn isRequest(node: Value) bool {

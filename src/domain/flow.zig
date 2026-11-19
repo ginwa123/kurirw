@@ -98,6 +98,7 @@ const Parser = struct {
                 try nodes.append(self.arena, .{ .send = .{ .request = name, .line = self.line } });
                 continue;
             }
+            if (std.mem.eql(u8, text, "send")) return self.bad("send takes a quoted request name");
             if (std.mem.startsWith(u8, text, "delay ")) {
                 const digits = std.mem.trim(u8, text[6..], " \t");
                 const value = std.fmt.parseInt(u32, digits, 10) catch return self.bad("delay takes milliseconds");
@@ -126,7 +127,8 @@ const Parser = struct {
     fn quoted(self: *Parser, raw: []const u8) ?[]const u8 {
         const text = std.mem.trim(u8, raw, " \t");
         if (text.len < 2 or text[0] != '"' or text[text.len - 1] != '"') return null;
-        return self.arena.dupe(u8, text[1 .. text.len - 1]) catch null;
+        // A name is written with `\"` for a quote of its own, so a request may be called `say "hi"`.
+        return unescape(self.arena, text[1 .. text.len - 1]) catch null;
     }
 
     fn nextLine(self: *Parser) ?[]const u8 {
@@ -162,7 +164,11 @@ fn writeNodes(arena: Allocator, out: *std.ArrayList(u8), nodes: []const Node, de
             .send => |send| {
                 try indent(arena, out, depth);
                 try out.appendSlice(arena, "send \"");
-                try out.appendSlice(arena, send.request);
+                // The name is escaped, so writing the program back always produces a line that parses again.
+                for (send.request) |byte| {
+                    if (byte == '"' or byte == '\\') try out.append(arena, '\\');
+                    try out.append(arena, byte);
+                }
                 try out.appendSlice(arena, "\"\n");
             },
             .delay => |ms| {
@@ -195,6 +201,22 @@ fn writeNodes(arena: Allocator, out: *std.ArrayList(u8), nodes: []const Node, de
 fn indent(arena: Allocator, out: *std.ArrayList(u8), depth: usize) Allocator.Error!void {
     var i: usize = 0;
     while (i < depth) : (i += 1) try out.appendSlice(arena, "  ");
+}
+
+// A quoted name with its escapes undone: `\"` is a quote and `\\` a backslash; anything else stands as itself.
+fn unescape(arena: Allocator, raw: []const u8) Allocator.Error![]const u8 {
+    var out: std.ArrayList(u8) = .empty;
+    var index: usize = 0;
+    while (index < raw.len) : (index += 1) {
+        const byte = raw[index];
+        if (byte == '\\' and index + 1 < raw.len) {
+            index += 1;
+            try out.append(arena, raw[index]);
+            continue;
+        }
+        try out.append(arena, byte);
+    }
+    return out.items;
 }
 
 // ---- expanding into steps ---------------------------------------------------------------------------------
@@ -269,12 +291,12 @@ const testing = std.testing;
 const sample =
     \\-- login dulu, lalu tiga booking dari data file
     \\send "AccessToken/create"
-    \\test "token is there", pm.response.json().access_token ~= nil
+    \\test("token is there", pm.response.json().access_token ~= nil)
     \\pm.environment.set("token", pm.response.json().access_token)
     \\
     \\for row in data do
     \\  send "billing/create incentive"
-    \\  test "created", pm.response.code == 201
+    \\  test("created", pm.response.code == 201)
     \\  delay 250
     \\end
 ;
@@ -302,12 +324,12 @@ test "the script is written back from the program, canonically" {
     const text = try write(arena, flow);
     try testing.expectEqualStrings(
         \\send "AccessToken/create"
-        \\test "token is there", pm.response.json().access_token ~= nil
+        \\test("token is there", pm.response.json().access_token ~= nil)
         \\pm.environment.set("token", pm.response.json().access_token)
         \\
         \\for row in data do
         \\  send "billing/create incentive"
-        \\  test "created", pm.response.code == 201
+        \\  test("created", pm.response.code == 201)
         \\  delay 250
         \\end
         \\
@@ -329,7 +351,7 @@ test "the steps unroll the loop, one per data row, each with its own scripts" {
     try testing.expectEqual(@as(usize, 4), steps.len);
     try testing.expectEqualStrings("AccessToken/create", steps[0].request);
     try testing.expectEqual(@as(?usize, null), steps[0].data_row);
-    try testing.expect(std.mem.indexOf(u8, steps[0].post, "test \"token is there\"") != null);
+    try testing.expect(std.mem.indexOf(u8, steps[0].post, "test(\"token is there\"") != null);
     try testing.expect(std.mem.indexOf(u8, steps[0].post, "pm.environment.set") != null);
 
     try testing.expectEqualStrings("billing/create incentive", steps[1].request);
@@ -337,7 +359,7 @@ test "the steps unroll the loop, one per data row, each with its own scripts" {
     try testing.expectEqual(@as(?usize, 1), steps[2].data_row.?);
     // `delay 250` under a send is that send's own wait.
     try testing.expectEqual(@as(u32, 250), steps[1].delay_ms);
-    try testing.expect(std.mem.indexOf(u8, steps[1].post, "test \"created\"") != null);
+    try testing.expect(std.mem.indexOf(u8, steps[1].post, "test(\"created\"") != null);
 }
 
 test "repeat copies a block, and a delay written above the first send belongs to it" {
@@ -376,6 +398,28 @@ test "a broken program says which line, and still keeps what parsed" {
 
     const stray_end = try parse(arena, "end\n");
     try testing.expect(stray_end.failure != null);
+}
+
+test "a request named with a quote survives the round trip, and a bare send is a diagnostic" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    // A `send` that names the runner itself would otherwise stop parsing the moment it was written back.
+    const source = "send \"say \\\"hi\\\"\"\n";
+    const flow = try parse(arena, source);
+    try testing.expect(flow.failure == null);
+    try testing.expectEqualStrings("say \"hi\"", flow.nodes[0].send.request);
+    const written = try write(arena, flow);
+    try testing.expectEqualStrings(source, written);
+    const again = try parse(arena, written);
+    try testing.expect(again.failure == null);
+    try testing.expectEqualStrings("say \"hi\"", again.nodes[0].send.request);
+
+    // A line that is only the keyword is a program a person can fix, not a parse that leaves the name empty.
+    const bare = try parse(arena, "send\n");
+    try testing.expect(bare.failure != null);
+    try testing.expect(std.mem.indexOf(u8, bare.failure.?.message, "quoted") != null);
 }
 
 test "a statement before any send waits for the first one, and nothing is lost" {

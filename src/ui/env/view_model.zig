@@ -458,7 +458,9 @@ pub const Env = struct {
 
     fn collectionValue(self: *Env) ?*postman.Value {
         self.follow();
-        return store.collectionPtr(&self.session.doc, self.session.workspace, self.collection);
+        // `collection` counts COLLECTIONS, and a runner is a root that is not one: the root index comes from the store.
+        const root_index = store.collectionRoot(self.session.doc, self.session.workspace, self.collection) orelse return null;
+        return store.rootPtr(&self.session.doc, self.session.workspace, root_index);
     }
 
     pub fn addCollectionVar(self: *Env) void {
@@ -533,13 +535,14 @@ pub const Env = struct {
         }
         u.env_names = names.toOwnedSlice(arena) catch &.{};
 
-        // The workspace's collections, so the manager can list their variables beside the environments.
+        // The workspace's collections: a runner is a root too, but it carries no variables, so only collections list here.
         var collections: std.ArrayList([]const u8) = .empty;
         var index: usize = 0;
-        const collection_count = store.collectionCount(self.session.doc, self.session.workspace);
-        while (index < collection_count and index < max_list) : (index += 1) {
-            const collection = store.collectionAt(self.session.doc, self.session.workspace, index) orelse continue;
-            collections.append(arena, postman.str(collection, "name")) catch break;
+        const root_count = store.rootCount(self.session.doc, self.session.workspace);
+        while (index < root_count and collections.items.len < max_list) : (index += 1) {
+            const root = store.rootAt(self.session.doc, self.session.workspace, index) orelse continue;
+            if (!postman.isCollection(root)) continue;
+            collections.append(arena, Session.name(root)) catch break;
         }
         u.collection_names = collections.toOwnedSlice(arena) catch &.{};
         if (self.collection >= u.collection_names.len) self.collection = 0;

@@ -333,24 +333,46 @@ pub const KurirViewModel = struct {
         }
     }
 
-    // A code runner is created inside the selected collection, so export carries it with its requests.
+    // A code runner is a ROOT of the workspace: it is created beside the collections, never inside one.
     pub fn addFlow(self: *KurirViewModel) void {
-        if (store.collectionCount(self.session.doc, self.session.workspace) == 0) {
-            return self.session.failNow("Add a collection first: a runner lives inside one.");
+        self.createRunner(null);
+    }
+
+    // A row asked for its own runner: a request seeds one `send`, a collection or folder all of them.
+    pub fn newRunnerFrom(self: *KurirViewModel, path: Path) void {
+        if (self.session.nodeAt(path) == null) return self.session.failNow("That row is gone. Right-click it again.");
+        self.createRunner(path);
+    }
+
+    // Create the runner item, put it at the top level, and open its page on it.
+    fn createRunner(self: *KurirViewModel, seed: ?Path) void {
+        if (self.runner.phase == .running or self.runner.phase == .stopping) {
+            return self.session.failNow("This runner is still running. Stop it first.");
         }
-        const collection_index: usize = if (self.session.selection) |path| path.segments[0] else 0;
-        const collection = store.collectionPtr(&self.session.doc, self.session.workspace, collection_index) orelse
-            return self.session.failNow("That collection is gone.");
         const arena = self.session.docArena();
-        const item = postman.newFlow(arena, "Runner", "send \"\"\n") catch
+        const source = if (seed) |path| self.runner.programFor(arena, path) else "";
+        const name = self.nextRunnerName(arena);
+        const item = postman.newFlow(arena, name, source) catch
             return self.session.failNow("Not enough memory for a runner.");
-        const index = postman.appendChild(arena, collection, item) catch
+        const root = store.addRoot(self.session.gpa, &self.session.doc, self.session.workspace, item) catch
             return self.session.failNow("Not enough memory for a runner.");
-        const path = Path.empty.child(@intCast(collection_index)).child(@intCast(index));
+        const path = Path.empty.child(@intCast(root));
         self.session.selection = path;
         self.session.markDirty(path);
         self.runner.openFlow(path);
-        self.session.setStatus(false, "Runner created. Add a send, then press Run.", .{});
+        self.session.setStatus(false, "Runner {s} created beside the collections: {d} steps.", .{ name, self.runner.steps.len });
+    }
+
+    // "Runner 3": the next number, counted among the runners the workspace already holds.
+    fn nextRunnerName(self: *KurirViewModel, arena: Allocator) []const u8 {
+        var runners: usize = 0;
+        var index: usize = 0;
+        const count = store.rootCount(self.session.doc, self.session.workspace);
+        while (index < count) : (index += 1) {
+            const root = store.rootAt(self.session.doc, self.session.workspace, index) orelse continue;
+            if (postman.isFlow(root)) runners += 1;
+        }
+        return std.fmt.allocPrint(arena, "Runner {d}", .{runners + 1}) catch "Runner";
     }
 
     pub fn toggleWorkspaceMenu(self: *KurirViewModel) void {
@@ -594,6 +616,8 @@ pub const KurirViewModel = struct {
     }
 
     pub fn deleteSelected(self: *KurirViewModel) void {
+        // The page is bound to an item, so deleting that item closes the page instead of leaving it on a dead path.
+        if (self.session.selection) |path| self.runner.detach(path);
         self.sidebar.deleteSelected();
         self.response.forgetAll();
         self.sync();
@@ -723,14 +747,14 @@ pub const KurirViewModel = struct {
         return self.transport(arena);
     }
 
-    // A container row asked for the runner: the page opens on that collection or folder.
+    // A row asked for a runner: a NEW root is created from it, because a runner is a program, not a folder.
     pub fn openRunner(self: *KurirViewModel, path: Path) void {
-        self.runner.openAt(path);
+        self.newRunnerFrom(path);
     }
 
     fn runnerFromRow(ctx: ?*anyopaque, path: Path) void {
         const self: *KurirViewModel = @ptrCast(@alignCast(ctx.?));
-        self.openRunner(path);
+        self.newRunnerFrom(path);
     }
 
     pub fn addEnvironment(self: *KurirViewModel) void {
@@ -922,7 +946,7 @@ pub const KurirViewModel = struct {
             error.NotACollection => return self.session.failNow("That JSON is not a Postman v2.1 collection: it has no \"info\" object."),
         };
 
-        const index = store.addCollection(self.session.gpa, &self.session.doc, self.session.workspace, value) catch
+        const index = store.addRoot(self.session.gpa, &self.session.doc, self.session.workspace, value) catch
             return self.session.failNow("Could not store the imported collection.");
         self.sidebar.reveal(Path.empty.child(@intCast(index)));
         self.sync();
@@ -934,8 +958,10 @@ pub const KurirViewModel = struct {
         if (!self.dialogs.available) return self.session.failNow("This build has no file dialog. Copy the JSON from the data file instead.");
         const path = self.session.selection orelse return self.session.failNow("Select a collection to export. A collection is the unit Postman imports.");
         if (path.depth == 0) return self.session.failNow("Select a collection to export, not the workspace.");
-        const collection = store.collectionAt(self.session.doc, self.session.workspace, path.segments[0]) orelse
-            return self.session.failNow("That collection is gone.");
+        const collection = store.rootAt(self.session.doc, self.session.workspace, path.segments[0]) orelse
+            return self.session.failNow("That row is gone.");
+        // Postman's unit is a collection: a runner is a program of its own, and there is nothing to hand over.
+        if (!postman.isCollection(collection)) return self.session.failNow("That is a runner, not a collection. Export a collection.");
 
         const bytes = export_collection.bytes(self.session.gpa, collection) catch
             return self.session.failNow("Could not write the collection as JSON.");

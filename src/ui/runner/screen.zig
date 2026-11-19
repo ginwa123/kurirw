@@ -71,8 +71,10 @@ fn header(scope: *Scope) void {
 
 fn headerChildren(scope: *Scope) void {
     const t = scope.theme;
-    label(.{ .label = .{ .text = "Runner", .size = t.type_scale.title, .color = t.colors.text } });
-    label(.{ .label = .{ .text = "flow", .size = t.type_scale.body, .color = t.colors.text_dim } });
+    // The title IS the runner: the document's own name, so the page and the tree never disagree.
+    const name = if (scope.state.runner_name.len > 0) scope.state.runner_name else "Runner";
+    label(.{ .label = .{ .text = name, .size = t.type_scale.title, .color = t.colors.text } });
+    label(.{ .label = .{ .text = "flow program", .size = t.type_scale.body, .color = t.colors.text_dim } });
     label(.{ .label = .{ .text = phaseLabel(scope.state.runner_phase), .size = t.type_scale.caption, .color = phaseColor(scope) } });
     spacer(.{ .text = "kurir.runner.header.spacer" });
     smallButton(scope, runner_vm.close_id, "Close", 64, actions.onRunnerClose);
@@ -218,8 +220,8 @@ fn optionsRow(scope: *Scope) void {
 
 fn optionsChildren(scope: *Scope) void {
     const t = scope.theme;
-    numberField(scope, "Iterations", &views(scope).iterations, scope.state.runner_iterations, 52);
-    numberField(scope, "Delay ms", &views(scope).delay, scope.state.runner_delay, 60);
+    numberField(scope, 0, "Iterations", &views(scope).iterations, scope.state.runner_iterations, 52);
+    numberField(scope, 1, "Delay ms", &views(scope).delay, scope.state.runner_delay, 60);
     label(.{ .label = .{
         .text = frame.formatText("Env: {s}", .{scope.state.runner_env}),
         .size = t.type_scale.caption,
@@ -233,14 +235,35 @@ fn optionsChildren(scope: *Scope) void {
     smallButton(scope, runner_vm.data_id, "Data file", 76, actions.onRunnerData);
 }
 
-fn numberField(scope: *Scope, title: []const u8, field: *glinlandui.components.input.Field, value: []const u8, width: u32) void {
-    const t = scope.theme;
-    label(.{ .label = .{ .text = title, .size = t.type_scale.caption, .color = t.colors.text_dim } });
+fn numberField(scope: *Scope, index: usize, title: []const u8, field: *glinlandui.components.input.Field, value: []const u8, width: u32) void {
+    // The title is a FIXED box: text metrics are fractional, and a field behind a measured label puts its caret off the grid.
+    captionBox(scope, index, title, 64);
     field.value = value;
     field.w = .{ .fixed = @floatFromInt(width) };
     field.h = .{ .fixed = 26 };
     field.pad = props.Pad.axes(4, 8);
     textField(field);
+}
+
+// A one-line caption that occupies exactly `width` points, whatever its text measures.
+fn captionBox(scope: *Scope, index: usize, text: []const u8, width: u32) void {
+    box(.{
+        .src = @src(),
+        .id = .{ .text = frame.elementId("kurir.runner.caption", index) },
+        .direction = .row,
+        .w = .{ .fixed = @floatFromInt(width) },
+        .h = .{ .fixed = 18 },
+        .child_align = .{ .y = .center },
+    }, &CaptionCtx{ .theme = scope.theme, .text = text }, captionLabel);
+}
+
+const CaptionCtx = struct {
+    theme: glinlandui.theme.Theme,
+    text: []const u8,
+};
+
+fn captionLabel(ctx: *const CaptionCtx) void {
+    label(.{ .label = .{ .text = ctx.text, .size = ctx.theme.type_scale.caption, .color = ctx.theme.colors.text_dim } });
 }
 
 fn controlsRow(scope: *Scope) void {

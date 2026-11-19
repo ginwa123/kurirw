@@ -182,6 +182,8 @@ pub fn nameRowChildren(scope: *Scope) void {
 
     if (!scope.state.has_selection) {
         label(.{ .label = .{ .text = "Pick a request on the left, or create one.", .size = t.type_scale.caption, .color = t.colors.text_dim } });
+    } else if (scope.state.node_kind == .runner) {
+        label(.{ .label = .{ .text = "Runner: its program is on the Runner page.", .size = t.type_scale.caption, .color = t.colors.text_dim } });
     } else if (scope.state.node_kind != .request) {
         label(.{ .label = .{ .text = "Container: add a request inside it.", .size = t.type_scale.caption, .color = t.colors.text_dim } });
     }
@@ -431,6 +433,11 @@ fn bodyNoneChildren(scope: *Scope) void {
 
 pub fn editorEmpty(scope: *Scope) void {
     const t = scope.theme;
+    // A runner has no method, URL or body: its program is a PAGE, and this is the request editor.
+    if (scope.state.node_kind == .runner) {
+        label(.{ .label = .{ .text = "A runner is a program: select it in the tree and its flow opens on the Runner page.", .size = t.type_scale.body, .color = t.colors.text_dim }, .wrap = true });
+        return;
+    }
     label(.{ .label = .{ .text = "A method, a URL, headers and a JSON body live here once a request is selected.", .size = t.type_scale.body, .color = t.colors.text_dim }, .wrap = true });
 }
 

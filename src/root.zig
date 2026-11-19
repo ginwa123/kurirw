@@ -25,6 +25,7 @@ pub const data_file = @import("domain/data_file.zig");
 pub const runner = @import("domain/runner.zig");
 pub const flow = @import("domain/flow.zig");
 pub const run_collection = @import("domain/usecase/run_collection.zig");
+pub const run_flow = @import("domain/usecase/run_flow.zig");
 pub const run_cli = @import("run_cli.zig");
 pub const code_editor = @import("ui/code_editor.zig");
 pub const env_view_model = @import("ui/env/view_model.zig");
@@ -76,6 +77,7 @@ comptime {
     _ = @import("domain/runner.zig");
     _ = @import("domain/flow.zig");
     _ = @import("domain/usecase/run_collection.zig");
+    _ = @import("domain/usecase/run_flow.zig");
     _ = @import("run_cli.zig");
     _ = @import("ui/runner/view_model.zig");
     _ = @import("ui/runner/screen.zig");

@@ -120,41 +120,31 @@ pub const Runner = struct {
     pub fn openFlow(self: *Runner, path: Path) void {
         const node = self.session.nodeAt(path) orelse return;
         if (!postman.isFlow(node.*)) return;
+        // One run at a time: a step in flight belongs to the program that is on screen.
+        if (self.phase == .running or self.phase == .stopping) return self.session.failNow("This runner is still running. Stop it before opening another one.");
         self.flow_path = path;
         self.open = true;
         self.phase = .idle;
         self.reset();
+        self.pump.set(false);
         self.loading = true;
         self.setFlow(postman.flowOf(node.*));
         self.loading = false;
-        self.session.setStatus(false, "Runner open: {d} steps.", .{self.steps.len});
+        self.session.setStatus(false, "Runner {s}: {d} steps.", .{ Session.name(node.*), self.steps.len });
         self.session.touch();
     }
 
-    // Open the page. A request row seeds one `send`; a collection or folder seeds every request under it.
-    pub fn openAt(self: *Runner, path: Path) void {
-        const node = self.session.nodeAt(path) orelse return self.session.failNow("That row is gone. Right-click it again.");
-        self.open = true;
-        self.phase = .idle;
-        self.reset();
+    // The program a row seeds: a request is one `send`, a collection or folder sends every request under it.
+    pub fn programFor(self: *Runner, arena: Allocator, path: Path) []const u8 {
+        const node = self.session.nodeAt(path) orelse return "";
         var text: std.ArrayList(u8) = .empty;
-        defer text.deinit(self.session.gpa);
         if (postman.isRequest(node.*)) {
-            self.appendSend(&text, Session.name(node.*)) catch {};
-        } else {
-            const steps = runner_mod.collect(self.arena.allocator(), node.*, addressOf(path)) catch &.{};
-            for (steps) |step| self.appendSend(&text, step.name) catch {};
-            if (steps.len == 0) self.appendSend(&text, "") catch {};
+            appendSend(arena, &text, Session.name(node.*)) catch return text.items;
+            return text.items;
         }
-        self.setFlow(text.items);
-        self.session.setStatus(false, "Runner ready: {d} steps.", .{self.steps.len});
-        self.session.touch();
-    }
-
-    fn appendSend(self: *Runner, text: *std.ArrayList(u8), name: []const u8) !void {
-        try text.appendSlice(self.session.gpa, "send \"");
-        try text.appendSlice(self.session.gpa, name);
-        try text.appendSlice(self.session.gpa, "\"\n");
+        const steps = runner_mod.collect(arena, node.*, addressOf(path)) catch &.{};
+        for (steps) |step| appendSend(arena, &text, step.name) catch return text.items;
+        return text.items;
     }
 
     // The script IS the source: re-read it and the steps follow. A broken line keeps what parsed.
@@ -234,7 +224,20 @@ pub const Runner = struct {
 
     pub fn close(self: *Runner) void {
         if (self.phase == .running or self.phase == .stopping) self.stop();
+        // With nothing in flight there is no frame to wait for, so the pump goes off with the page.
+        if (self.job == null) self.pump.set(false);
         self.open = false;
+        self.session.touch();
+    }
+
+    // The row this page was bound to is gone: the page goes with it, instead of writing into a dead path.
+    pub fn detach(self: *Runner, path: Path) void {
+        const bound = self.flow_path orelse return;
+        if (!Path.eql(bound, path)) return;
+        if (self.phase == .running or self.phase == .stopping) self.stop();
+        self.flow_path = null;
+        self.open = false;
+        self.pump.set(false);
         self.session.touch();
     }
 
@@ -501,7 +504,11 @@ pub const Runner = struct {
     pub fn snapshot(self: *Runner, u: *state_mod.UiState, arena: Allocator) void {
         u.runner_open = self.open;
         u.runner_phase = self.phase;
-        u.runner_collection = "flow";
+        // The title is the runner itself, read from the document, so a rename in the tree renames the page.
+        u.runner_name = if (self.flow_path) |path| blk: {
+            const node = self.session.nodeAt(path) orelse break :blk "";
+            break :blk Session.name(node.*);
+        } else "";
         u.runner_flow = self.script(arena);
         u.runner_error = if (self.program.failure) |failure|
             frameText(arena, "line {d}: {s}", .{ failure.line, failure.message })
@@ -528,6 +535,13 @@ pub const Runner = struct {
 
 fn frameText(arena: Allocator, comptime fmt: []const u8, args: anytype) []const u8 {
     return std.fmt.allocPrint(arena, fmt, args) catch "";
+}
+
+// One `send "name"` line, appended to a program being seeded from a row of the tree.
+fn appendSend(alloc: Allocator, text: *std.ArrayList(u8), name: []const u8) !void {
+    try text.appendSlice(alloc, "send \"");
+    try text.appendSlice(alloc, name);
+    try text.appendSlice(alloc, "\"\n");
 }
 
 fn nowNs(io: std.Io) i96 {

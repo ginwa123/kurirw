@@ -1,4 +1,4 @@
-//! `kurirw run` — the same collection runner the page drives, with no window: a build can run a collection.
+//! `kurirw run` — the same runner the page drives, with no window: a build can run a collection or a saved flow.
 const std = @import("std");
 
 const postman = @import("data/model/postman.zig");
@@ -7,14 +7,18 @@ const env_store = @import("data/local/env_store.zig");
 const http_mod = @import("data/remote/http_client.zig");
 const env_mod = @import("domain/env.zig");
 const runner = @import("domain/runner.zig");
+const flow_mod = @import("domain/flow.zig");
 const data_file = @import("domain/data_file.zig");
 const run_collection = @import("domain/usecase/run_collection.zig");
+const run_flow = @import("domain/usecase/run_flow.zig");
 
 const Allocator = std.mem.Allocator;
 
 // What one command line asks for; the descriptor file fills the same fields.
 const Options = struct {
     collection: []const u8 = "",
+    // A saved code runner, by name (or by its 1-based index among runners): its flow IS the plan.
+    runner: []const u8 = "",
     path: []const u8 = "",
     workspace: []const u8 = "",
     environment: []const u8 = "",
@@ -28,8 +32,9 @@ const Options = struct {
 // The words the CLI accepts, so a typo is a sentence instead of a silent default.
 const usage =
     \\usage: kurirw run [options]
-    \\  --collection NAME   the collection to run (required, unless --file names one)
-    \\  --path 1.2          a folder inside it, by index, to run only that subtree
+    \\  --collection NAME   run every request of a collection
+    \\  --runner NAME       run a saved code runner's program (its own flow, step by step)
+    \\  --path 1.2          a folder inside the collection, by index, to run only that subtree
     \\  --workspace NAME    which workspace (default: the first)
     \\  --environment NAME  which environment (default: the workspace's active one)
     \\  --iterations N      how many times, when no data file is given (default 1)
@@ -64,6 +69,7 @@ pub fn run(init: std.process.Init) !u8 {
             }.value;
             if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) return report(arena, io, usage, .{});
             if (std.mem.eql(u8, arg, "--collection")) opts.collection = next(&it, arena) orelse return bad(arena, io, "--collection needs a name");
+            if (std.mem.eql(u8, arg, "--runner")) opts.runner = next(&it, arena) orelse return bad(arena, io, "--runner needs a name");
             if (std.mem.eql(u8, arg, "--path")) opts.path = next(&it, arena) orelse return bad(arena, io, "--path needs an index path");
             if (std.mem.eql(u8, arg, "--workspace")) opts.workspace = next(&it, arena) orelse return bad(arena, io, "--workspace needs a name");
             if (std.mem.eql(u8, arg, "--environment")) opts.environment = next(&it, arena) orelse return bad(arena, io, "--environment needs a name");
@@ -76,7 +82,7 @@ pub fn run(init: std.process.Init) !u8 {
         }
     }
     if (descriptor.len > 0) try readDescriptor(arena, io, descriptor, &opts);
-    if (opts.collection.len == 0) return bad(arena, io, "name a collection with --collection, or put one in --file");
+    if (opts.collection.len == 0 and opts.runner.len == 0) return bad(arena, io, "name a collection with --collection or a runner with --runner, or put one in --file");
 
     // The store's directory: --home wins, then the environment, then the default the app uses.
     const document_path = try store_mod.defaultPath(arena, init.environ_map);
@@ -89,10 +95,6 @@ pub fn run(init: std.process.Init) !u8 {
     if (loaded.error_name.len > 0) return bad(arena, io, "the store at this path could not be read");
 
     const workspace = findWorkspace(loaded.doc, opts.workspace) orelse return bad(arena, io, "no workspace matched --workspace");
-    const collection = findCollection(loaded.doc, workspace, opts.collection) orelse return bad(arena, io, "no collection matched --collection");
-    const base = runner.Address{ .depth = 1, .segments = splatSegment(0, @intCast(collection.index)) };
-    const node = if (opts.path.len > 0) descend(collection.node, opts.path) orelse return bad(arena, io, "--path does not address a folder in this collection") else collection.node;
-    const address = if (opts.path.len > 0) try addressOf(arena, base, opts.path) else base;
 
     var vars = run_collection.Vars{};
     try loadEnvironment(arena, io, env_file, workspace_id(loaded.doc, workspace), opts.environment, &vars);
@@ -110,22 +112,42 @@ pub fn run(init: std.process.Init) !u8 {
 
     var real = http_mod.Real.init(init.gpa);
     defer real.deinit();
-    const report_out = run_collection.run(arena, real.transport(arena), node, address, &vars, .{
-        .io = io,
-        .data = data,
-        .iterations = if (opts.iterations == 0) 1 else opts.iterations,
-        .delay_ms = opts.delay_ms,
-    });
-    if (report_out.failure.len > 0) return bad(arena, io, report_out.failure);
 
-    const name = postman.str(collection.node, "name");
-    const collection_name = if (name.len > 0) name else if (collection.node == .object) postman.str(collection.node.object.get("info") orelse .{ .null = {} }, "name") else "";
-    const json = try run_collection.reportJson(arena, collection_name, report_out);
+    // What ran, by its own name: the summary line and the report both say it.
+    var target_name: []const u8 = "";
+    const report_out = if (opts.runner.len > 0) blk: {
+        // A runner is a program, so it runs as one: its own flow, expanded step by step.
+        const found = findRunner(loaded.doc, workspace, opts.runner) orelse return bad(arena, io, "no runner matched --runner");
+        target_name = found.name;
+        const program = flow_mod.parse(arena, postman.flowOf(found.node)) catch
+            return bad(arena, io, "that runner's program could not be read");
+        break :blk run_flow.run(arena, real.transport(arena), loaded.doc, workspace, program, &vars, .{
+            .io = io,
+            .data = data,
+            .iterations = if (opts.iterations == 0) 1 else opts.iterations,
+            .delay_ms = opts.delay_ms,
+        });
+    } else blk: {
+        const collection = findCollection(loaded.doc, workspace, opts.collection) orelse return bad(arena, io, "no collection matched --collection");
+        const base = runner.Address{ .depth = 1, .segments = splatSegment(0, @intCast(collection.index)) };
+        const node = if (opts.path.len > 0) descend(collection.node, opts.path) orelse return bad(arena, io, "--path does not address a folder in this collection") else collection.node;
+        const address = if (opts.path.len > 0) try addressOf(arena, base, opts.path) else base;
+        const name = postman.str(collection.node, "name");
+        target_name = if (name.len > 0) name else if (collection.node == .object) postman.str(collection.node.object.get("info") orelse .{ .null = {} }, "name") else "";
+        break :blk run_collection.run(arena, real.transport(arena), node, address, &vars, .{
+            .io = io,
+            .data = data,
+            .iterations = if (opts.iterations == 0) 1 else opts.iterations,
+            .delay_ms = opts.delay_ms,
+        });
+    };
+    if (report_out.failure.len > 0) return bad(arena, io, report_out.failure);
+    const json = try run_collection.reportJson(arena, target_name, report_out);
 
     // The summary goes to stderr, so `kurirw run … | jq` still reads one JSON document.
     var line: [200]u8 = undefined;
     const summary = std.fmt.bufPrint(&line, "{s}: {d} requests, {d} ok, {d} failed, {d} ms{s}\n", .{
-        collection_name,
+        target_name,
         report_out.requests,
         report_out.ok,
         report_out.failed,
@@ -185,20 +207,41 @@ fn workspace_id(doc: postman.Value, index: usize) []const u8 {
     return postman.str(workspace, "id");
 }
 
-// A collection by name, or by its 1-based index when the argument is a number.
+// A collection by name, or by its 1-based index among the collections, which is not the same as its root index.
 fn findCollection(doc: postman.Value, workspace: usize, wanted: []const u8) ?Found {
     const count = store_mod.collectionCount(doc, workspace);
     if (count == 0) return null;
     if (std.fmt.parseInt(usize, wanted, 10)) |number| {
         if (number >= 1 and number <= count) {
-            return .{ .node = store_mod.collectionAt(doc, workspace, number - 1) orelse return null, .index = number - 1 };
+            const root = store_mod.collectionRoot(doc, workspace, number - 1) orelse return null;
+            return .{ .node = store_mod.rootAt(doc, workspace, root) orelse return null, .index = root };
         }
     } else |_| {}
-    var index: usize = 0;
-    while (index < count) : (index += 1) {
-        const node = store_mod.collectionAt(doc, workspace, index) orelse continue;
+    var nth: usize = 0;
+    while (nth < count) : (nth += 1) {
+        const index = store_mod.collectionRoot(doc, workspace, nth) orelse continue;
+        const node = store_mod.rootAt(doc, workspace, index) orelse continue;
         const name = if (node == .object) postman.str(node.object.get("info") orelse .{ .null = {} }, "name") else "";
         if (std.ascii.eqlIgnoreCase(name, wanted)) return .{ .node = node, .index = index };
+    }
+    return null;
+}
+
+// A saved runner by name, or by its 1-based index among the workspace's runners.
+const RunnerFound = struct { node: postman.Value, name: []const u8 };
+
+fn findRunner(doc: postman.Value, workspace: usize, wanted: []const u8) ?RunnerFound {
+    const number = std.fmt.parseInt(usize, wanted, 10) catch 0;
+    var nth: usize = 0;
+    var index: usize = 0;
+    const count = store_mod.rootCount(doc, workspace);
+    while (index < count) : (index += 1) {
+        const root = store_mod.rootAt(doc, workspace, index) orelse continue;
+        // A runner is a root of the workspace, never an item inside a collection.
+        if (!postman.isFlow(root)) continue;
+        nth += 1;
+        const name = postman.str(root, "name");
+        if (number == nth or std.ascii.eqlIgnoreCase(name, wanted)) return .{ .node = root, .name = name };
     }
     return null;
 }
@@ -255,6 +298,7 @@ fn readDescriptor(arena: Allocator, io: std.Io, path: []const u8, opts: *Options
     const root = postman.parseTree(arena, bytes) catch return;
     if (root != .object) return;
     assign(&opts.collection, root, "collection");
+    assign(&opts.runner, root, "runner");
     assign(&opts.path, root, "folder");
     assign(&opts.workspace, root, "workspace");
     assign(&opts.environment, root, "environment");

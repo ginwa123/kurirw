@@ -131,7 +131,7 @@ test "the acceptance path: a workspace, a collection, a folder, a request, send,
     defer h.stop(gpa);
 
     // An empty first run tells the user what to do next.
-    try h.driver.expectText("No collections yet.");
+    try h.driver.expectText("Nothing here yet.");
     try testing.expectEqual(@as(usize, 0), h.app.vm().uiState().rows.len);
 
     // A collection, a folder and a request, each through the button the view declares.
@@ -500,7 +500,7 @@ test "the empty state itself is a button: clicking it creates the first collecti
     var h = try Harness.boot(gpa, scratch.home);
     defer h.stop(gpa);
 
-    try h.driver.expectText("No collections yet.");
+    try h.driver.expectText("Nothing here yet.");
     try h.driver.click("kurir.tree.empty");
     try testing.expectEqual(@as(usize, 1), h.app.vm().uiState().rows.len);
     try h.driver.expectText("Collection 1");
@@ -953,7 +953,7 @@ test "Rename hands the keyboard to the name field, so typing renames the row" {
     try testing.expectEqualStrings("!", kurirw.postman.str(node.*, "name"));
 }
 
-test "a collection row's card offers the runner, and the page runs what it planned" {
+test "a collection row's card seeds a runner ROOT, and the page runs what it planned" {
     const gpa = std.heap.page_allocator;
     var scratch = try Scratch.make(gpa);
     defer scratch.deinit(gpa);
@@ -975,19 +975,25 @@ test "a collection row's card offers the runner, and the page runs what it plann
         }
     }
 
-    // The card a container shows is built from its kind, and its first row is the runner.
+    // The card a container shows is built from its kind, and its first row seeds a runner from it.
     const menus = h.app.vm().uiState().tree_menus;
     try testing.expect(menus.len > 0);
     try testing.expectEqual(@as(usize, 4), menus[0].items.len);
-    try testing.expectEqualStrings("Run collection...", menus[0].items[0]);
+    try testing.expectEqualStrings("New runner...", menus[0].items[0]);
 
-    // Opening the page on the collection: the plan is both requests, and the page takes the main area.
+    // Seeding creates a runner BESIDE the collection — a second root, not a child of it.
     const collection = kurirw.state.Path.empty.child(0);
     h.app.vm().openRunner(collection);
     h.driver.frame();
     const opened = h.app.vm().uiState();
     try testing.expect(opened.runner_open);
     try testing.expectEqual(@as(usize, 2), opened.runner_total);
+    try testing.expectEqual(@as(usize, 2), opened.root_count);
+    try testing.expectEqual(@as(usize, 1), opened.collection_count);
+    const seeded = kurirw.state.Path.empty.child(1);
+    try testing.expect(kurirw.postman.isFlow(h.app.vm().session.nodeAt(seeded).?.*));
+    // The collection itself is untouched: the runner holds no `item` and the collection gained none.
+    try testing.expectEqual(@as(usize, 2), kurirw.postman.itemCount(h.app.vm().session.nodeAt(collection).?.*));
 
     // Run: the fake answers at once, and each request lands a row of its own, two frames at a time.
     h.app.vm().runnerRun();
@@ -1007,7 +1013,7 @@ test "a collection row's card offers the runner, and the page runs what it plann
     try testing.expect(!h.app.vm().uiState().runner_open);
 }
 
-test "a runner is created from + New, drawn as its own row, and opens its page" {
+test "a runner is a ROOT: made from + New with no collection, renamed, and deleted at the top level" {
     const gpa = std.heap.page_allocator;
     var scratch = try Scratch.make(gpa);
     defer scratch.deinit(gpa);
@@ -1015,17 +1021,29 @@ test "a runner is created from + New, drawn as its own row, and opens its page" 
     var h = try Harness.boot(gpa, scratch.home);
     defer h.stop(gpa);
 
-    try newMenu(&h, 0);
-    h.app.vm().addFlow();
-    // The tree now walks a runner: it must not read a `request` the item does not have (that was a panic).
+    // No collection exists, and none is needed: the runner is a root of the workspace.
+    try newMenu(&h, 5);
     h.driver.frame();
     const view = h.app.vm().uiState();
     try testing.expect(view.runner_open);
-    var marked = false;
-    for (view.rows) |row| {
-        if (std.mem.startsWith(u8, row.label, "~ ")) marked = true;
-    }
-    try testing.expect(marked);
+    try testing.expectEqual(@as(usize, 1), view.rows.len);
+    try testing.expectEqual(kurirw.state.NodeKind.runner, view.rows[0].kind);
+    try testing.expectEqual(@as(u16, 0), view.rows[0].depth);
+    try testing.expectEqualStrings("Runner 1", view.rows[0].label);
+    try testing.expectEqualStrings("Runner 1", view.runner_name);
+
+    // Renaming it renames the page, because the page reads the item and never keeps a copy.
+    h.app.vm().onNameChange("Smoke");
+    h.driver.frame();
+    try testing.expectEqualStrings("Smoke", h.app.vm().uiState().runner_name);
+    try testing.expectEqualStrings("Smoke", h.app.vm().uiState().rows[0].label);
+
+    // Deleting the root closes the page instead of leaving it bound to a path that is gone.
+    h.app.vm().deleteSelected();
+    h.driver.frame();
+    try testing.expect(!h.app.vm().uiState().runner_open);
+    try testing.expectEqual(@as(usize, 0), h.app.vm().uiState().rows.len);
+    try testing.expectEqual(@as(usize, 0), kurirw.store.rootCount(h.app.vm().session.doc, 0));
 }
 
 test "dragging a request onto its sibling reorders the document" {

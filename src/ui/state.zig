@@ -34,6 +34,8 @@ pub const NodeKind = enum {
     collection,
     folder,
     request,
+    // A code runner: a flow program, a root of the workspace, and never inside a collection.
+    runner,
 };
 
 // Which pane the request editor shows. `vars` is this request's own, not the environment's.
@@ -202,6 +204,8 @@ pub const UiState = struct {
     workspace_count: usize = 0,
     // How many collections the workspace holds: the section head counts them, so the list says how long it is.
     collection_count: usize = 0,
+    // How many rows the workspace's top level holds: collections and runners together, which is what the tree lists.
+    root_count: usize = 0,
     workspace_label: []const u8 = "",
     // The endpoints open in a tab, in the order they were opened, and whether any edit is unsaved.
     tabs: []const TabRow = &.{},
@@ -284,7 +288,8 @@ pub const UiState = struct {
     // The runner: whether its page is open, how far the run got, the plan it will send, and the rows it produced.
     runner_open: bool = false,
     runner_phase: RunnerPhase = .idle,
-    runner_collection: []const u8 = "",
+    // The name of the runner this page is bound to: the item's own name, which the sidebar also shows.
+    runner_name: []const u8 = "",
     // The program the page shows (written from the model) and the line that would not parse.
     runner_flow: []const u8 = "",
     runner_error: []const u8 = "",

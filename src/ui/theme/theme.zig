@@ -66,6 +66,9 @@ pub const tab_active = app_theme.colors.surface_variant;
 // How far a method chip's fill leans towards the verb's own tone. Low enough that a chip is a tint, not a block.
 const chip_tint: f32 = 0.28;
 
+// The runner chip's fill: the accent moved the same distance into the surface, so RUN and the method chips are one family.
+pub const runner_chip = Color.lerp(app_theme.colors.surface_variant, accent, chip_tint);
+
 // A method chip's fill: the surface moved a step towards the verb's colour, so a column of chips reads as ordered without shouting.
 pub fn chipBg(method: []const u8) Color {
     return Color.lerp(app_theme.colors.surface_variant, methodColor(method), chip_tint);

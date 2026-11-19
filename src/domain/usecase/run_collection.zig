@@ -198,21 +198,47 @@ fn oneStep(
     step: runner.Step,
     iteration: usize,
 ) Allocator.Error!Row {
-    var row = Row{ .iteration = iteration + 1, .name = step.name, .method = step.method };
     const node = resolve(collection, base, step.path) orelse {
+        var row = Row{ .iteration = iteration + 1, .name = step.name, .method = step.method };
         row.failure = .request;
         row.error_text = "this request is no longer in the collection";
         return row;
     };
-    const data_pairs = try data_file.pairs(arena, opts.data, iteration);
+    return stepRow(arena, transport, node, collection, vars, opts.data, iteration, iteration, .{});
+}
+
+// The statements a flow writes around a `send`; the CLI's runner passes them, a collection run does not.
+pub const Extra = struct {
+    pre: []const u8 = "",
+    post: []const u8 = "",
+};
+
+// One request, sent and judged: the saved request's own scripts, then the statements a flow wrote around it.
+pub fn stepRow(
+    arena: Allocator,
+    transport: http_mod.Transport,
+    node: postman.Value,
+    collection: postman.Value,
+    vars: *Vars,
+    data: data_file.Data,
+    data_row: usize,
+    serial: usize,
+    extra: Extra,
+) Allocator.Error!Row {
+    var row = Row{
+        .iteration = serial + 1,
+        .name = postman.str(node, "name"),
+        .method = postman.normalizeMethod(postman.str(node.object.get("request") orelse .{ .null = {} }, "method")),
+    };
+    const data_pairs = try data_file.pairs(arena, data, data_row);
     const scope = scopeFor(arena, node, collection, vars.slice(), data_pairs);
     const host = script_mod.Host{ .ctx = vars, .get_fn = scriptGet, .set_fn = scriptSet };
 
     // A Pre-req script runs before anything leaves; a failure stops this request, exactly as Postman stops it.
-    const pre = postman.scriptOf(node, .pre);
-    if (pre.len > 0) {
+    for ([_][]const u8{ postman.scriptOf(node, .pre), extra.pre }) |pre| {
+        if (pre.len == 0) continue;
         const outcome = script_mod.run(arena, pre, null, host);
-        row.logs = outcome.logs;
+        if (outcome.logs.len > 0) row.logs = outcome.logs;
         if (outcome.failure) |failure| {
             row.failure = .script;
             row.error_text = script_mod.describe(arena, failure);
@@ -237,17 +263,19 @@ fn oneStep(
 
     // A Post-res script reads the answer, and its `test(...)` calls are what decides a pass or a fail.
     var post_failed = false;
-    const post = postman.scriptOf(node, .post);
-    if (post.len > 0) {
+    var tests: std.ArrayList(script_mod.Test) = .empty;
+    for ([_][]const u8{ postman.scriptOf(node, .post), extra.post }) |post| {
+        if (post.len == 0) continue;
         const answer = script_mod.Response{ .status = result.status, .headers = try headersOf(arena, result), .body = result.body };
         const outcome = script_mod.run(arena, post, answer, host);
-        row.tests = outcome.tests;
+        for (outcome.tests) |one| tests.append(arena, one) catch {};
         if (outcome.logs.len > 0) row.logs = outcome.logs;
         if (outcome.failure) |failure| {
             post_failed = true;
             row.error_text = script_mod.describe(arena, failure);
         }
     }
+    row.tests = tests.items;
 
     const verdict = runner.verdict(result, post_failed, row.tests);
     row.ok = verdict.ok;

@@ -1,4 +1,4 @@
-//! Kurir's on-disk document: one JSON file holding an array of workspaces, each holding Postman collections.
+//! Kurir's on-disk document: one JSON file holding an array of workspaces, each with its roots — collections and runners.
 const std = @import("std");
 const postman = @import("../model/postman.zig");
 
@@ -7,8 +7,12 @@ pub const Object = postman.Object;
 pub const Array = postman.Array;
 pub const Allocator = std.mem.Allocator;
 
-// The wrapper the PRD asks for: workspaces are not part of the Postman schema, so they live in one of ours.
-pub const format_tag = "kurir/workspaces@1";
+// The wrapper the PRD asks for: workspaces are not part of the Postman schema, so they live in one of ours (v2 roots).
+pub const format_tag = "kurir/workspaces@2";
+// The key a workspace's root list lives under: a collection or a code runner, in the order the tree draws them.
+pub const roots_key = "items";
+// The key v1 wrote, read once on load and never written again.
+const v1_roots_key = "collections";
 
 pub const default_workspace = "My Workspace";
 pub const file_name = "workspaces.json";
@@ -21,12 +25,12 @@ pub const LoadResult = struct {
     error_name: []const u8 = "",
 };
 
-// An empty document: one workspace and no collections, which is exactly what a first run shows.
+// An empty document: one workspace and no roots, which is exactly what a first run shows.
 pub fn blank(alloc: Allocator, workspace_id: []const u8) !Value {
     var workspace: Object = .empty;
     try workspace.put(alloc, "id", .{ .string = try alloc.dupe(u8, workspace_id) });
     try workspace.put(alloc, "name", .{ .string = try alloc.dupe(u8, default_workspace) });
-    try workspace.put(alloc, "collections", .{ .array = Array.init(alloc) });
+    try workspace.put(alloc, roots_key, .{ .array = Array.init(alloc) });
 
     var doc: Object = .empty;
     try doc.put(alloc, "format", .{ .string = format_tag });
@@ -88,61 +92,89 @@ pub fn removeWorkspace(doc: *Value, index: usize) void {
     _ = list.array.orderedRemove(index);
 }
 
-// ---- collections inside a workspace --------------------------------------------------------------------------
+// ---- the workspace's roots: a collection or a code runner, in one ordered list ---------------------------------
 
-pub fn collectionsPtr(alloc: Allocator, doc: *Value, workspace_index: usize) !*Array {
+// The root list itself, created on a workspace that somehow has none.
+pub fn rootsPtr(alloc: Allocator, doc: *Value, workspace_index: usize) !*Array {
     const workspace = workspacePtr(doc, workspace_index) orelse return error.NoSuchWorkspace;
-    return postman.arrayChild(alloc, workspace, "collections");
+    return postman.arrayChild(alloc, workspace, roots_key);
 }
 
-pub fn collectionCount(doc: Value, workspace_index: usize) usize {
+// How many rows the workspace's top level holds, collections and runners together.
+pub fn rootCount(doc: Value, workspace_index: usize) usize {
     const workspace = workspaceAt(doc, workspace_index) orelse return 0;
     if (workspace != .object) return 0;
-    const list = workspace.object.get("collections") orelse return 0;
+    const list = workspace.object.get(roots_key) orelse return 0;
     if (list != .array) return 0;
     return list.array.items.len;
 }
 
-pub fn collectionAt(doc: Value, workspace_index: usize, index: usize) ?Value {
+pub fn rootAt(doc: Value, workspace_index: usize, index: usize) ?Value {
     const workspace = workspaceAt(doc, workspace_index) orelse return null;
     if (workspace != .object) return null;
-    const list = workspace.object.get("collections") orelse return null;
+    const list = workspace.object.get(roots_key) orelse return null;
     if (list != .array) return null;
     if (index >= list.array.items.len) return null;
     return list.array.items[index];
 }
 
-pub fn collectionPtr(doc: *Value, workspace_index: usize, index: usize) ?*Value {
+pub fn rootPtr(doc: *Value, workspace_index: usize, index: usize) ?*Value {
     const workspace = workspacePtr(doc, workspace_index) orelse return null;
     if (workspace.* != .object) return null;
-    const list = workspace.object.getPtr("collections") orelse return null;
+    const list = workspace.object.getPtr(roots_key) orelse return null;
     if (list.* != .array) return null;
     if (index >= list.array.items.len) return null;
     return &list.array.items[index];
 }
 
-pub fn addCollection(alloc: Allocator, doc: *Value, workspace_index: usize, collection: Value) !usize {
-    const list = try collectionsPtr(alloc, doc, workspace_index);
-    try list.append(collection);
+pub fn addRoot(alloc: Allocator, doc: *Value, workspace_index: usize, root: Value) !usize {
+    const list = try rootsPtr(alloc, doc, workspace_index);
+    try list.append(root);
     return list.items.len - 1;
 }
 
-pub fn removeCollection(doc: *Value, workspace_index: usize, index: usize) void {
+pub fn removeRoot(doc: *Value, workspace_index: usize, index: usize) void {
     const workspace = workspacePtr(doc, workspace_index) orelse return;
     if (workspace.* != .object) return;
-    const list = workspace.object.getPtr("collections") orelse return;
+    const list = workspace.object.getPtr(roots_key) orelse return;
     if (list.* != .array) return;
     if (index >= list.array.items.len) return;
     _ = list.array.orderedRemove(index);
 }
 
-// Move a collection within its workspace, so the top level reorders like any other list of rows.
-pub fn moveCollection(alloc: Allocator, doc: *Value, workspace_index: usize, from: usize, to: usize) bool {
-    const list = collectionsPtr(alloc, doc, workspace_index) catch return false;
+// Move a root within its workspace, so the top level reorders like any other list of rows.
+pub fn moveRoot(alloc: Allocator, doc: *Value, workspace_index: usize, from: usize, to: usize) bool {
+    const list = rootsPtr(alloc, doc, workspace_index) catch return false;
     if (from >= list.items.len or to >= list.items.len or from == to) return false;
-    const collection = list.orderedRemove(from);
-    list.insert(to, collection) catch return false;
+    const root = list.orderedRemove(from);
+    list.insert(to, root) catch return false;
     return true;
+}
+
+// The root index of the n-th COLLECTION, because a runner is a root too and the manager lists only collections.
+pub fn collectionRoot(doc: Value, workspace_index: usize, nth: usize) ?usize {
+    var seen: usize = 0;
+    var index: usize = 0;
+    const count = rootCount(doc, workspace_index);
+    while (index < count) : (index += 1) {
+        const root = rootAt(doc, workspace_index, index) orelse continue;
+        if (!postman.isCollection(root)) continue;
+        if (seen == nth) return index;
+        seen += 1;
+    }
+    return null;
+}
+
+// How many of the roots are collections: a runner is a root, but it is not one of these.
+pub fn collectionCount(doc: Value, workspace_index: usize) usize {
+    var seen: usize = 0;
+    var index: usize = 0;
+    const count = rootCount(doc, workspace_index);
+    while (index < count) : (index += 1) {
+        const root = rootAt(doc, workspace_index, index) orelse continue;
+        if (postman.isCollection(root)) seen += 1;
+    }
+    return seen;
 }
 
 // ---- the file ------------------------------------------------------------------------------------------------
@@ -180,7 +212,34 @@ pub fn load(io: std.Io, alloc: Allocator, path: []const u8, workspace_id: []cons
         .from_disk = true,
         .error_name = "EmptyDocument",
     };
-    return .{ .doc = parsed, .from_disk = true };
+    var doc = parsed;
+    migrateRoots(alloc, &doc);
+    return .{ .doc = doc, .from_disk = true };
+}
+
+// A v1 workspace kept `collections`; v2 keeps one root list, and the array is MOVED so nothing inside it is lost.
+fn migrateRoots(alloc: Allocator, doc: *Value) void {
+    if (doc.* != .object) return;
+    var migrated = false;
+    var index: usize = 0;
+    while (index < workspaceCount(doc.*)) : (index += 1) {
+        const workspace = workspacePtr(doc, index) orelse continue;
+        if (workspace.* != .object) continue;
+        if (workspace.object.get(roots_key) != null) {
+            // A file that already has roots is left alone; the old key, if a hand edit left one, is not kept.
+            if (workspace.object.fetchOrderedRemove(v1_roots_key)) |_| migrated = true;
+            continue;
+        }
+        const old = workspace.object.fetchOrderedRemove(v1_roots_key) orelse {
+            workspace.object.put(alloc, roots_key, .{ .array = Array.init(alloc) }) catch {};
+            migrated = true;
+            continue;
+        };
+        workspace.object.put(alloc, roots_key, old.value) catch {};
+        migrated = true;
+    }
+    // The tag follows what is on disk: a file that is written back is a v2 file from then on.
+    if (migrated) doc.object.put(alloc, "format", .{ .string = format_tag }) catch {};
 }
 
 // Write the document. `alloc` must not be an arena: the JSON bytes are freed before returning.
@@ -197,7 +256,7 @@ pub fn save(io: std.Io, alloc: Allocator, path: []const u8, doc: Value) !void {
 
 const test_id = "00000000000000000000000000000001";
 
-test "a blank document has one workspace and no collections" {
+test "a blank document has one workspace and no roots" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
@@ -205,7 +264,7 @@ test "a blank document has one workspace and no collections" {
     const doc = try blank(arena, test_id);
     try std.testing.expectEqual(@as(usize, 1), workspaceCount(doc));
     try std.testing.expectEqualStrings(default_workspace, workspaceName(doc, 0));
-    try std.testing.expectEqual(@as(usize, 0), collectionCount(doc, 0));
+    try std.testing.expectEqual(@as(usize, 0), rootCount(doc, 0));
     try std.testing.expectEqualStrings(format_tag, postman.str(doc, "format"));
 }
 
@@ -228,22 +287,30 @@ test "workspaces can be added, renamed and removed" {
     try std.testing.expectEqualStrings("Team", workspaceName(doc, 0));
 }
 
-test "a collection goes into the workspace and out again" {
+test "a collection and a runner are roots of the same list, and it reorders and shrinks" {
     var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena_state.deinit();
     const arena = arena_state.allocator();
 
     var doc = try blank(arena, test_id);
     const collection = try postman.newCollection(arena, "Payments", try postman.makeId(arena, @splat(1)));
-    _ = try addCollection(arena, &doc, 0, collection);
-    _ = try addCollection(arena, &doc, 0, try postman.newCollection(arena, "Users", try postman.makeId(arena, @splat(2))));
+    _ = try addRoot(arena, &doc, 0, collection);
+    _ = try addRoot(arena, &doc, 0, try postman.newCollection(arena, "Users", try postman.makeId(arena, @splat(2))));
+    _ = try addRoot(arena, &doc, 0, try postman.newFlow(arena, "Smoke", "send \"a\"\n"));
 
-    try std.testing.expectEqual(@as(usize, 2), collectionCount(doc, 0));
-    try std.testing.expectEqualStrings("Users", postman.str(collectionAt(doc, 0, 1).?.object.get("info").?, "name"));
+    try std.testing.expectEqual(@as(usize, 3), rootCount(doc, 0));
+    // The runner is the third root and is not a collection, which is what the manager's list and export skip.
+    try std.testing.expect(postman.isFlow(rootAt(doc, 0, 2).?));
+    try std.testing.expectEqual(@as(?usize, 0), collectionRoot(doc, 0, 0));
+    try std.testing.expectEqual(@as(?usize, 1), collectionRoot(doc, 0, 1));
+    try std.testing.expect(collectionRoot(doc, 0, 2) == null);
 
-    removeCollection(&doc, 0, 0);
-    try std.testing.expectEqual(@as(usize, 1), collectionCount(doc, 0));
-    try std.testing.expectEqualStrings("Users", postman.str(collectionAt(doc, 0, 0).?.object.get("info").?, "name"));
+    // Move the runner to the front, then drop the collection that followed it: the roots are one ordered list.
+    try std.testing.expect(moveRoot(arena, &doc, 0, 2, 0));
+    try std.testing.expectEqualStrings("Smoke", postman.str(rootAt(doc, 0, 0).?, "name"));
+    removeRoot(&doc, 0, 1);
+    try std.testing.expectEqual(@as(usize, 2), rootCount(doc, 0));
+    try std.testing.expectEqualStrings("Users", postman.str(rootAt(doc, 0, 1).?.object.get("info").?, "name"));
 }
 
 test "save then load restores the document byte for byte" {
@@ -260,14 +327,15 @@ test "save then load restores the document byte for byte" {
     const path = try std.fs.path.join(arena, &.{ dir_path, "nested", file_name });
 
     var doc = try blank(arena, test_id);
-    _ = try addCollection(arena, &doc, 0, try postman.newCollection(arena, "Payments", try postman.makeId(arena, @splat(3))));
+    _ = try addRoot(arena, &doc, 0, try postman.newCollection(arena, "Payments", try postman.makeId(arena, @splat(3))));
+    _ = try addRoot(arena, &doc, 0, try postman.newFlow(arena, "Smoke", "send \"a\"\n"));
     try save(io, std.testing.allocator, path, doc);
 
     const loaded = load(io, arena, path, test_id);
     try std.testing.expect(loaded.from_disk);
     try std.testing.expectEqualStrings("", loaded.error_name);
     try std.testing.expectEqual(@as(usize, 1), workspaceCount(loaded.doc));
-    try std.testing.expectEqual(@as(usize, 1), collectionCount(loaded.doc, 0));
+    try std.testing.expectEqual(@as(usize, 2), rootCount(loaded.doc, 0));
 
     const before = try postman.write(std.testing.allocator, doc, true);
     defer std.testing.allocator.free(before);
@@ -300,6 +368,43 @@ test "a missing file loads as a fresh document, and a corrupt one reports why" {
     try std.testing.expectEqualStrings("SyntaxError", corrupt_load.error_name);
     // A broken file never leaves the app without a workspace to draw.
     try std.testing.expectEqual(@as(usize, 1), workspaceCount(corrupt_load.doc));
+}
+
+test "a v1 file's collections move into the root list, and nothing inside them is lost" {
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const io = std.testing.io;
+
+    var path_buf: [std.Io.Dir.max_path_bytes]u8 = undefined;
+    const dir_len = try tmp.dir.realPath(io, &path_buf);
+    const dir_path = path_buf[0..dir_len];
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    // Exactly what 0.1.x wrote: a workspace whose roots are under `collections`, with no `items`.
+    const v1 =
+        \\{"format":"kurir/workspaces@1","workspaces":[{"id":"00000000000000000000000000000001","name":"Mine",
+        \\"collections":[{"info":{"name":"Payments"},"item":[{"name":"charge","request":{"method":"GET","url":"https://api.test/a"}}]}]}]}
+    ;
+    try tmp.dir.writeFile(io, .{ .sub_path = "v1.json", .data = v1 });
+    const path = try std.fs.path.join(arena, &.{ dir_path, "v1.json" });
+
+    const loaded = load(io, arena, path, test_id);
+    try std.testing.expectEqualStrings("", loaded.error_name);
+    try std.testing.expectEqual(@as(usize, 1), rootCount(loaded.doc, 0));
+    const collection = rootAt(loaded.doc, 0, 0).?;
+    try std.testing.expect(postman.isCollection(collection));
+    try std.testing.expectEqualStrings("Payments", postman.str(collection.object.get("info").?, "name"));
+    // The requests inside the moved array came with it.
+    try std.testing.expectEqual(@as(usize, 1), postman.itemCount(collection));
+    try std.testing.expectEqualStrings(format_tag, postman.str(loaded.doc, "format"));
+
+    // Written back, the file is a v2 file: the root list is `items`, and the old key is gone.
+    const written = try postman.write(std.testing.allocator, loaded.doc, true);
+    defer std.testing.allocator.free(written);
+    try std.testing.expect(std.mem.indexOf(u8, written, "\"collections\"") == null);
+    try std.testing.expect(std.mem.indexOf(u8, written, "\"items\"") != null);
 }
 
 test "the default path follows KURIR_HOME, then HOME" {
