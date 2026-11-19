@@ -127,6 +127,8 @@ pub const Session = struct {
         const restored = session_store.load(arena, self.io, self.session_path) orelse return;
         const doc = restored.doc orelse return;
         self.doc = doc;
+        // The session's copy is a whole document of its own, so it needs the same root migration the file gets.
+        store.ensureRoots(arena, &self.doc);
         const workspaces = store.workspaceCount(doc);
         self.workspace = if (workspaces == 0) 0 else @min(restored.workspace, workspaces - 1);
 

@@ -213,12 +213,12 @@ pub fn load(io: std.Io, alloc: Allocator, path: []const u8, workspace_id: []cons
         .error_name = "EmptyDocument",
     };
     var doc = parsed;
-    migrateRoots(alloc, &doc);
+    ensureRoots(alloc, &doc);
     return .{ .doc = doc, .from_disk = true };
 }
 
-// A v1 workspace kept `collections`; v2 keeps one root list, and the array is MOVED so nothing inside it is lost.
-fn migrateRoots(alloc: Allocator, doc: *Value) void {
+// A v1 workspace kept `collections`; v2 keeps one root list, MOVED so nothing inside it is lost. Public: the session file carries a copy.
+pub fn ensureRoots(alloc: Allocator, doc: *Value) void {
     if (doc.* != .object) return;
     var migrated = false;
     var index: usize = 0;
@@ -405,6 +405,24 @@ test "a v1 file's collections move into the root list, and nothing inside them i
     defer std.testing.allocator.free(written);
     try std.testing.expect(std.mem.indexOf(u8, written, "\"collections\"") == null);
     try std.testing.expect(std.mem.indexOf(u8, written, "\"items\"") != null);
+}
+
+test "ensureRoots migrates a document that did not come through load, like the session's copy" {
+    var arena_state = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    // Exactly what `session.json` carries: a whole v1 document, parsed in place, with no `items`.
+    var doc = try postman.parseTree(arena,
+        \\{"format":"kurir/workspaces@1","workspaces":[{"id":"00000000000000000000000000000001","name":"Mine",
+        \\"collections":[{"info":{"name":"Payments"},"item":[]}]}]}
+    );
+    try std.testing.expectEqual(@as(usize, 0), rootCount(doc, 0));
+
+    ensureRoots(arena, &doc);
+    try std.testing.expectEqual(@as(usize, 1), rootCount(doc, 0));
+    try std.testing.expectEqualStrings(format_tag, postman.str(doc, "format"));
+    try std.testing.expectEqualStrings("Payments", postman.str(rootAt(doc, 0, 0).?.object.get("info").?, "name"));
 }
 
 test "the default path follows KURIR_HOME, then HOME" {
