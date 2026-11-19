@@ -20,7 +20,6 @@ const Allocator = std.mem.Allocator;
 pub const page_id = "kurir.runner.page";
 pub const run_id = "kurir.runner.run";
 pub const stop_id = "kurir.runner.stop";
-pub const close_id = "kurir.runner.close";
 pub const send_id = "kurir.runner.add.send";
 pub const test_id = "kurir.runner.add.test";
 pub const code_id = "kurir.runner.code";
@@ -101,10 +100,12 @@ pub const Runner = struct {
 
     // ---- the spec ---------------------------------------------------------------------------------------
 
-    // A saved runner, opened from its row: the document is the source of the spec, and of its tests.
+    // A saved runner, opened from its row or from its tab: the document is the source of the spec and its tests.
     pub fn openFlow(self: *Runner, path: Path) void {
         const node = self.session.nodeAt(path) orelse return;
         if (!postman.isFlow(node.*)) return;
+        // The same runner, already bound: its page keeps the run it just did instead of resetting to idle.
+        if (self.open and self.flow_path != null and Path.eql(self.flow_path.?, path)) return;
         if (self.phase == .running or self.phase == .stopping) return self.session.failNow("This runner is still running. Stop it before opening another one.");
         self.flow_path = path;
         self.open = true;
@@ -118,6 +119,12 @@ pub const Runner = struct {
         self.ensureInstall();
         self.session.setStatus(false, "Runner {s}: {d} tests.", .{ Session.name(node.*), self.tests.len });
         self.session.touch();
+    }
+
+    // True while this runner's page is showing the item at `path`: what a tab asks before it opens.
+    pub fn isBoundTo(self: *const Runner, path: Path) bool {
+        const bound = self.flow_path orelse return false;
+        return Path.eql(bound, path);
     }
 
     // The spec IS the source: re-read it and the listed tests follow, then write it back into its item.

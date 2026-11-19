@@ -83,8 +83,6 @@ fn headerChildren(scope: *Scope) void {
     label(.{ .label = .{ .text = name, .size = t.type_scale.title, .color = t.colors.text } });
     label(.{ .label = .{ .text = "playwright spec", .size = t.type_scale.body, .color = t.colors.text_dim } });
     label(.{ .label = .{ .text = phaseLabel(scope.state.runner_phase), .size = t.type_scale.caption, .color = phaseColor(scope) } });
-    spacer(.{ .text = "kurir.runner.header.spacer" });
-    smallButton(scope, runner_vm.close_id, "Close", 64, actions.onRunnerClose);
 }
 
 fn phaseLabel(phase: state_mod.RunnerPhase) []const u8 {

@@ -196,7 +196,13 @@ pub const KurirViewModel = struct {
             self.response.clearPin();
         }
         // Whatever the window opens on gets a tab, so the bar is never empty while a request is on screen.
-        if (self.session.selection) |selected| self.openTab(selected);
+        if (self.session.selection) |selected| {
+            // A restored runner tab opens its page again, bound to the same item it was writing before.
+            if (self.session.nodeAt(selected)) |node| {
+                if (postman.isFlow(node.*)) self.runner.openFlow(selected);
+            }
+            self.openTab(selected);
+        }
         self.editor.load();
         self.session.touch();
         // A first run leaves the file behind, so the next start has something to load.
@@ -252,6 +258,8 @@ pub const KurirViewModel = struct {
         self.editor.snapshot(&view, arena);
         self.env.snapshot(&view, arena);
         self.runner.snapshot(&view, arena);
+        // A runner is a tab too: its page is on screen only while its own tab is the active one.
+        view.runner_open = self.activeRunner();
         self.response.snapshot(&view, arena);
         // Every panel reads the same variables, so the editor's completion and the send rule never disagree.
         self.session.env_vars = self.env.activeVars();
@@ -368,6 +376,7 @@ pub const KurirViewModel = struct {
         self.session.selection = path;
         self.session.markDirty(path);
         self.runner.openFlow(path);
+        self.openTab(path);
         self.session.setStatus(false, "Runner {s} created beside the collections: {d} tests.", .{ name, self.runner.tests.len });
     }
 
@@ -408,10 +417,12 @@ pub const KurirViewModel = struct {
 
     pub fn select(self: *KurirViewModel, path: Path) void {
         self.sidebar.select(path);
-        // A saved runner is not a request: selecting it opens its page instead of the editor.
+        // A saved runner is a tab like a request: selecting it opens its own tab and its page, never the editor.
         if (self.session.nodeAt(path)) |node| {
             if (postman.isFlow(node.*)) {
                 self.runner.openFlow(path);
+                // A refused open (another runner is still running) leaves the page where it was: no tab for this row.
+                if (self.runner.isBoundTo(path)) self.openTab(path);
                 return;
             }
         }
@@ -463,7 +474,11 @@ pub const KurirViewModel = struct {
                 .left => i <= index,
                 .right => i >= index,
             };
-            if (!survives) continue;
+            if (!survives) {
+                // A runner's tab that goes takes its page with it, exactly as its own X does.
+                self.runner.detach(open);
+                continue;
+            }
             self.tabs[written] = open;
             written += 1;
         }
@@ -481,11 +496,11 @@ pub const KurirViewModel = struct {
         self.select(self.tabs[@min(index, self.tab_count - 1)]);
     }
 
-    // A request joins the tab bar, or becomes the active tab when it is already open. A container gets none.
+    // A request or a runner joins the tab bar, or becomes the active tab when it is already open. A container gets none.
     fn openTab(self: *KurirViewModel, path: Path) void {
         if (path.depth == 0) return;
         const node = self.session.nodeAt(path) orelse return;
-        if (!Session.isRequest(node.*)) return;
+        if (!Session.isRequest(node.*) and !postman.isFlow(node.*)) return;
         for (self.tabs[0..self.tab_count]) |open| {
             if (Path.eql(open, path)) return;
         }
@@ -508,6 +523,13 @@ pub const KurirViewModel = struct {
         return null;
     }
 
+    // The active tab is a runner's, which is what puts the runner page on screen instead of the editor.
+    fn activeRunner(self: *KurirViewModel) bool {
+        const index = self.activeTab() orelse return false;
+        const node = self.session.nodeAt(self.tabs[index]) orelse return false;
+        return postman.isFlow(node.*);
+    }
+
     pub fn pickTab(self: *KurirViewModel, index: usize) void {
         if (index >= self.tab_count) return;
         self.select(self.tabs[index]);
@@ -517,6 +539,8 @@ pub const KurirViewModel = struct {
     pub fn closeTab(self: *KurirViewModel, index: usize) void {
         if (index >= self.tab_count) return;
         const closing_active = self.activeTab() == index;
+        // A runner's tab owns its page, so closing it stops the run and unbinds the item it was writing into.
+        self.runner.detach(self.tabs[index]);
         std.mem.copyForwards(Path, self.tabs[index .. self.tab_count - 1], self.tabs[index + 1 .. self.tab_count]);
         self.tab_count -= 1;
         self.session.touch();
@@ -605,7 +629,20 @@ pub const KurirViewModel = struct {
         self.editor.load();
         // A new request opens its own tab, exactly as selecting one in the tree does.
         if (self.session.selection) |path| self.openTab(path);
+        self.pruneTabs();
         self.session.touch();
+    }
+
+    // A tab whose node is gone (a deleted root, a removed workspace) leaves the bar with the row it pointed at.
+    fn pruneTabs(self: *KurirViewModel) void {
+        var written: usize = 0;
+        for (self.tabs[0..self.tab_count]) |open| {
+            const node = self.session.nodeAt(open) orelse continue;
+            if (!Session.isRequest(node.*) and !postman.isFlow(node.*)) continue;
+            self.tabs[written] = open;
+            written += 1;
+        }
+        self.tab_count = written;
     }
 
     pub fn addCollection(self: *KurirViewModel) void {
@@ -728,7 +765,12 @@ pub const KurirViewModel = struct {
         self.runner.stop();
     }
 
+    // The runner page has no close button any more: its tab's X closes it, and every caller lands here.
     pub fn runnerClose(self: *KurirViewModel) void {
+        const bound = self.runner.flow_path orelse return self.runner.close();
+        for (self.tabs[0..self.tab_count], 0..) |open, index| {
+            if (Path.eql(open, bound)) return self.closeTab(index);
+        }
         self.runner.close();
     }
 
@@ -1386,6 +1428,42 @@ test "an endpoint opens a tab, ten at most, and the selection decides which one 
     try testing.expect(h.state().has_selection);
     while (h.state().tabs.len > 0) h.vm.closeTab(0);
     try testing.expect(!h.state().has_selection);
+}
+
+test "a runner opens a tab beside the requests, and picking either tab swaps the page" {
+    var h = try Harness.boot();
+    defer h.stop();
+
+    h.vm.addCollection();
+    h.vm.addRequest();
+    try testing.expectEqual(@as(usize, 1), h.state().tabs.len);
+
+    // + New -> Runner makes a root of its own, and its page arrives as a tab beside the request.
+    h.vm.addFlow();
+    const opened = h.state();
+    try testing.expectEqual(@as(usize, 2), opened.tabs.len);
+    try testing.expectEqualStrings("Runner 1", opened.tabs[1].label);
+    try testing.expect(opened.tabs[1].active);
+    // The active tab is the runner's, so the runner page is what the main area shows.
+    try testing.expect(opened.runner_open);
+
+    // The request's tab brings the editor back, and the runner page steps aside without losing its spec.
+    h.vm.pickTab(0);
+    try testing.expect(!h.state().runner_open);
+    try testing.expect(h.state().tabs[0].active);
+    try testing.expectEqualStrings("Request 1", h.state().node_name);
+
+    // The runner's tab is still there, named after the runner, and opens its page again.
+    h.vm.pickTab(1);
+    try testing.expect(h.state().runner_open);
+    try testing.expectEqualStrings("Runner 1", h.state().runner_name);
+    try testing.expectEqual(@as(usize, 1), h.state().runner_tests.len);
+
+    // Its X closes the page: the tab is gone and the runner is no longer bound to an item.
+    h.vm.closeTab(1);
+    try testing.expect(!h.state().runner_open);
+    try testing.expectEqual(@as(usize, 1), h.state().tabs.len);
+    try testing.expect(!h.vm.runner.isBoundTo(state_mod.Path.empty.child(1)));
 }
 
 const QuitProbe = struct {
