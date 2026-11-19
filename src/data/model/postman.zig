@@ -17,6 +17,42 @@ pub const max_method_len: usize = 8;
 // ---- reading -------------------------------------------------------------------------------------------------
 
 // A collection is the object Postman puts `info` on; that is the only thing that tells it apart from a folder.
+// ---- a code runner: a saved program, beside the requests of its collection ------------------------------
+
+// The key a runner's program lives under. An item WITH a `flow` is a runner, and has no `request` at all.
+pub const flow_key = "flow";
+pub const flow_format = "kurir/flow@1";
+
+// A runner is neither a request nor a folder: it is a program the tree lists beside them.
+pub fn isFlow(v: Value) bool {
+    if (v != .object) return false;
+    return v.object.get(flow_key) != null;
+}
+
+// The program as the document holds it; "" for an item that is not a runner.
+pub fn flowOf(item: Value) []const u8 {
+    if (!isFlow(item)) return "";
+    const flow = item.object.get(flow_key).?;
+    return str(flow, "source");
+}
+
+// A runner with a name and a program. It is created in a collection, so export and import carry it.
+pub fn newFlow(alloc: Allocator, name: []const u8, source: []const u8) !Value {
+    var flow: Object = .empty;
+    try flow.put(alloc, "format", .{ .string = flow_format });
+    try flow.put(alloc, "source", .{ .string = try own(alloc, source) });
+    var item: Object = .empty;
+    try item.put(alloc, "name", .{ .string = try own(alloc, name) });
+    try item.put(alloc, flow_key, .{ .object = flow });
+    return .{ .object = item };
+}
+
+// Rewrite the program after the page edited it. The text is copied, because a field's buffer does not outlive the frame.
+pub fn setFlowSource(alloc: Allocator, item: *Value, source: []const u8) !void {
+    const flow = try objectChild(alloc, item, flow_key);
+    try setString(alloc, flow, "source", source);
+}
+
 pub fn isCollection(v: Value) bool {
     if (v != .object) return false;
     const info = v.object.get("info") orelse return false;
@@ -32,6 +68,7 @@ pub fn isRequest(v: Value) bool {
 pub fn isFolder(v: Value) bool {
     if (v != .object) return false;
     if (isRequest(v)) return false;
+    if (isFlow(v)) return false;
     return v.object.get("item") != null;
 }
 
