@@ -21,8 +21,10 @@ account, the cloud, or the browser tab.
   the request it belongs to is selected for you, and sending again goes back to the newest.
 - **Tabs, and nothing saved behind your back.** Every endpoint you open gets a tab at the top; press one
   to come back to it, and `x` to close it. Editing does not write the file: a dot on the row and the tab
-  says the endpoint has unsaved changes, and **Ctrl/Cmd+S** writes them. Closing the window with unsaved
-  edits asks first — save and quit, quit without saving, or cancel.
+  says the endpoint has unsaved changes, and **Ctrl/Cmd+S** writes them. A save is per tab — the tab on
+  screen goes clean and the other tabs keep their dots until you save each one — while "Save and quit"
+  saves the lot. Closing the window with unsaved edits asks first — save and quit, quit without saving,
+  or cancel.
 - **A body the way Postman writes one.** The Body tab offers **none**, **form-data**,
   **x-www-form-urlencoded** and **raw** (JSON, text, XML or HTML). The two form modes edit a
   key/value table with an on/off per row; sending builds the right bytes and the matching
@@ -33,7 +35,8 @@ account, the cloud, or the browser tab.
 - **It never freezes.** A request runs on its own thread, so the window keeps drawing while a slow
   server answers.
 - **Your work is saved when you ask.** No Save button in the way, no "unsaved changes" dialog while you
-  work: Ctrl/Cmd+S writes the file, and a dot shows which endpoint is not in it yet.
+  work: Ctrl/Cmd+S writes the file and clears that tab's dot, and a dot still on another tab means that
+  endpoint has not been saved yet.
 - **It speaks Postman.** Export a collection as Postman Collection v2.1, or import a real Postman file
   without losing the fields Kurir does not understand.
 - **It speaks curl.** Copy a `curl …` command anywhere and press **+ New → From cURL**: method, URL,

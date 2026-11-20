@@ -458,8 +458,8 @@ pub const KurirViewModel = struct {
     pub fn pickTabMenu(self: *KurirViewModel, index: usize, action: TabAction) void {
         if (index >= self.tab_count) return;
         switch (action) {
-            // "Save" is this document's save: Kurir keeps one file, so a tab has nothing of its own to write.
-            .save => self.save(),
+            // "Save" is that tab's own save: it goes clean with its card, whichever tab is on screen.
+            .save => self.saveTab(index),
             .close => self.closeTab(index),
             .close_others => self.keepTabSide(index, .others),
             .close_right => self.keepTabSide(index, .right),
@@ -563,14 +563,43 @@ pub const KurirViewModel = struct {
 
     // ---- saving -----------------------------------------------------------------------------------------
 
-    // Ctrl/Cmd+S: the document goes to disk, and every dot goes with it.
+    // Ctrl/Cmd+S: the tab on screen goes to disk, so only ITS dot goes — the file is one, the dot is the tab's.
     pub fn save(self: *KurirViewModel) void {
+        const on_screen = self.session.selection orelse return self.saveAll();
+        self.saveOne(on_screen);
+    }
+
+    // A tab's card says Save: that tab goes clean, whichever one happens to be on screen.
+    pub fn saveTab(self: *KurirViewModel, index: usize) void {
+        if (index >= self.tab_count) return;
+        self.saveOne(self.tabs[index]);
+    }
+
+    // "Save and quit": the whole document, so every dot goes before the window does.
+    pub fn saveAll(self: *KurirViewModel) void {
         self.session.persist();
         self.session.clearDirty();
-        // The session keeps the same tabs on the next start, now with nothing to ask about.
         self.session.persistSession(self.tabs[0..self.tab_count], self.session.selection);
         self.session.setStatus(false, "Saved {s}.", .{self.session.path});
         self.session.touch();
+    }
+
+    fn saveOne(self: *KurirViewModel, path: Path) void {
+        self.session.persist();
+        self.session.clearDirtySaved(path, self.tabs[0..self.tab_count]);
+        // The session keeps the same tabs on the next start, now with only the dots the person still owes.
+        self.session.persistSession(self.tabs[0..self.tab_count], self.session.selection);
+        self.session.setStatus(false, "Saved {s}.", .{self.savedLabel(path)});
+        self.session.touch();
+    }
+
+    // What the status line names: the endpoint that was saved, or the file when the row has no name yet.
+    fn savedLabel(self: *KurirViewModel, path: Path) []const u8 {
+        if (self.session.nodeAt(path)) |node| {
+            const name = Session.name(node.*);
+            if (name.len > 0) return name;
+        }
+        return self.session.path;
     }
 
     // ---- closing ----------------------------------------------------------------------------------------
@@ -585,11 +614,11 @@ pub const KurirViewModel = struct {
         return true;
     }
 
-    // The question's rows: Cancel, Quit without saving, Save and quit.
+    // The question's rows: Cancel, Quit without saving, Save and quit. Only the last one writes every dot away.
     pub fn pickQuitAction(self: *KurirViewModel, index: usize) void {
         switch (index) {
             2 => {
-                self.save();
+                self.saveAll();
                 self.finishQuit();
             },
             1 => self.finishQuit(),
@@ -1211,6 +1240,38 @@ test "collection, folder and request all land in the tree and on disk" {
     const bytes = try std.Io.Dir.cwd().readFileAlloc(testing.io, h.path, testing.allocator, .limited(1 << 20));
     defer testing.allocator.free(bytes);
     try testing.expect(std.mem.indexOf(u8, bytes, "Request 1") != null);
+}
+
+test "Ctrl/Cmd+S saves the tab on screen, and the other tabs keep their dots" {
+    var h = try Harness.boot();
+    defer h.stop();
+
+    _ = h.firstRequest();
+    h.vm.onUrlChange("https://api.test/first");
+    h.vm.addRequest();
+    h.vm.onUrlChange("https://api.test/second");
+
+    const before = h.state();
+    try testing.expectEqual(@as(usize, 2), before.tabs.len);
+    try testing.expect(before.tabs[0].dirty and before.tabs[1].dirty);
+
+    // Saving the tab on screen (the second one) leaves the first exactly as unsaved as it was.
+    h.vm.save();
+    const after = h.state();
+    try testing.expect(!after.tabs[1].dirty);
+    try testing.expect(after.tabs[0].dirty);
+    try testing.expect(after.unsaved);
+    try testing.expectEqualStrings("Saved Request 2.", after.status);
+
+    // One document is one file, so the write already carries both edits; only the dot is per tab.
+    const bytes = try std.Io.Dir.cwd().readFileAlloc(testing.io, h.path, testing.allocator, .limited(1 << 20));
+    defer testing.allocator.free(bytes);
+    try testing.expect(std.mem.indexOf(u8, bytes, "https://api.test/second") != null);
+
+    // That tab's own save — Ctrl/Cmd+S on it, or the Save in its card — is what clears the last dot.
+    h.vm.saveTab(0);
+    try testing.expect(!h.state().unsaved);
+    try testing.expect(!h.state().tabs[0].dirty);
 }
 
 test "a second boot restores the tree from the file, which is the reload the PRD asks for" {

@@ -218,6 +218,29 @@ pub const Session = struct {
         self.dirty = true;
     }
 
+    // One save: the saved path goes clean, plus every dot no open tab owns (no tab could ever clear it).
+    pub fn clearDirtySaved(self: *Session, saved: ?Path, open: []const Path) void {
+        var written: usize = 0;
+        for (self.dirty_paths[0..self.dirty_count]) |path| {
+            if (saved) |target| {
+                if (Path.eql(path, target)) continue;
+            }
+            if (!isOpen(path, open)) continue;
+            self.dirty_paths[written] = path;
+            written += 1;
+        }
+        self.dirty_count = written;
+        self.dirty_overflow = false;
+        self.dirty = true;
+    }
+
+    fn isOpen(path: Path, open: []const Path) bool {
+        for (open) |candidate| {
+            if (Path.eql(candidate, path)) return true;
+        }
+        return false;
+    }
+
     // Only the view changed (a selection, a tab, a panel width): no file write, but the snapshot is stale.
     pub fn touch(self: *Session) void {
         self.dirty = true;

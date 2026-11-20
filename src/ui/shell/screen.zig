@@ -145,7 +145,7 @@ fn quitPrompt(scope: *Scope) void {
         .src = @src(),
         .id = .{ .text = quit_id },
         .title = "Unsaved changes",
-        .message = "This endpoint is not saved yet. Save it before the window closes?",
+        .message = "Some endpoints are not saved yet. Save them before the window closes?",
         .actions = &answers,
         .on_action = .{ .f = actions.onQuitAction, .ctx = scope.vm },
         .bg = t.colors.surface,

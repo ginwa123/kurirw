@@ -52,6 +52,9 @@ src/e2e_test.zig                   the acceptance path, headless
 - **A write is `Session.persist`, not `Session.commit`.** `commit()` marks the selected path unsaved and
   rebuilds the snapshot; only `vm.save()` (Ctrl/Cmd+S, or "Save and quit") writes the file. A test that
   reloads the document must call `vm.save()` first, and the tree's dot is `TreeRow.dirty`.
+- **A save is per tab, a file is not.** One document means `vm.save()` always writes the whole file, but
+  `saveOne` clears only the saved tab's dot (`Session.clearDirtySaved`); the other tabs keep theirs until
+  each is saved itself, and only "Save and quit" (`vm.saveAll`) clears every dot.
 - **`std.json.ObjectMap` is unmanaged.** Every mutation takes an allocator, and it must be the
   document arena, never `gpa`. Mutating a *copy* of the map drops the size/len bookkeeping.
 - **The ViewModel must not move after `start()`.** Each panel holds `*Session`, and each field's

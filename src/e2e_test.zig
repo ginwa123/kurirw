@@ -1754,13 +1754,19 @@ test "endpoints open as tabs, an edit marks its row, and Cmd/Ctrl+S is what clea
     try testing.expect(h.app.vm().uiState().tabs[0].active);
     try testing.expectEqualStrings("Request 1", h.app.vm().uiState().node_name);
 
-    // Ctrl/Cmd+S writes the document; every dot goes with it.
+    // Ctrl/Cmd+S saves the tab on screen: its dot goes, and the other tab keeps its own.
     try testing.expect(h.app.vm().uiState().unsaved);
     h.app.vm().save();
-    try testing.expect(!h.app.vm().uiState().unsaved);
     try testing.expect(!h.app.vm().uiState().rows[1].dirty);
     try testing.expect(!h.app.vm().uiState().tabs[0].dirty);
     try testing.expect(h.app.vm().uiState().tabs[0].accent == null);
+    try testing.expect(h.app.vm().uiState().tabs[1].dirty);
+    try testing.expect(h.app.vm().uiState().unsaved);
+
+    // Saving the other tab itself is what clears the last dot, and then nothing asks on the way out.
+    h.app.vm().saveTab(1);
+    try testing.expect(!h.app.vm().uiState().unsaved);
+    try testing.expect(!h.app.vm().uiState().tabs[1].dirty);
 
     // Closing with nothing unsaved just closes; with an edit the window asks first.
     try testing.expect(!h.app.vm().requestClose());
