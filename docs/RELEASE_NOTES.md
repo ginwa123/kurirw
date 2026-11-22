@@ -20,6 +20,16 @@ irm https://raw.githubusercontent.com/ginwa123/kurirw/main/install.ps1 | iex
 
 Or download the archive for your machine from the assets below and run the binary inside it.
 
+## Fixed: the scrollbar takes a click on its track
+
+Clicking the bar beside the pill did nothing, so the only way through a long body was to grab the pill or
+wheel over the content. A press anywhere on the bar now **jumps the pane so the pill lands under the
+pointer**, and keeps sliding it while you hold and drag — clamped at both ends, so a click past the end
+just goes to the end.
+
+The bar also has a visible **groove** now, and the toolkit draws it from the theme, so it follows the
+palette instead of being a colour each screen had to remember to set.
+
 ## New: a Pre-req and a Post-res script on every request
 
 The request editor has a **Scripts** tab with two phases, the way Postman's does, in a small Lua-flavoured
