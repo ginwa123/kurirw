@@ -272,6 +272,7 @@ pub fn treePanel(scope: *Scope) void {
         .w = .grow,
         .h = .grow,
         .bg = scope.theme.colors.surface,
+        .track_bg = theme_mod.scrollbarTrack(scope.theme),
         .thumb_bg = scope.theme.colors.surface_variant,
         .thumb_hover_bg = theme_mod.accent,
     }, scope, treeChildren);

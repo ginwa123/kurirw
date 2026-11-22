@@ -36,6 +36,11 @@ pub const json_number = Color.hexC("#c4b28a");
 pub const json_literal = Color.hexC("#8992a7");
 pub const json_punct = Color.hexC("#a6a69c");
 
+/// The scrollbar's groove, from the theme in hand: a half step between the pane and the pill, so a bar reads as a track and not as a pill floating on the content.
+pub fn scrollbarTrack(theme: Theme) Color {
+    return Color.lerp(theme.colors.background, theme.colors.surface_variant, 0.5);
+}
+
 // One sRGB channel as a linear-light fraction, which is the space a contrast ratio is computed in.
 fn linearChannel(v: u8) f32 {
     const s = @as(f32, @floatFromInt(v)) / 255;

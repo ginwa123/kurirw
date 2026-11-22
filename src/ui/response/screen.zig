@@ -147,6 +147,7 @@ pub fn okResponse(scope: *Scope) void {
             .direction = .vertical,
             .w = .grow,
             .h = .grow,
+            .track_bg = theme_mod.scrollbarTrack(t),
             .thumb_bg = t.colors.surface_variant,
             .thumb_hover_bg = t.colors.primary,
         }, scope, responseHeaderRows);
@@ -162,6 +163,7 @@ pub fn okResponse(scope: *Scope) void {
         .border_color = t.colors.divider,
         .radius = .{ .px = 6 },
         .pad = .{ .px = 10 },
+        .track_bg = theme_mod.scrollbarTrack(t),
         .thumb_bg = t.colors.surface_variant,
         .thumb_hover_bg = t.colors.primary,
     }, scope, responseBodyLines);
@@ -233,6 +235,7 @@ pub fn historyList(scope: *Scope) void {
         .direction = .vertical,
         .w = .grow,
         .h = .grow,
+        .track_bg = theme_mod.scrollbarTrack(t),
         .thumb_bg = t.colors.surface_variant,
         .thumb_hover_bg = t.colors.primary,
     }, scope, historyRows);

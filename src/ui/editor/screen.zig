@@ -460,6 +460,7 @@ pub fn headersTable(scope: *Scope) void {
         .direction = .vertical,
         .w = .grow,
         .h = .grow,
+        .track_bg = theme_mod.scrollbarTrack(t),
         .thumb_bg = t.colors.surface_variant,
         .thumb_hover_bg = t.colors.primary,
     }, scope, headerRows);
@@ -548,6 +549,7 @@ pub fn bodyEditor(scope: *Scope) void {
         .border_width = .{ .px = 1 },
         .border_color = t.colors.divider,
         .radius = .{ .px = 6 },
+        .track_bg = theme_mod.scrollbarTrack(t),
         .thumb_bg = t.colors.surface_variant,
         .thumb_hover_bg = t.colors.primary,
     }, scope, bodyField);
@@ -573,6 +575,7 @@ pub fn bodyPartsTable(scope: *Scope) void {
         .direction = .vertical,
         .w = .grow,
         .h = .grow,
+        .track_bg = theme_mod.scrollbarTrack(t),
         .thumb_bg = t.colors.surface_variant,
         .thumb_hover_bg = t.colors.primary,
     }, scope, partRows);
@@ -756,6 +759,7 @@ pub fn varsTabChildren(scope: *Scope) void {
         .direction = .vertical,
         .w = .grow,
         .h = .grow,
+        .track_bg = theme_mod.scrollbarTrack(t),
         .thumb_bg = t.colors.surface_variant,
         .thumb_hover_bg = t.colors.primary,
     }, scope, varsRows);
@@ -882,6 +886,7 @@ fn scriptPane(scope: *Scope) void {
         .border_width = .{ .px = 1 },
         .border_color = t.colors.divider,
         .radius = .{ .px = 6 },
+        .track_bg = theme_mod.scrollbarTrack(t),
         .thumb_bg = t.colors.surface_variant,
         .thumb_hover_bg = t.colors.primary,
     }, scope, scriptField);

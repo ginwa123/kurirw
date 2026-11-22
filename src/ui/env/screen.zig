@@ -1,4 +1,5 @@
 //! The manager's page: the workspace's environments on the left, the selected one's variables on the right.
+const theme_mod = @import("../theme/theme.zig");
 const std = @import("std");
 const glinlandui = @import("glinlandui");
 
@@ -300,6 +301,7 @@ fn environmentRows(scope: *Scope) void {
         .direction = .vertical,
         .w = .grow,
         .h = .grow,
+        .track_bg = theme_mod.scrollbarTrack(t),
         .thumb_bg = t.colors.surface_variant,
         .thumb_hover_bg = t.colors.primary,
     }, scope, environmentRowList);
@@ -396,6 +398,7 @@ fn collectionRows(scope: *Scope) void {
         .direction = .vertical,
         .w = .grow,
         .h = .grow,
+        .track_bg = theme_mod.scrollbarTrack(t),
         .thumb_bg = t.colors.surface_variant,
         .thumb_hover_bg = t.colors.primary,
     }, scope, collectionRowList);
