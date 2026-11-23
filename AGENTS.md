@@ -17,6 +17,8 @@ Rules for anyone (human or agent) changing Kurir.
    That is what lets every rule in them be tested without a display.
 7. **A panel imports the shell, never another panel.** What two panels share is
    `ui/shell/session.zig`; the shell imports the panels. That is the direction that keeps it a DAG.
+8. **Every feature has a CLI verb as well as a button.** A function that can only be reached by a
+   click is half-built. See *CLI parity* below.
 
 ## Verify before you report
 
@@ -26,19 +28,44 @@ zig build test             # unit + headless E2E
 zig build zginlint:check   # 0 findings
 zig build lines:check      # no .zig over 3000 lines
 zig fmt --check build.zig src
+./zig-out/bin/kurirw run --help   # the verb lists its flags, no window
 ```
+
+## CLI parity
+
+The window and the command line are two front ends to one program. `kurirw` with no arguments opens
+the window; `kurirw run …` does the work and exits (`src/run_cli.zig`, dispatched from `src/main.zig`
+by `run_cli.wants` before any window exists). A feature is developed **and** enhanced on both sides:
+if the button exists and the verb does not, the feature is not finished.
+
+- **The function lives in a usecase, not in a click handler.** `src/domain/usecase/*` takes plain data
+  and returns a plain result, so the ViewModel's intent and the CLI verb call the same code. Work done
+  inside `ui/` instead of raised as an intent is work the CLI can never reach.
+- **A verb is its own file.** `src/<name>_cli.zig` beside `src/run_cli.zig`, with a first-word `wants`
+  match and a `usage` block naming every flag; `main.zig` gains one dispatch line and no feature logic.
+- **Exit codes are the contract.** 0 = the work passed, 1 = it ran and a case failed, 2 = it could not
+  run (bad flag, missing store, unreadable file), each with one sentence on stderr. Machine output goes
+  to stdout alone, so `kurirw run … | jq` reads one JSON document; the human summary goes to stderr.
+- **`--help` is not optional.** A new flag reaches the usage text in the same commit as the code.
+- **A CLI run must not touch the user's real store.** Take `--home DIR` the way `run` does, so the verb
+  can be pointed at a temp directory; the CLI test uses that plus `http.Fake`, because `zig build test`
+  still opens no socket.
+- **Say which verb reaches the new behaviour.** The commit names it, and names anything the window can
+  do that a shell still cannot — a gap is either closed or written down.
 
 ## Layout
 
 ```
 src/di/container.zig               every dependency, built once (path, FileStore, client, dialogs, theme)
 src/domain/repository/workspace.zig  the document vtable: load, save
-src/domain/usecase/                send_request, import_collection, export_collection
+src/domain/usecase/                send_request, import_collection, export_collection, run_collection
 src/data/{model,remote,local,repository}/  postman, kabelweb, the file, the dialogs, the FileStore
 src/ui/shell/                      session, view_model, screen, scope, widgets, actions
 src/ui/{sidebar,editor,response}/  view_model.zig (state + intents) + screen.zig (declaration)
 src/ui/state.zig                      the state as a value + label helpers
-src/app.zig, src/main.zig          the Activity and the entry point
+src/app.zig, src/main.zig          the Activity and the entry point (dispatches the verbs, then opens the window)
+src/run_cli.zig                    the `run` verb: the same runner, no window, exit code + JSON report
+src/smoke.zig                      the one-request binary behind `zig build smoke`
 src/font.zig                       the embedded face (Source Sans 3), installed before the first frame
 src/e2e_test.zig                   the acceptance path, headless
 ```
