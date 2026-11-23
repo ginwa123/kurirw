@@ -67,7 +67,7 @@ pub fn run(init: std.process.Init) !u8 {
                     return alloc.dupe(u8, taken) catch null;
                 }
             }.value;
-            if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) return report(arena, io, usage, .{});
+            if (std.mem.eql(u8, arg, "--help") or std.mem.eql(u8, arg, "-h")) return help(io);
             if (std.mem.eql(u8, arg, "--collection")) opts.collection = next(&it, arena) orelse return bad(arena, io, "--collection needs a name");
             if (std.mem.eql(u8, arg, "--runner")) opts.runner = next(&it, arena) orelse return bad(arena, io, "--runner needs a name");
             if (std.mem.eql(u8, arg, "--path")) opts.path = next(&it, arena) orelse return bad(arena, io, "--path needs an index path");
@@ -226,6 +226,12 @@ fn bad(arena: Allocator, io: std.Io, message: []const u8) !u8 {
     const line = try std.fmt.allocPrint(arena, "kurirw run: {s}\n\n{s}", .{ message, usage });
     _ = report(arena, io, line, .{}) catch {};
     return 2;
+}
+
+// A help request is an answer, not a failure: the usage block on stdout and the success code.
+fn help(io: std.Io) u8 {
+    std.Io.File.stdout().writeStreamingAll(io, usage) catch {};
+    return 0;
 }
 
 fn report(_: Allocator, io: std.Io, text: []const u8, _: struct {}) !u8 {
